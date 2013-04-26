@@ -3,13 +3,14 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 import com.google.common.io.LittleEndianDataInputStream;
 
 
 public class LoadDEM {
 
-	public static Mesh load(String prefix) throws IOException {
+	public static Mesh load(String path, double lat0, double lon0, double step, int width, int height) throws IOException {
 //		BufferedReader wf = new BufferedReader(new FileReader(prefix + ".tfw"));
 //		List<String> lines = new ArrayList<String>();
 //		while (true) {
@@ -20,34 +21,31 @@ public class LoadDEM {
 //			lines.add(line);
 //        }
 
-		double LON0 = -75;
-		double LAT0 = 40;
-		double dx = 3 /*1*/ / 1200f;
-		double dy = dx;
-		int WIDTH = 2001; //6001
-		int HEIGHT = 2001; //6001
-
-		Mesh m = new Mesh();
-		Point[][] meshBuffer = new Point[3][WIDTH];
+		double dx = step;
+		double dy = step;
 		
-		LittleEndianDataInputStream f = new LittleEndianDataInputStream(new BufferedInputStream(new FileInputStream("/tmp/data2")));
-		for (int row = 0; row < HEIGHT; row++) {
-			for (int col = 0; col < WIDTH; col++) {
-				double lon = LON0 + dx * col;
-				double lat = LAT0 + dy * (HEIGHT - 1 - row);
+		Mesh m = new Mesh();
+		Point[][] meshBuffer = new Point[3][width];
+		
+		LittleEndianDataInputStream f = new LittleEndianDataInputStream(new BufferedInputStream(new FileInputStream(path)));
+		Random r = new Random(0);
+		for (int row = 0; row < height; row++) {
+			for (int col = 0; col < width; col++) {
+				double lon = lon0 + dx * col;
+				double lat = lat0 + dy * (height - 1 - row);
 				double elev = f.readShort();
-				Point p;
 				if (elev == -32768) {
 					elev = 0; // cgiar has voids filled so nodata is actually ocean
 				}
-				p = new Point(lat, lon, elev);
+				elev += r.nextDouble() - 0.5;
+				Point p = new Point(lat, lon, elev);
 				m.points.add(p);
 				meshBuffer[row % 3][col] = p;
 			}
 			
-			processAdjacency(meshBuffer, row, HEIGHT);
+			processAdjacency(meshBuffer, row, height);
 		}
-		processAdjacency(meshBuffer, HEIGHT, HEIGHT);
+		processAdjacency(meshBuffer, height, height);
 		
 		return m;
 	}
@@ -95,8 +93,10 @@ public class LoadDEM {
 				{-1, 1},
 			};
 		List<int[]> adj = new ArrayList<int[]>();
+		boolean fully_connected = (r + c) % 2 == 0;
 		for (int[] offset : offsets) {
-			if ((r + c) % 2 == 0 || (offset[0] + offset[1] + 2) % 2 == 0) {
+			boolean diagonal_connection = (offset[0] + offset[1] + 2) % 2 == 0;
+			if (fully_connected || !diagonal_connection) {
 				adj.add(new int[] {c + offset[0], r + offset[1]});
 			}
 		}
@@ -106,14 +106,20 @@ public class LoadDEM {
 	public static void main(String[] args) {
 		
 		Mesh m;
+		double lat0 = Double.parseDouble(args[1]);
+		double lon0 = Double.parseDouble(args[2]);
+		double step = Double.parseDouble(args[3]);
+		int width = Integer.parseInt(args[4]);
+		int height = Integer.parseInt(args[5]);
+		boolean up = !(args.length > 6 && args[6].equals("sub")); 
 		try {
-			m = load("asdf");
+			m = load(args[0], lat0, lon0, step, width, height);
 		} catch (IOException ioe) {
 			throw new RuntimeException(ioe);
 		}
 
 		for (Point p : m.points) {
-			Prominence.PromInfo pi = Prominence.prominence(p);
+			Prominence.PromInfo pi = Prominence.prominence(p, up);
 			if (pi.prominence() > 50.) {
 				System.out.println(String.format(
 						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s}",

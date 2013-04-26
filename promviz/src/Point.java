@@ -17,7 +17,7 @@ public class Point {
 	public Point(double lat, double lon, double elev) {
 		this.lat = lat;
 		this.lon = lon;
-		this.elev = (float)(elev + Math.random() - 0.5);
+		this.elev = (float)elev;
 	}
 	
 	
