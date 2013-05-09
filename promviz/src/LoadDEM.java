@@ -118,9 +118,17 @@ public class LoadDEM {
 			throw new RuntimeException(ioe);
 		}
 
+		TopologyNetwork tn = new TopologyNetwork(m);
+		tn.build();
+		
 		for (Point p : m.points) {
-			Prominence.PromInfo pi = Prominence.prominence(p, up);
-			if (pi.prominence() > 50.) {
+			if (p.classify() != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
+				continue;
+			}
+			
+			double PROM_CUTOFF = 50.;
+			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
+			if (pi.prominence() > PROM_CUTOFF) {
 				System.out.println(String.format(
 						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s}",
 						p.lat, p.lon, p.elev, pi.prominence(), pi.saddle.lat, pi.saddle.lon, pi.min_bound_only ? "true" : "false"));
