@@ -102,4 +102,8 @@ public class Point {
 		}
 		return L;
 	}
+	
+	public String toString() {
+		return String.format("<%f,%f %f %dadj>", this.lat, this.lon, this.elev, this.adjacent.length);
+	}
 }

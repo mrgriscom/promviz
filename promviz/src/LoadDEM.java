@@ -47,6 +47,20 @@ public class LoadDEM {
 		}
 		processAdjacency(meshBuffer, height, height);
 		
+		// fix same-height issue
+		boolean foundSameHeight;
+		do {
+			foundSameHeight = false;
+			for (Point p : m.points) {
+				for (Point adj : p.adjacent) {
+					if (adj != null && p.elev == adj.elev) {
+						foundSameHeight = true;
+						adj.elev += r.nextDouble() - 0.5;
+					}
+				}
+			}
+		} while (foundSameHeight);
+		
 		return m;
 	}
 	
