@@ -28,7 +28,6 @@ public class LoadDEM {
 		Point[][] meshBuffer = new Point[3][width];
 		
 		LittleEndianDataInputStream f = new LittleEndianDataInputStream(new BufferedInputStream(new FileInputStream(path)));
-		Random r = new Random(0);
 		for (int row = 0; row < height; row++) {
 			for (int col = 0; col < width; col++) {
 				double lon = lon0 + dx * col;
@@ -37,7 +36,6 @@ public class LoadDEM {
 				if (elev == -32768) {
 					elev = 0; // cgiar has voids filled so nodata is actually ocean
 				}
-				elev += r.nextDouble() - 0.5;
 				Point p = new Point(lat, lon, elev);
 				m.points.add(p);
 				meshBuffer[row % 3][col] = p;
@@ -47,7 +45,11 @@ public class LoadDEM {
 		}
 		processAdjacency(meshBuffer, height, height);
 		
-		// fix same-height issue
+		// ensure no two adjacent points are the same exact height
+		Random r = new Random(0);
+		for (Point p : m.points) {
+			p.elev += r.nextDouble() - 0.5;
+		}
 		boolean foundSameHeight;
 		do {
 			foundSameHeight = false;
@@ -55,7 +57,7 @@ public class LoadDEM {
 				for (Point adj : p.adjacent) {
 					if (adj != null && p.elev == adj.elev) {
 						foundSameHeight = true;
-						adj.elev += r.nextDouble() - 0.5;
+						adj.elev += 0.1 * (r.nextDouble() - 0.5);
 					}
 				}
 			}
