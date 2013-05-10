@@ -1,5 +1,9 @@
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 
@@ -11,6 +15,7 @@ public class PromNetwork {
 		boolean global_max;
 		boolean min_bound_only;
 		Comparator<Point> c;
+		List<Point> path;
 		
 		public PromInfo(Point p, Comparator<Point> c) {
 			this.p = p;
@@ -24,6 +29,15 @@ public class PromNetwork {
 		public void add(Point cur) {
 			if (saddle == null || c.compare(cur, saddle) < 0) {
 				saddle = cur;
+			}
+		}
+		
+		public void finalize(Map<Point, Point> backtrace) {
+			this.path = new ArrayList<Point>();
+			Point cur = saddle;
+			while (cur != null) {
+				this.path.add(cur);
+				cur = backtrace.get(cur);
 			}
 		}
 	}
@@ -73,6 +87,10 @@ public class PromNetwork {
 	}
 	
 	public static PromInfo prominence(TopologyNetwork tree, Point p, final boolean up) {
+		if (up != tree.up) {
+			throw new IllegalArgumentException("incompatible topology tree");
+		}
+		
 		Comparator<Point> c = new Comparator<Point>() {
 			@Override
 			public int compare(Point p0, Point p1) {
@@ -84,13 +102,12 @@ public class PromNetwork {
 		Front front = new Front(c, tree);
 		front.add(p);
 		Set<Point> seen = new HashSet<Point>();
-		int seenPruneThreshold = 1;
+		Map<Point, Point> backtrace = new HashMap<Point, Point>();
+		//int seenPruneThreshold = 1;
 
 		// point is not part of network (ie too close to edge to have connecting saddle)
-		if (tree.edges.get(p) == null) {
-			pi.add(p);
-			pi.min_bound_only = true;
-			return pi;
+		if (tree.adjacent(p) == null) {
+			return null;
 		}
 
 		outer:
@@ -108,7 +125,7 @@ public class PromNetwork {
 
 			seen.add(cur);
 
-			for (Point adj : tree.edges.get(cur)) {
+			for (Point adj : tree.adjacent(cur)) {
 				if (adj == null) {
 					// reached an edge
 					pi.min_bound_only = true;
@@ -117,6 +134,7 @@ public class PromNetwork {
 				
 				if (!seen.contains(adj)) {
 					front.add(adj);
+					backtrace.put(adj, cur);
 				}
 			}
 
@@ -127,6 +145,7 @@ public class PromNetwork {
 //			}
 		}
 		
+		pi.finalize(backtrace);
 		return pi;
 	}
 

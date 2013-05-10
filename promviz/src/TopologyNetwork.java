@@ -9,9 +9,11 @@ public class TopologyNetwork {
 
 	Mesh m;
 	Map<Point, Set<Point>> edges;
+	boolean up;
 	
-	public TopologyNetwork(Mesh m) {
+	public TopologyNetwork(Mesh m, boolean up) {
 		this.m = m;
+		this.up = up;
 		edges = new HashMap<Point, Set<Point>>();
 	}
 	
@@ -34,8 +36,8 @@ public class TopologyNetwork {
 	public void build() {
 		for (Point p : m.points) {
 			if (p.classify() == Point.CLASS_SADDLE) {
-				for (Point lead : p.leads(true)) {
-					addEdge(p, chase(lead, true));
+				for (Point lead : p.leads(up)) {
+					addEdge(p, chase(lead, up));
 				}
 			}
 		}

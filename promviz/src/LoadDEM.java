@@ -118,7 +118,7 @@ public class LoadDEM {
 			throw new RuntimeException(ioe);
 		}
 
-		TopologyNetwork tn = new TopologyNetwork(m);
+		TopologyNetwork tn = new TopologyNetwork(m, up);
 		tn.build();
 		
 		for (Point p : m.points) {
@@ -128,10 +128,14 @@ public class LoadDEM {
 			
 			double PROM_CUTOFF = 50.;
 			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
-			if (pi.prominence() > PROM_CUTOFF) {
+			if (pi != null && pi.prominence() > PROM_CUTOFF) {
+				StringBuilder path = new StringBuilder();
+				for (int i = 0; i < pi.path.size(); i++) {
+					path.append(String.format("[%f, %f]", pi.path.get(i).lat, pi.path.get(i).lon) + (i < pi.path.size() - 1 ? ", " : ""));
+				}
 				System.out.println(String.format(
-						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s}",
-						p.lat, p.lon, p.elev, pi.prominence(), pi.saddle.lat, pi.saddle.lon, pi.min_bound_only ? "true" : "false"));
+						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s, \"path\": [%s]}",
+						p.lat, p.lon, p.elev, pi.prominence(), pi.saddle.lat, pi.saddle.lon, pi.min_bound_only ? "true" : "false", path.toString()));
 			}
 		}
 	}
