@@ -1,14 +1,16 @@
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 
 public class Mesh {
 
-	List<Point> points;
+	Map<Long, Point> points;
 	List<Tri> tris;
 	
 	public Mesh() {
-		points = new ArrayList<Point>();
+		points = new HashMap<Long, Point>();
 		tris = new ArrayList<Tri>();
 	}
 	

@@ -56,10 +56,10 @@ public class Prominence {
 			return p;
 		}
 		
-		public Set<Point> adjacent() {
+		public Set<Point> adjacent(Mesh m) {
 			Set<Point> frontAdj = new HashSet<Point>();
 			for (Point f : queue) {
-				for (Point adj : f.adjacent) {
+				for (Point adj : f.adjacent(m)) {
 					frontAdj.add(adj);
 				}
 			}
@@ -71,7 +71,7 @@ public class Prominence {
 		}
 	}
 	
-	public static PromInfo prominence(Point p, final boolean up) {
+	public static PromInfo prominence(Mesh m, Point p, final boolean up) {
 		Comparator<Point> c = new Comparator<Point>() {
 			@Override
 			public int compare(Point p0, Point p1) {
@@ -100,7 +100,7 @@ public class Prominence {
 
 			seen.add(cur);
 
-			for (Point adj : cur.adjacent) {
+			for (Point adj : cur.adjacent(m)) {
 				if (adj == null) {
 					// reached an edge
 					pi.min_bound_only = true;
@@ -114,7 +114,7 @@ public class Prominence {
 
 			// prune set of already handled points
 			if (seen.size() > seenPruneThreshold) {
-				seen.retainAll(front.adjacent());
+				seen.retainAll(front.adjacent(m));
 				seenPruneThreshold = 2 * seen.size();
 			}
 		}

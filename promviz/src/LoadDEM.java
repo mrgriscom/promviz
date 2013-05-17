@@ -37,7 +37,7 @@ public class LoadDEM {
 					elev = 0; // cgiar has voids filled so nodata is actually ocean
 				}
 				Point p = new Point(lat, lon, elev);
-				m.points.add(p);
+				m.points.put(p.geocode, p);
 				meshBuffer[row % 3][col] = p;
 			}
 			
@@ -47,14 +47,14 @@ public class LoadDEM {
 		
 		// ensure no two adjacent points are the same exact height
 		Random r = new Random(0);
-		for (Point p : m.points) {
+		for (Point p : m.points.values()) {
 			p.elev += r.nextDouble() - 0.5;
 		}
 		boolean foundSameHeight;
 		do {
 			foundSameHeight = false;
-			for (Point p : m.points) {
-				for (Point adj : p.adjacent) {
+			for (Point p : m.points.values()) {
+				for (Point adj : p.adjacent(m)) {
 					if (adj != null && p.elev == adj.elev) {
 						foundSameHeight = true;
 						adj.elev += 0.1 * (r.nextDouble() - 0.5);
@@ -80,7 +80,7 @@ public class LoadDEM {
 			}
 			
 			List<int[]> adjIx = adjacency(row, col);
-			Point[] adjPt = new Point[adjIx.size()];
+			long[] adjPt = new long[adjIx.size()];
 			for (int i = 0; i < adjPt.length; i++) {
 				int[] ix = adjIx.get(i);
 				int c = ix[0];
@@ -91,9 +91,9 @@ public class LoadDEM {
 				} else {
 					p = meshBuffer[r % 3][c];
 				}
-				adjPt[i] = p;
+				adjPt[i] = (p != null ? p.geocode : -1);
 			}
-			active.adjacent = adjPt;
+			active._adjacent = adjPt;
 		}
 	}
 	
@@ -137,8 +137,8 @@ public class LoadDEM {
 		TopologyNetwork tn = new TopologyNetwork(m, up);
 		tn.build();
 		
-		for (Point p : m.points) {
-			if (p.classify() != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
+		for (Point p : m.points.values()) {
+			if (p.classify(m) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
 				continue;
 			}
 			
@@ -147,11 +147,14 @@ public class LoadDEM {
 			if (pi != null && pi.prominence() > PROM_CUTOFF) {
 				StringBuilder path = new StringBuilder();
 				for (int i = 0; i < pi.path.size(); i++) {
-					path.append(String.format("[%f, %f]", pi.path.get(i).lat, pi.path.get(i).lon) + (i < pi.path.size() - 1 ? ", " : ""));
+					double[] c = pi.path.get(i).coords();
+					path.append(String.format("[%f, %f]", c[0], c[1]) + (i < pi.path.size() - 1 ? ", " : ""));
 				}
+				double[] peak = p.coords();
+				double[] saddle = pi.saddle.coords();
 				System.out.println(String.format(
 						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s, \"path\": [%s]}",
-						p.lat, p.lon, p.elev, pi.prominence(), pi.saddle.lat, pi.saddle.lon, pi.min_bound_only ? "true" : "false", path.toString()));
+						peak[0], peak[1], p.elev, pi.prominence(), saddle[0], saddle[1], pi.min_bound_only ? "true" : "false", path.toString()));
 			}
 		}
 	}

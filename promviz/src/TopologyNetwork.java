@@ -34,9 +34,9 @@ public class TopologyNetwork {
 	}
 	
 	public void build() {
-		for (Point p : m.points) {
-			if (p.classify() == Point.CLASS_SADDLE) {
-				for (Point lead : p.leads(up)) {
+		for (Point p : m.points.values()) {
+			if (p.classify(m) == Point.CLASS_SADDLE) {
+				for (Point lead : p.leads(m, up)) {
 					addEdge(p, chase(lead, up));
 				}
 			}
@@ -44,12 +44,12 @@ public class TopologyNetwork {
 	}
 
 	Point chase(Point p, boolean up) {
-		while (p.classify() != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
-			if (p.classify() == Point.CLASS_INDETERMINATE) {
+		while (p.classify(m) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
+			if (p.classify(m) == Point.CLASS_INDETERMINATE) {
 				return null;
 			}
 		
-			p = p.leads(up).get(0);
+			p = p.leads(m, up).get(0);
 		}
 		return p;
 	}

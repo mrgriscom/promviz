@@ -146,4 +146,8 @@ public class GeoCode {
 		return new CubePos(geocode).toCoords();
 	}
 	
+	public static String print(long ix) {
+		return String.format("%016x", ix);
+	}
+
 }
