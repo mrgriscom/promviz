@@ -125,13 +125,12 @@ public class PromNetwork {
 
 			seen.add(cur);
 
+			if (tree.pending.containsKey(cur)) {
+				// reached an edge
+				pi.min_bound_only = true;
+				break outer;				
+			}
 			for (Point adj : tree.adjacent(cur)) {
-				if (adj == null) {
-					// reached an edge
-					pi.min_bound_only = true;
-					break outer;
-				}
-				
 				if (!seen.contains(adj)) {
 					front.add(adj);
 					backtrace.put(adj, cur);

@@ -7,54 +7,103 @@ import java.util.Set;
 
 public class TopologyNetwork {
 
-	Mesh m;
-	Map<Point, Set<Point>> edges;
+	Map<Long, Point> points;
+	Map<Point, Set<Long>> pending;
 	boolean up;
 	
-	public TopologyNetwork(Mesh m, boolean up) {
-		this.m = m;
+	public TopologyNetwork(boolean up) {
 		this.up = up;
-		edges = new HashMap<Point, Set<Point>>();
+		points = new HashMap<Long, Point>();
+		pending = new HashMap<Point, Set<Long>>();
+	}
+	
+	Point getPoint(Point p) {
+		Point match = points.get(p.geocode);
+		if (match == null) {
+			match = new Point(p.geocode, p.elev);
+			points.put(match.geocode, match);
+		}
+		return match;
 	}
 	
 	void addEdge(Point a, Point b) {
 		addDirectedEdge(a, b);
-		if (b != null) {
-			addDirectedEdge(b, a);
-		}
+		addDirectedEdge(b, a);
 	}
 	
 	void addDirectedEdge(Point from, Point to) {
-		Set<Point> adj = edges.get(from);
-		if (adj == null) {
-			adj = new HashSet<Point>();
-			edges.put(from, adj);
+		Point p = getPoint(from);
+		// FUCKING JAVA!!
+		// all this does is add the new point's geocode to the adjacency array if it isn't already in there
+		boolean exists = false;
+		for (Long l : p._adjacent) {
+			if (l == to.geocode) {
+				exists = true;
+				break;
+			}
 		}
-		adj.add(to);
+		if (!exists) {
+			long[] new_ = new long[p._adjacent.length + 1];
+			for (int i = 0; i < p._adjacent.length; i++) {
+				new_[i] = p._adjacent[i];
+			}
+			new_[p._adjacent.length] = to.geocode;
+			p._adjacent = new_;
+		}
+	}
+
+	void addPending(Point saddle, Point term) {
+		saddle = getPoint(saddle);
+		Set<Long> terms = pending.get(saddle);
+		if (terms == null) {
+			terms = new HashSet<Long>();
+			pending.put(saddle, terms);
+		}
+		terms.add(term.geocode);
 	}
 	
-	public void build() {
+	public void build(Mesh m) {
 		for (Point p : m.points.values()) {
 			if (p.classify(m) == Point.CLASS_SADDLE) {
 				for (Point lead : p.leads(m, up)) {
-					addEdge(p, chase(lead, up));
+					ChaseResult result = chase(m, lead, up);
+					if (!result.indeterminate) {
+						addEdge(p, result.p);
+					} else {
+						addPending(p, result.p);
+					}
 				}
 			}
 		}
 	}
 
-	Point chase(Point p, boolean up) {
+	class ChaseResult {
+		Point p;
+		boolean indeterminate;
+		
+		public ChaseResult(Point p, boolean indeterminate) {
+			this.p = p;
+			this.indeterminate = indeterminate;
+		}
+	}
+	
+	ChaseResult chase(Mesh m, Point p, boolean up) {
 		while (p.classify(m) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
 			if (p.classify(m) == Point.CLASS_INDETERMINATE) {
-				return null;
+				return new ChaseResult(p, true);
 			}
 		
 			p = p.leads(m, up).get(0);
 		}
-		return p;
+		return new ChaseResult(p, false);
 	}
 		
 	Set<Point> adjacent(Point p) {
-		return this.edges.get(p);
+		Point match = getPoint(p);
+		Set<Point> adj = new HashSet<Point>();
+		for (long l : match._adjacent) {
+			adj.add(points.get(l));
+		}
+		return adj;
 	}
 }

@@ -19,10 +19,15 @@ public class Point implements Comparable<Point> {
 	 * three points do not form a Tri), this list will have one or more nulls
 	 * inserted between them
 	 */
-	long[] _adjacent;
+	long[] _adjacent = new long[0];
 
 	public Point(double lat, double lon, double elev) {
 		this.geocode = GeoCode.fromCoord(lat, lon);
+		this.elev = (float)elev;
+	}
+	
+	public Point(long geocode, double elev) {
+		this.geocode = geocode;
 		this.elev = (float)elev;
 	}
 	
@@ -126,6 +131,11 @@ public class Point implements Comparable<Point> {
 		} else {
 			return false;
 		}
+	}
+	
+	@Override
+	public int hashCode() {
+		return Long.valueOf(this.geocode).hashCode();
 	}
 	
 	@Override

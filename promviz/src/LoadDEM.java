@@ -134,8 +134,8 @@ public class LoadDEM {
 			throw new RuntimeException(ioe);
 		}
 
-		TopologyNetwork tn = new TopologyNetwork(m, up);
-		tn.build();
+		TopologyNetwork tn = new TopologyNetwork(up);
+		tn.build(m);
 		
 		for (Point p : m.points.values()) {
 			if (p.classify(m) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
