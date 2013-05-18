@@ -146,6 +146,14 @@ public class GeoCode {
 		return new CubePos(geocode).toCoords();
 	}
 	
+	public static long prefix(long ix, int depth) {
+		if (depth == 0) {
+			return 0L;
+		} else {
+			return ix & (~0L << (64 - depth));
+		}
+	}
+	
 	public static String print(long ix) {
 		return String.format("%016x", ix);
 	}
