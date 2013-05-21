@@ -1,3 +1,4 @@
+package promviz;
 
 public class Tri {
 
