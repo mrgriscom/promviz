@@ -7,15 +7,17 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-import com.google.common.collect.Iterables;
-
 import promviz.util.DefaultMap;
+import promviz.util.Logging;
+
+import com.google.common.collect.Iterables;
 
 
 public class DEMManager {
 
 	final int MAX_BUCKET_DEPTH = 26; // ~5km square
 	final int DEM_TILE_MAX_POINTS = (1 << 20);
+	final int MESH_MAX_POINTS = (1 << 22);
 	
 	List<DEMFile> DEMs;
 	
@@ -25,59 +27,36 @@ public class DEMManager {
 	
 	TopologyNetwork buildAll(boolean up) {
 		Map<Prefix, Set<DEMFile>> coverage = this.partitionDEM();
+		Logging.log("partitioning complete");
+		Set<Prefix> allPrefixes = coverage.keySet();
 		Set<Prefix> yetToProcess = coverage.keySet();
 
-		Mesh m = new Mesh();
+		PagedMesh m = new PagedMesh(MESH_MAX_POINTS);
 		TopologyNetwork tn = new TopologyNetwork(up);
-		
-		while (yetToProcess.size() > 0) {
-			Prefix nextPrefix = getNextPrefix(yetToProcess, tn);
+		while (!tn.complete(allPrefixes, yetToProcess)) {
+			Prefix nextPrefix = getNextPrefix(allPrefixes, yetToProcess, tn);
 			Set<Point> data = loadPrefix(nextPrefix, coverage);
-			
-			System.out.println(String.format("loaded %s (%d)", nextPrefix, data.size()));
-			// load data for prefix into mesh
-			// if mesh total point count is exceeded, remove old (how to keep track of old?)
-			// update pendings if available
-			// process new chunk
-			
+			m.loadPage(nextPrefix, data);
+			tn.buildPartial(m, yetToProcess.contains(nextPrefix) ? data : null);
 			yetToProcess.remove(nextPrefix);
 		}
-		
-		return null;
+		return tn;
 	}
 	
 	Set<Point> loadPrefix(Prefix prefix, Map<Prefix, Set<DEMFile>> coverage) {
+		Logging.log(String.format("loading segment %s...", prefix));
 		Set<Point> points = new HashSet<Point>();
 		for (DEMFile dem : coverage.get(prefix)) {
 			Iterables.addAll(points, dem.samples(prefix));
+			Logging.log(String.format("  scanned DEM %s", dem.path));
 		}
+						
+		Logging.log(String.format("loading complete (%d points)", points.size()));
 		return points;
 	}
 	
-	Prefix getNextPrefix(Set<Prefix> yetToProcess, TopologyNetwork tn) {
-		Map<Prefix, Integer> frontierTotals = new DefaultMap<Prefix, Integer>() {
-			@Override
-			public Integer defaultValue() {
-				return 0;
-			}
-		};
-		for (Set<Long> terms : tn.pending.values()) {
-			for (Long term : terms) {
-				Set<Prefix> frontiers = new HashSet<Prefix>();
-				for (Long adj : adjacency(term)) {
-					for (Prefix potential : yetToProcess) {
-						if (potential.isParent(adj)) {
-							frontiers.add(potential);
-							break;
-						}
-					}
-				}
-				for (Prefix p : frontiers) {
-					frontierTotals.put(p, frontierTotals.get(p) + 1);
-				}
-			}
-		}
-		
+	Prefix getNextPrefix(Set<Prefix> allPrefixes, Set<Prefix> yetToProcess, TopologyNetwork tn) {
+		Map<Prefix, Integer> frontierTotals = tn.tallyPending(allPrefixes);
 		Prefix mostInDemand = null;
 		for (Entry<Prefix, Integer> e : frontierTotals.entrySet()) {
 			if (mostInDemand == null || e.getValue() > frontierTotals.get(mostInDemand)) {
@@ -95,6 +74,9 @@ public class DEMManager {
 		final double STEP = .0025; // violates DRY
 		int r = (int)Math.round((ll[0] + 360. * 10.) / STEP);
 		int c = (int)Math.round((ll[1] + 360. * 10.) / STEP);
+		// must snap lat/lon to grid or geocodes will not match in least-significant bits
+		ll[0] = r * STEP - 360. * 10.;
+		ll[1] = c * STEP - 360. * 10.;
 		
 		int[][] offsets = {
 				{0, 1},
@@ -243,15 +225,43 @@ public class DEMManager {
 			}
 		}
 	}
+
+	
 	
 	public static void main(String[] args) {
-				
+		
+		Logging.init();
+		
 		DEMManager dm = new DEMManager();
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/data2ne", 2001, 2001, 40, -75, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("3575", 2001, 2001, 35, -75, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("4080", 2001, 2001, 40, -80, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("3580", 2001, 2001, 35, -80, .0025, .0025, true));
 
-		dm.buildAll(true);
+		boolean up = true;
+		TopologyNetwork tn = dm.buildAll(up);
+		System.err.println(tn.points.size() + " nodes in network");
+		for (Point p : tn.points.values()) {
+			if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
+				continue;
+			}
+			
+			double PROM_CUTOFF = 50.;
+			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
+			if (pi != null && pi.prominence() > PROM_CUTOFF) {
+				StringBuilder path = new StringBuilder();
+				for (int i = 0; i < pi.path.size(); i++) {
+					double[] c = pi.path.get(i).coords();
+					path.append(String.format("[%f, %f]", c[0], c[1]) + (i < pi.path.size() - 1 ? ", " : ""));
+				}
+				double[] peak = p.coords();
+				double[] saddle = pi.saddle.coords();
+				System.out.println(String.format(
+						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s, \"path\": [%s]}",
+						peak[0], peak[1], p.elev, pi.prominence(), saddle[0], saddle[1], pi.min_bound_only ? "true" : "false", path.toString()));
+			}
+		}
 	}
 }

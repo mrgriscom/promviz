@@ -32,15 +32,15 @@ public class Point implements Comparable<Point> {
 		this.elev = (float)elev;
 	}
 	
-	public List<Point> adjacent(Mesh m) {
+	public List<Point> adjacent(IMesh m) {
 		List<Point> adj = new ArrayList<Point>();
 		for (long geocode : _adjacent) {
-			adj.add(geocode != -1 ? m.points.get(geocode) : null);
+			adj.add(geocode != -1 ? m.get(geocode) : null);
 		}
 		return adj;
 	}
 	
-	public int classify(Mesh m) {
+	public int classify(IMesh m) {
 		boolean is_summit = true;
 		boolean is_pit = true;
 
@@ -79,7 +79,7 @@ public class Point implements Comparable<Point> {
 		return CLASS_OTHER;
 	}
 	
-	List<Point> leads(Mesh m, boolean up) {
+	List<Point> leads(IMesh m, boolean up) {
 		List<Point> adjacent = this.adjacent(m);
 		int[] cohort = new int[adjacent.size()];
 		int current_cohort = 0;

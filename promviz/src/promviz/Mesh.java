@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 
-public class Mesh {
+public class Mesh implements IMesh {
 
 	Map<Long, Point> points;
 	List<Tri> tris;
@@ -13,6 +13,10 @@ public class Mesh {
 	public Mesh() {
 		points = new HashMap<Long, Point>();
 		tris = new ArrayList<Tri>();
+	}
+	
+	public Point get(long ix) {
+		return points.get(ix);
 	}
 	
 	//todo: point[3]->tri index

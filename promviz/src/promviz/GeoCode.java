@@ -159,4 +159,34 @@ public class GeoCode {
 		return String.format("%016x", ix);
 	}
 
+	
+	
+	static void testA(String s) {
+		long ix = Long.valueOf(s, 16);
+		double[] coord = GeoCode.toCoord(ix);
+		System.out.println(String.format("%s => [%f, %f]", GeoCode.print(ix), coord[0], coord[1]));
+	}
+	
+	public static void main(String[] args) {
+		testA("5dd9c4ad439eedef");
+		testA("5dd9c4ad8017786c");
+		testA("5dd9c4adac2df2a2");
+		testA("5dd9c4adc5066d28");
+		testA("5dd9c4adf87ce6b7");
+		System.out.println("");
+		testA("5dd9c4ad439eedef");
+		testA("5dd9c4ad439eedfa");
+		testA("5dd9c4ad439eef45");
+		testA("5dd9c4ad80177863");
+		testA("5dd9c4ad80177866");
+		testA("5dd9c4ad80177869");
+		testA("5dd9c4ad8017786c");
+		testA("5dd9c4adac2df2a2");
+		testA("5dd9c4adc5066d22");
+		testA("5dd9c4adc5066d28");
+		testA("5dd9c4adc5066d29");
+		testA("5dd9c4adf87ce6b6");
+		testA("5dd9c4adf87ce6b7");
+	}
+	
 }

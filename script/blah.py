@@ -3,7 +3,7 @@ import json
 import sys
 import tempfile
 
-raw = os.popen('/usr/lib/jvm/java-6-openjdk/bin/java -Xms2400m -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar LoadDEM %s' % ' '.join(sys.argv[1:])).readlines()
+raw = os.popen('/usr/lib/jvm/java-6-openjdk/bin/java -Xms2400m -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar promviz.DEMManager %s' % ' '.join(sys.argv[1:])).readlines()
 #raw = open('/tmp/debug.output').readlines()
 
 data = json.loads('[%s]' % ', '.join(raw))
