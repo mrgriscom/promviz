@@ -50,9 +50,9 @@ public class Point implements Comparable<Point> {
 				return CLASS_INDETERMINATE;
 			}
 			
-			if (p.elev > this.elev) {
+			if (ElevComparator.cmp(p, this) == 1) {
 				is_summit = false;
-			} else if (p.elev < this.elev) {
+			} else if (ElevComparator.cmp(p, this) == -1) {
 				is_pit = false;
 			}
 		}
@@ -68,7 +68,7 @@ public class Point implements Comparable<Point> {
 			Point p0 = adjacent.get(i);
 			Point p1 = adjacent.get((i + 1) % adjacent.size());
 			
-			if ((p0.elev > this.elev) != (p1.elev > this.elev)) {
+			if (ElevComparator.cmp(p0, this) != ElevComparator.cmp(p1, this)) {
 				transitions++;
 			}
 		}
@@ -86,7 +86,7 @@ public class Point implements Comparable<Point> {
 		for (int i = 0; i < adjacent.size(); i++) {
 			Point p = adjacent.get(i);
 			Point p_prev = (i > 0 ? adjacent.get(i - 1) : null);
-			if (p_prev != null && (p.elev > this.elev) != (p_prev.elev > this.elev)) {
+			if (p_prev != null && ElevComparator.cmp(p, this) != ElevComparator.cmp(p_prev, this)) {
 				current_cohort++;
 			}
 			cohort[i] = current_cohort;
@@ -109,7 +109,7 @@ public class Point implements Comparable<Point> {
 					best = p;
 				}
 			}
-			if ((best.elev > this.elev) == up) {
+			if (ElevComparator.cmp(best, this) == (up ? 1 : -1)) {
 				L.add(best);
 			}
 		}

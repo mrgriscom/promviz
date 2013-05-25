@@ -76,7 +76,7 @@ public class Prominence {
 		Comparator<Point> c = new Comparator<Point>() {
 			@Override
 			public int compare(Point p0, Point p1) {
-				return up ? Double.compare(p0.elev, p1.elev) : Double.compare(p1.elev, p0.elev);
+				return up ? ElevComparator.cmp(p0, p1) : ElevComparator.cmp(p1, p0);
 			}
 		};
 		

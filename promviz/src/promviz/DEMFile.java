@@ -4,7 +4,6 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Iterator;
-import java.util.Random;
 
 import com.google.common.io.LittleEndianDataInputStream;
 
@@ -75,7 +74,6 @@ public class DEMFile {
 	class PointsIterator implements Iterator<Point> {
 		LittleEndianDataInputStream f;
 		Iterator<Long> coords;
-		Random r;
 		DEMManager.Prefix prefix;
 		
 		long _nextIx;
@@ -89,7 +87,6 @@ public class DEMFile {
 				throw new RuntimeException(String.format("[%s] not found", path));
 			}
 			coords = new CoordsIterator();
-			r = new Random(path.hashCode());
 		}
 			
 		@Override
@@ -121,7 +118,6 @@ public class DEMFile {
 			}
 			Point p = new Point(geocode, elev);
 			p._adjacent = DEMManager.adjacency(p.geocode);
-			p.elev += r.nextDouble() - 0.5;
 			return p;
 		}
 

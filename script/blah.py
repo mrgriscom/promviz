@@ -11,7 +11,18 @@ data = json.loads('[%s]' % ', '.join(raw))
 data.sort(key=lambda e: e['prom'], reverse=True)
 
 def to_link(k):
-    print '<a target="_blank" href="http://mapper.acme.com/?ll=%f,%f&z=12&marker0=%f,%f,%.1f&marker1=%f,%f,%.1f">%.1f%s</a><br>' % (k['summit'][0], k['summit'][1], k['summit'][0], k['summit'][1], k['elev'] / .3048, k['saddle'][0], k['saddle'][1], (k['elev'] - k['prom']) / .3048, k['prom'] / .3048, '*' if k['min_bound'] else '')
+    print '<a target="_blank" href="http://mapper.acme.com/?ll=%(peaklat)f,%(peaklon)f&z=12&marker0=%(peaklat)f,%(peaklon)f,%(elev).1f&marker1=%(saddlelat)f,%(saddlelon)f,%(saddleelev).1f">%(prom).1f%(minbound)s</a> %(peakgeo)s %(saddlegeo)s<br>' % {
+        'peaklat': k['summit'][0],
+        'peaklon': k['summit'][1],
+        'saddlelat': k['saddle'][0],
+        'saddlelon': k['saddle'][1],
+        'elev':  k['elev'] / .3048,
+        'saddleelev': (k['elev'] - k['prom']) / .3048,
+        'prom': k['prom'] / .3048,
+        'minbound': '*' if k['min_bound'] else '',
+        'peakgeo': k['summitgeo'],
+        'saddlegeo': k['saddlegeo'],
+    }
 
 def to_kml(k):
     content = """<?xml version="1.0" encoding="UTF-8"?>

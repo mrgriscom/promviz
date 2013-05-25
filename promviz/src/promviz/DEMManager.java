@@ -13,11 +13,10 @@ import promviz.util.Logging;
 import com.google.common.collect.Iterables;
 
 
-public class DEMManager {
-
+public class DEMManager {	
 	final int MAX_BUCKET_DEPTH = 26; // ~5km square
-	final int DEM_TILE_MAX_POINTS = (1 << 20);
-	final int MESH_MAX_POINTS = (1 << 22);
+	final int DEM_TILE_MAX_POINTS = (1 << 30); //20
+	final int MESH_MAX_POINTS = (1 << 22); //22
 	
 	List<DEMFile> DEMs;
 	
@@ -234,8 +233,8 @@ public class DEMManager {
 		
 		DEMManager dm = new DEMManager();
 		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
+		//dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
+		//dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("3575", 2001, 2001, 35, -75, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("4080", 2001, 2001, 40, -80, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("3580", 2001, 2001, 35, -80, .0025, .0025, true));
@@ -259,8 +258,8 @@ public class DEMManager {
 				double[] peak = p.coords();
 				double[] saddle = pi.saddle.coords();
 				System.out.println(String.format(
-						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s, \"path\": [%s]}",
-						peak[0], peak[1], p.elev, pi.prominence(), saddle[0], saddle[1], pi.min_bound_only ? "true" : "false", path.toString()));
+						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s, \"path\": [%s], \"summitgeo\": \"%s\", \"saddlegeo\": \"%s\"}",
+						peak[0], peak[1], p.elev, pi.prominence(), saddle[0], saddle[1], pi.min_bound_only ? "true" : "false", path.toString(), GeoCode.print(p.geocode), GeoCode.print(pi.saddle.geocode)));
 			}
 		}
 	}
