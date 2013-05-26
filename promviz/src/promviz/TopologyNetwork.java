@@ -17,12 +17,21 @@ public class TopologyNetwork implements IMesh {
 
 	Map<Long, Point> points;
 	Map<Point, Set<Long>> pending;
+	Set<Long> unprocessedFringe;
 	boolean up;
+	
+	class PendingMap extends DefaultMap<Point, Set<Long>> {
+		@Override
+		public Set<Long> defaultValue() {
+			return new HashSet<Long>();
+		}		
+	}
 	
 	public TopologyNetwork(boolean up) {
 		this.up = up;
 		points = new HashMap<Long, Point>();
-		pending = new HashMap<Point, Set<Long>>();
+		pending = new PendingMap();
+		unprocessedFringe = new HashSet<Long>();
 	}
 	
 	public Point get(long ix) {
@@ -64,12 +73,7 @@ public class TopologyNetwork implements IMesh {
 
 	void addPending(Point saddle, Point term) {
 		saddle = getPoint(saddle);
-		Set<Long> terms = pending.get(saddle);
-		if (terms == null) {
-			terms = new HashSet<Long>();
-			pending.put(saddle, terms);
-		}
-		terms.add(term.geocode);
+		pending.get(saddle).add(term.geocode);
 	}
 	
 	public void build(Mesh m) {
@@ -97,38 +101,28 @@ public class TopologyNetwork implements IMesh {
 	}
 	
 	public void buildPartial(PagedMesh m, Set<Point> newPage) {
-		List<Point[]> pendings = new ArrayList<Point[]>();
-		for (Entry<Point, Set<Long>> e : pending.entrySet()) {
-			Point p = e.getKey();
+		Map<Point, Set<Long>> oldPending = pending;
+		pending = new PendingMap();
+		for (Entry<Point, Set<Long>> e : oldPending.entrySet()) {
+			Point saddle = e.getKey();
 			for (long ix : e.getValue()) {
-				Point lead = m.get(ix); // TODO feels like we should ensure the lead-terms are loaded somehow (we only check their adjacency)
+				Point lead = m.get(ix);
 				if (lead == null) {
-					continue;
+					// point not loaded -- effectively indeterminate
+					pending.get(saddle).add(ix); // replicate entry in new map
+				} else {
+					processLead(m, saddle, lead);
 				}
-
-				pendings.add(new Point[] {p, lead});
 			}
 		}
-		for (Point[] pair : pendings) {
-			Point p = pair[0];
-			Point lead = pair[1];
-			ChaseResult result = processLead(m, p, lead);
-				
-			if (!result.indeterminate || !result.p.equals(lead)) {
-				pending.get(p).remove(lead.geocode);
-				if (pending.get(p).isEmpty()) {
-					pending.remove(p);
-				}
-			}
-		}		
-		
+
 		if (newPage != null) {
 			build(m, newPage);
 		}
 	}
 	
 	public boolean complete(Set<Prefix> allPrefixes, Set<Prefix> unprocessed) {
-		// what about interior nodata nodes? we will never load data for them. if they're on the ridgepath, infinite loop?
+		// FIXME what about interior nodata nodes? we will never load data for them. if they're on the ridgepath, infinite loop?
 		for (Entry<Prefix, Integer> e : tallyPending(allPrefixes).entrySet()) {
 			if (e.getValue() > 0) {
 				return false;
@@ -145,22 +139,42 @@ public class TopologyNetwork implements IMesh {
 			}
 		};
 		for (Set<Long> terms : pending.values()) {
-			for (Long term : terms) {
-				Set<Prefix> frontiers = new HashSet<Prefix>();
-				for (Long adj : DEMManager.adjacency(term)) {
-					for (Prefix potential : allPrefixes) {
-						if (potential.isParent(adj)) {
-							frontiers.add(potential);
-							break;
-						}
-					}
-				}
-				for (Prefix p : frontiers) {
-					frontierTotals.put(p, frontierTotals.get(p) + 1);
-				}
+			for (long term : terms) {
+				tallyAdjacency(term, allPrefixes, frontierTotals);
 			}
 		}
 		return frontierTotals;
+	}
+
+	Prefix matchPrefix(long ix, Set<Prefix> prefixes) {
+		for (Prefix potential : prefixes) {
+			if (potential.isParent(ix)) {
+				return potential;
+			}
+		}
+		return null;
+	}
+	
+	boolean tallyAdjacency(long ix, Set<Prefix> allPrefixes, Map<Prefix, Integer> totals) {
+		Set<Prefix> frontiers = new HashSet<Prefix>();
+		for (long adj : DEMManager.adjacency(ix)) {
+			// find the parititon the adjacent point lies in
+			Prefix partition = matchPrefix(adj, allPrefixes);
+			if (partition == null) {
+				// point is adjacent to a point that will never be loaded, i.e., on the edge of the
+				// entire region of interest; it will be indeterminate forever
+				return false;
+			}
+			//HACK (once this is made less hacky, i think this is the only required check; the prefix-matching above can be discarded
+			if (!DEMManager.allIx.contains(adj)) {
+				return false;
+			}
+			frontiers.add(partition);
+		}
+		for (Prefix p : frontiers) {
+			totals.put(p, totals.get(p) + 1);
+		}
+		return true;
 	}
 	
 	class ChaseResult {

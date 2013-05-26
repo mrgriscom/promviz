@@ -16,8 +16,8 @@ import com.google.common.collect.Iterables;
 
 public class DEMManager {	
 	final int MAX_BUCKET_DEPTH = 26; // ~5km square
-	final int DEM_TILE_MAX_POINTS = (1 << 30); //20
-	final int MESH_MAX_POINTS = (1 << 22); //22
+	final int DEM_TILE_MAX_POINTS = (1 << 20);
+	final int MESH_MAX_POINTS = (1 << 22);
 	
 	List<DEMFile> DEMs;
 	
@@ -27,14 +27,19 @@ public class DEMManager {
 	
 	TopologyNetwork buildAll(boolean up) {
 		Map<Prefix, Set<DEMFile>> coverage = this.partitionDEM();
-		Logging.log("partitioning complete");
 		Set<Prefix> allPrefixes = coverage.keySet();
-		Set<Prefix> yetToProcess = coverage.keySet();
+		Logging.log("partitioning complete");
+		Set<Prefix> yetToProcess = new HashSet<Prefix>(coverage.keySet()); //mutable!
 
 		PagedMesh m = new PagedMesh(MESH_MAX_POINTS);
 		TopologyNetwork tn = new TopologyNetwork(up);
 		while (!tn.complete(allPrefixes, yetToProcess)) {
-			Prefix nextPrefix = getNextPrefix(allPrefixes, yetToProcess, tn);
+			Prefix nextPrefix = getNextPrefix(allPrefixes, yetToProcess, tn, m);
+			if (m.isLoaded(nextPrefix)) {
+				Logging.log("prefix already loaded!");
+				continue;
+			}
+			
 			Set<Point> data = loadPrefix(nextPrefix, coverage);
 			m.loadPage(nextPrefix, data);
 			tn.buildPartial(m, yetToProcess.contains(nextPrefix) ? data : null);
@@ -55,12 +60,18 @@ public class DEMManager {
 		return points;
 	}
 	
-	Prefix getNextPrefix(Set<Prefix> allPrefixes, Set<Prefix> yetToProcess, TopologyNetwork tn) {
+	Prefix getNextPrefix(Set<Prefix> allPrefixes, Set<Prefix> yetToProcess, TopologyNetwork tn, PagedMesh m) {
 		Map<Prefix, Integer> frontierTotals = tn.tallyPending(allPrefixes);
 		Prefix mostInDemand = null;
 		for (Entry<Prefix, Integer> e : frontierTotals.entrySet()) {
-			if (mostInDemand == null || e.getValue() > frontierTotals.get(mostInDemand)) {
-				mostInDemand = e.getKey();
+			Logging.log(String.format("pending> %s (%d)", e.getKey(), e.getValue()));
+			Prefix p = e.getKey();
+			int total = e.getValue();
+			if (m.isLoaded(p)) {
+				continue;
+			}
+			if (mostInDemand == null || total > frontierTotals.get(mostInDemand)) {
+				mostInDemand = p;
 			}
 		}
 		if (mostInDemand == null) {
@@ -223,6 +234,7 @@ public class DEMManager {
 	}
 
 	
+	static Set<Long> allIx; //HACK
 	
 	public static void main(String[] args) {
 		
@@ -231,12 +243,22 @@ public class DEMManager {
 		DEMManager dm = new DEMManager();
 		DEMFile.STEP = .0025;
 		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, .0025, .0025, true));
-		//dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
-		//dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w070ds3", 2001, 2001, 40, -70, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("3575", 2001, 2001, 35, -75, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("4080", 2001, 2001, 40, -80, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("3580", 2001, 2001, 35, -80, .0025, .0025, true));
-
+		
+		//HACK
+		DEMManager.allIx = new HashSet<Long>();
+		for (DEMFile dem : dm.DEMs) {
+			for (long ix : dem.coords()) {
+				allIx.add(ix);
+			}
+		}
+		
 		boolean up = true;
 		TopologyNetwork tn = dm.buildAll(up);
 		System.err.println(tn.points.size() + " nodes in network");

@@ -2,6 +2,9 @@ import os
 import json
 import sys
 import tempfile
+import uuid
+
+tag = uuid.uuid4().hex[:12]
 
 raw = os.popen('/usr/lib/jvm/java-6-openjdk/bin/java -Xms2400m -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar promviz.DEMManager %s' % ' '.join(sys.argv[1:])).readlines()
 #raw = open('/tmp/debug.output').readlines()
@@ -129,13 +132,14 @@ def to_kml(k):
     with open(path, 'w') as f:
         f.write(content)
     
-    print '<a target="_blank" href="https://maps.google.com/maps?t=p&q=http://mrgris.com:8053/%(path)s"><span style="font-family: monospace;">%(peakgeo)s %(saddlegeostem)s</span> %(prom).1f%(minbound)s (%(pathlen)d)</a><br>' % {
+    print '<a target="_blank" href="https://maps.google.com/maps?t=p&q=http://mrgris.com:8053/%(path)s?%(tag)s"><span style="font-family: monospace;">%(peakgeo)s %(saddlegeostem)s</span> %(prom).1f%(minbound)s (%(pathlen)d)</a><br>' % {
         'path': path[5:],
         'prom': k['prom'] / .3048,
         'minbound': '*' if k['min_bound'] else '',
         'pathlen': len(k['path']),
         'peakgeo': k['summitgeo'][:11],
         'saddlegeostem': common_prefix(k['saddlegeo'], k['summitgeo'])[:11],
+        'tag': tag,
     }
 
 def common_prefix(sub, sup, pad='-'):

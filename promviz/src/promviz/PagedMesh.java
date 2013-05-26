@@ -26,8 +26,12 @@ public class PagedMesh implements IMesh {
 		return points.get(ix);
 	}
 	
+	public boolean isLoaded(Prefix prefix) {
+		return loadedSegments.contains(prefix);
+	}
+	
 	public void loadPage(Prefix prefix, Collection<Point> newPoints) {
-		if (loadedSegments.contains(prefix)) {
+		if (isLoaded(prefix)) {
 			throw new RuntimeException("already loaded");
 		}
 		
