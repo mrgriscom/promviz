@@ -11,7 +11,7 @@ data = json.loads('[%s]' % ', '.join(raw))
 data.sort(key=lambda e: e['prom'], reverse=True)
 
 def to_link(k):
-    print '<a target="_blank" href="http://mapper.acme.com/?ll=%(peaklat)f,%(peaklon)f&z=12&marker0=%(peaklat)f,%(peaklon)f,%(elev).1f&marker1=%(saddlelat)f,%(saddlelon)f,%(saddleelev).1f">%(prom).1f%(minbound)s</a> %(peakgeo)s %(saddlegeo)s<br>' % {
+    print '<a target="_blank" href="http://mapper.acme.com/?ll=%(peaklat)f,%(peaklon)f&z=12&marker0=%(peaklat)f,%(peaklon)f,%(elev).1f&marker1=%(saddlelat)f,%(saddlelon)f,%(saddleelev).1f">%(peakgeo)s %(saddlegeo)s %(prom).1f%(minbound)s</a><br>' % {
         'peaklat': k['summit'][0],
         'peaklon': k['summit'][1],
         'saddlelat': k['saddle'][0],
@@ -123,11 +123,29 @@ def to_kml(k):
 """ % (k['prom'] / .3048, '*' if k['min_bound'] else '', k['summit'][1],  k['summit'][0], k['saddle'][1],  k['saddle'][0],
        '\n'.join('%f,%f,0' % (p[1], p[0]) for p in k['path']))
 
-    fd, path = tempfile.mkstemp(suffix='.kml', prefix='promviz')
-    with os.fdopen(fd, 'w') as f:
+    path = '/tmp/pviz-%s-%s.kml' % (k['summitgeo'], k['saddlegeo'])
+#    fd, path = tempfile.mkstemp(suffix='.kml', prefix='promviz')
+#    with os.fdopen(fd, 'w') as f:
+    with open(path, 'w') as f:
         f.write(content)
+    
+    print '<a target="_blank" href="https://maps.google.com/maps?t=p&q=http://mrgris.com:8053/%(path)s"><span style="font-family: monospace;">%(peakgeo)s %(saddlegeostem)s</span> %(prom).1f%(minbound)s (%(pathlen)d)</a><br>' % {
+        'path': path[5:],
+        'prom': k['prom'] / .3048,
+        'minbound': '*' if k['min_bound'] else '',
+        'pathlen': len(k['path']),
+        'peakgeo': k['summitgeo'][:11],
+        'saddlegeostem': common_prefix(k['saddlegeo'], k['summitgeo'])[:11],
+    }
 
-    print '<a target="_blank" href="https://maps.google.com/maps?t=p&q=http://mrgris.com:8053/%s">%.1f%s (%d)</a><br>' % (path[5:], k['prom'] / .3048, '*' if k['min_bound'] else '', len(k['path']))
+def common_prefix(sub, sup, pad='-'):
+    x = list(sub)
+    for i in range(len(sub)):
+        if sub[i] == sup[i]:
+            x[i] = pad
+        else:
+            break
+    return ''.join(x)
 
 for k in data:
     to_kml(k)

@@ -30,11 +30,21 @@ public class DEMFile {
 		this.sample_mode = sample_mode;
 	}
 	
+	static double STEP;
+	
+	static double[] gridToCoord(int r, int c, boolean sample_mode) {
+		return new double[] {STEP * (r + (sample_mode ? 0 : 0.5)), STEP * (c + (sample_mode ? 0 : 0.5))};
+	}
+	
 	class CoordsIterator implements Iterator<Long> {
+		int r0;
+		int c0;
 		int r;
 		int c;
 		
 		public CoordsIterator() {
+			r0 = (int)Math.round(lat0 / STEP);
+			c0 = (int)Math.round(lon0 / STEP);
 			r = 0;
 			c = 0;
 		}
@@ -46,14 +56,15 @@ public class DEMFile {
 
 		@Override
 		public Long next() {
-			double lon = lon0 + dx * (c + (sample_mode ? 0 : 0.5));
-			double lat = lat0 + dy * (height - (r + (sample_mode ? 1 : 0.5)));
+			double[] coord = gridToCoord(r0 + height - 1 - r, c0 + c, sample_mode);
+			
 			c++;
 			if (c == width) {
 				c = 0;
 				r++;
 			}
-			return GeoCode.fromCoord(lat, lon);
+			
+			return GeoCode.fromCoord(coord[0], coord[1]);
 		}
 
 		@Override

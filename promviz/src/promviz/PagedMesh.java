@@ -5,11 +5,9 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Queue;
 
 import promviz.DEMManager.Prefix;
-import promviz.util.DefaultMap;
 import promviz.util.Logging;
 
 public class PagedMesh implements IMesh {
@@ -29,15 +27,24 @@ public class PagedMesh implements IMesh {
 	}
 	
 	public void loadPage(Prefix prefix, Collection<Point> newPoints) {
+		if (loadedSegments.contains(prefix)) {
+			throw new RuntimeException("already loaded");
+		}
+		
 		while (points.size() + newPoints.size() > maxPoints) {
 			removeOldestPage();
 		}
 		loadedSegments.add(prefix);
 		for (Point p : newPoints) {
+			if (points.containsKey(p.geocode)) {
+				if (points.get(p.geocode).elev != p.elev) {
+					throw new RuntimeException("mismatched elevations!");
+				}
+			}
+			
 			points.put(p.geocode, p);
 		}
 		Logging.log(String.format("%d total points in mesh", points.size()));
-		
 	}
 	
 	public void removeOldestPage() {

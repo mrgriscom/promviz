@@ -33,9 +33,9 @@ public class PromNetwork {
 			}
 		}
 		
-		public void finalize(Map<Point, Point> backtrace) {
+		public void finalize(Map<Point, Point> backtrace, Point horizon) {
 			this.path = new ArrayList<Point>();
-			Point cur = saddle;
+			Point cur = horizon; //saddle;
 			while (cur != null) {
 				this.path.add(cur);
 				cur = backtrace.get(cur);
@@ -111,9 +111,10 @@ public class PromNetwork {
 			return null;
 		}
 
+		Point cur = null;
 		outer:
 		while (true) {
-			Point cur = front.next();
+			cur = front.next();
 			if (cur == null) {
 				// we've searched the whole world
 				pi.global_max = true;
@@ -145,7 +146,7 @@ public class PromNetwork {
 //			}
 		}
 		
-		pi.finalize(backtrace);
+		pi.finalize(backtrace, cur);
 		return pi;
 	}
 

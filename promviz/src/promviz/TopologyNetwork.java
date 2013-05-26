@@ -56,9 +56,7 @@ public class TopologyNetwork implements IMesh {
 		}
 		if (!exists) {
 			long[] new_ = new long[p._adjacent.length + 1];
-			for (int i = 0; i < p._adjacent.length; i++) {
-				new_[i] = p._adjacent[i];
-			}
+			System.arraycopy(p._adjacent, 0, new_, 0, p._adjacent.length);
 			new_[p._adjacent.length] = to.geocode;
 			p._adjacent = new_;
 		}
@@ -130,6 +128,7 @@ public class TopologyNetwork implements IMesh {
 	}
 	
 	public boolean complete(Set<Prefix> allPrefixes, Set<Prefix> unprocessed) {
+		// what about interior nodata nodes? we will never load data for them. if they're on the ridgepath, infinite loop?
 		for (Entry<Prefix, Integer> e : tallyPending(allPrefixes).entrySet()) {
 			if (e.getValue() > 0) {
 				return false;

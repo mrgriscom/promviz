@@ -9,6 +9,7 @@ import java.util.Set;
 
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
+import promviz.util.Util;
 
 import com.google.common.collect.Iterables;
 
@@ -70,12 +71,8 @@ public class DEMManager {
 	
 	public static long[] adjacency(Long ix) {
 		double[] ll = GeoCode.toCoord(ix);
-		final double STEP = .0025; // violates DRY
-		int r = (int)Math.round((ll[0] + 360. * 10.) / STEP);
-		int c = (int)Math.round((ll[1] + 360. * 10.) / STEP);
-		// must snap lat/lon to grid or geocodes will not match in least-significant bits
-		ll[0] = r * STEP - 360. * 10.;
-		ll[1] = c * STEP - 360. * 10.;
+		int r = (int)Math.round(ll[0] / DEMFile.STEP);
+		int c = (int)Math.round(ll[1] / DEMFile.STEP);
 		
 		int[][] offsets = {
 				{0, 1},
@@ -88,11 +85,11 @@ public class DEMManager {
 				{-1, 1},
 			};
 		List<double[]> adj = new ArrayList<double[]>();
-		boolean fully_connected = (r + c) % 2 == 0;
+		boolean fully_connected = (Util.mod(r + c, 2) == 0);
 		for (int[] offset : offsets) {
-			boolean diagonal_connection = (offset[0] + offset[1] + 2) % 2 == 0;
+			boolean diagonal_connection = (Util.mod(offset[0] + offset[1], 2) == 0);
 			if (fully_connected || !diagonal_connection) {
-				adj.add(new double[] {ll[0] + STEP * offset[1], ll[1] + STEP * offset[0]});
+				adj.add(DEMFile.gridToCoord(r + offset[1], c + offset[0], true));
 			}
 		}
 		long[] adjix = new long[adj.size()];
@@ -232,6 +229,7 @@ public class DEMManager {
 		Logging.init();
 		
 		DEMManager dm = new DEMManager();
+		DEMFile.STEP = .0025;
 		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, .0025, .0025, true));
 		//dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
 		//dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
