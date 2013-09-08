@@ -11,16 +11,45 @@ function init($div, data) {
     };
 
     var layers = {
-	// TODO: these tags should probably not be hard-coded
+	'Hypso': L.tileLayer('http://maps-for-free.com/layer/relief/z{z}/row{y}/{z}_{x}-{y}.jpg', {maxZoom: 11}),
 	'Map': mapboxLayer('examples.map-uci7ul8p'),
-	'Satellite': mapboxLayer('examples.map-qfyrx5r8'), // note: we need a pay account to use this for real
-	'Hypso': L.tileLayer('http://maps-for-free.com/layer/relief/z{z}/row{y}/{z}_{x}-{y}.jpg'),
-	'Topo': L.tileLayer('http://services.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}'),
+	'Topo': L.tileLayer('http://services.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}', {maxZoom: 15}),
+	'Satellite': mapboxLayer('examples.map-qfyrx5r8'),
     }
+    var layerOrder = ['Hypso', 'Topo', 'Map', 'Satellite'];
     L.control.layers(layers).addTo(map);
-    map.addLayer(layers['Map']);
+
+    var activeLayer = null;
+    map.on('baselayerchange', function(e) {
+	activeLayer = e.layer;
+    });
+
+    var setLayer = function(tag) {
+	if (activeLayer != null) {
+	    map.removeLayer(activeLayer);
+	}
+	map.addLayer(layers[tag]);
+    };
+
+    setLayer('Hypso');
 
     L.control.scale().addTo(map);
+
+    $(document).keydown(function(e) {
+	if (e.keyCode == 76) { // 'l'
+	    if (activeLayer) {
+		var tag = null;
+		$.each(layers, function(k, v) {
+		    if (activeLayer == v) {
+			tag = k;
+			return false;
+		    }
+		});
+		var next = layerOrder[(layerOrder.indexOf(tag) + 1) % layerOrder.length];
+		setLayer(next);
+	    }
+	}
+    });
 
     loadData(map, data);
 }

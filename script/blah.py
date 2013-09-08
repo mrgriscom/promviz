@@ -11,6 +11,9 @@ raw = os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms6000m -Dfile.enco
 
 data = json.loads('[%s]' % ', '.join(raw))
 
+with open('/tmp/prombackup', 'w') as f:
+    json.dump(data, f)
+
 data.sort(key=lambda e: e['prom'], reverse=True)
 
 def to_geojson(k):
@@ -77,6 +80,8 @@ def common_prefix(sub, sup, pad='-'):
     return ''.join(x)
 
 for k in data:
-    to_geojson(k)
-
+    try:
+        to_geojson(k)
+    except:
+        sys.stderr.write('error on %s\n' % k)
 
