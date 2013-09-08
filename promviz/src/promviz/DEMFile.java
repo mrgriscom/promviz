@@ -1,5 +1,6 @@
 package promviz;
 import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -84,16 +85,19 @@ public class DEMFile {
 	
 	class PointsIterator implements Iterator<Point> {
 		LittleEndianDataInputStream f;
+//		BufferedReader f;
+		
 		Iterator<Long> coords;
 		DEMManager.Prefix prefix;
 		
 		long _nextIx;
 		double _nextElev;
-		
+
 		public PointsIterator(DEMManager.Prefix prefix) {
 			this.prefix = prefix;
 			try {
 				f = new LittleEndianDataInputStream(new BufferedInputStream(new FileInputStream(path)));
+//				f = new BufferedReader(new InputStreamReader(new FileInputStream(path)));
 			} catch (FileNotFoundException fnfe) {
 				throw new RuntimeException(String.format("[%s] not found", path));
 			}
@@ -106,6 +110,7 @@ public class DEMFile {
 				long geocode = coords.next();
 				double elev;
 				try {
+//					elev = Double.valueOf(f.readLine());
 					elev = f.readShort();
 				} catch (IOException ioe) {
 					throw new RuntimeException("error reading DEM");

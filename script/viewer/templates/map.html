@@ -1,0 +1,36 @@
+<html>
+<head>
+
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+  <link rel="stylesheet" href="http://leafletjs.com/dist/leaflet.css" />
+  <script src="http://leafletjs.com/dist/leaflet.js"></script>
+  <script src="http://momentjs.com/static/js/global.min.js"></script>
+  <script src="http://underscorejs.org/underscore.js"></script>
+  <script src="/script/map.js"></script>
+</head>
+<body>
+
+<style>
+
+body {
+  font-family: sans-serif;
+  margin: 0;
+}
+
+</style>
+
+<div id="map" style="height: 100%;"></div>
+
+<script>
+
+{% autoescape None %}
+DATA = {{ json_encode(data) }};
+
+$(document).ready(function() {
+  init($('#map'), DATA);
+});
+
+</script>
+
+</body>
+</html>
