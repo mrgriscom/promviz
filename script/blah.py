@@ -6,7 +6,7 @@ import uuid
 
 tag = uuid.uuid4().hex[:12]
 
-raw = os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms6000m -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar promviz.DEMManager %s' % ' '.join(sys.argv[1:])).readlines()
+raw = os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms6000m -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar promviz.DEMManager %s' % ' '.join(sys.argv[1:])).readlines()
 #raw = open('/tmp/debug.output').readlines()
 
 data = json.loads('[%s]' % ', '.join(raw))

@@ -17,7 +17,7 @@ import com.google.common.collect.Iterables;
 public class DEMManager {	
 	final int MAX_BUCKET_DEPTH = 26; // ~5km square
 	final int DEM_TILE_MAX_POINTS = (1 << 20);
-	final int MESH_MAX_POINTS = (1 << 22);
+	final int MESH_MAX_POINTS = (1 << 23);
 	
 	List<DEMFile> DEMs;
 	
@@ -32,7 +32,7 @@ public class DEMManager {
 		Set<Prefix> yetToProcess = new HashSet<Prefix>(coverage.keySet()); //mutable!
 
 		PagedMesh m = new PagedMesh(MESH_MAX_POINTS);
-		TopologyNetwork tn = new TopologyNetwork(up);
+		TopologyNetwork tn = new TopologyNetwork(up, this);
 		while (!tn.complete(allPrefixes, yetToProcess)) {
 			Prefix nextPrefix = getNextPrefix(allPrefixes, yetToProcess, tn, m);
 			if (m.isLoaded(nextPrefix)) {
@@ -61,19 +61,50 @@ public class DEMManager {
 	}
 	
 	Prefix getNextPrefix(Set<Prefix> allPrefixes, Set<Prefix> yetToProcess, TopologyNetwork tn, PagedMesh m) {
-		Map<Prefix, Integer> frontierTotals = tn.tallyPending(allPrefixes);
+		Map<Set<Prefix>, Integer> frontierTotals = tn.tallyPending(allPrefixes);
+		
+		Map<Prefix, Set<Set<Prefix>>> pendingPrefixes = new DefaultMap<Prefix, Set<Set<Prefix>>>() {
+			@Override
+			public Set<Set<Prefix>> defaultValue() {
+				return new HashSet<Set<Prefix>>();
+			}			
+		};
+		for (Set<Prefix> prefixGroup : frontierTotals.keySet()) {
+			for (Prefix p : prefixGroup) {
+				pendingPrefixes.get(p).add(prefixGroup);
+			}
+		}
+		
 		Prefix mostInDemand = null;
-		for (Entry<Prefix, Integer> e : frontierTotals.entrySet()) {
-			Logging.log(String.format("pending> %s (%d)", e.getKey(), e.getValue()));
+		int bestScore = 0;
+		for (Entry<Prefix, Set<Set<Prefix>>> e : pendingPrefixes.entrySet()) {
 			Prefix p = e.getKey();
-			int total = e.getValue();
+			Set<Set<Prefix>> cohorts = e.getValue();
+
+			Logging.log(String.format("pending> %s...", e.getKey())); // more?
+
 			if (m.isLoaded(p)) {
 				continue;
 			}
-			if (mostInDemand == null || total > frontierTotals.get(mostInDemand)) {
+			
+			int score = 0;
+			for (Set<Prefix> cohort : cohorts) {
+				int numLoaded = 0;
+				for (Prefix coprefix : cohort) {
+					if (coprefix != p && m.isLoaded(coprefix)) {
+						numLoaded++;
+					}
+				}
+				int cohortScore = 1000000 * numLoaded + frontierTotals.get(cohort);
+				score = Math.max(score, cohortScore);
+			}
+			
+			if (score > bestScore) {
+				bestScore = score;
 				mostInDemand = p;
 			}
 		}
+		
 		if (mostInDemand == null) {
 			mostInDemand = yetToProcess.iterator().next();
 		}
@@ -233,8 +264,18 @@ public class DEMManager {
 		}
 	}
 
-	
-	static Set<Long> allIx; //HACK
+	// HACKY
+	boolean inScope(long ix) {
+		double[] c = GeoCode.toCoord(ix);
+		for (DEMFile dem : DEMs) {
+			if (c[0] >= dem.lat0 && c[1] >= dem.lon0 &&
+					c[0] <= (dem.lat0 + dem.dy * (dem.height - 1)) &&
+					c[1] <= (dem.lon0 + dem.dx * (dem.width - 1))) {
+				return true;
+			}
+		}
+		return false;
+	}
 	
 	public static void main(String[] args) {
 		
@@ -242,22 +283,51 @@ public class DEMManager {
 		
 		DEMManager dm = new DEMManager();
 		DEMFile.STEP = .0025;
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w125ds3", 2001, 2001, 30, -125, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w120ds3", 2001, 2001, 30, -120, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w115ds3", 2001, 2001, 30, -115, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w110ds3", 2001, 2001, 30, -110, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w125ds3", 2001, 2001, 35, -125, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w120ds3", 2001, 2001, 35, -120, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w115ds3", 2001, 2001, 35, -115, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w110ds3", 2001, 2001, 35, -110, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w125ds3", 2001, 2001, 40, -125, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w120ds3", 2001, 2001, 40, -120, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w115ds3", 2001, 2001, 40, -115, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w110ds3", 2001, 2001, 40, -110, .0025, .0025, true));
+
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w090ds3", 2001, 2001, 30, -90, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w090ds3", 2001, 2001, 35, -90, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w090ds3", 2001, 2001, 40, -90, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n25w085ds3", 2001, 2001, 25, -85, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w085ds3", 2001, 2001, 30, -85, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w085ds3", 2001, 2001, 35, -85, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w085ds3", 2001, 2001, 40, -85, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w080ds3", 2001, 2001, 30, -80, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w080ds3", 2001, 2001, 35, -80, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w075ds3", 2001, 2001, 35, -75, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w070ds3", 2001, 2001, 40, -70, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w065ds3", 2001, 2001, 40, -65, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w065ds3", 2001, 2001, 45, -65, .0025, .0025, true));
+
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w080ds3", 2001, 2001, 45, -80, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w080ds3", 2001, 2001, 50, -80, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w080ds3", 2001, 2001, 55, -80, .0025, .0025, true));
 		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w070ds3", 2001, 2001, 40, -70, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w075ds3", 2001, 2001, 50, -75, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w075ds3", 2001, 2001, 55, -75, .0025, .0025, true));
 		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("3575", 2001, 2001, 35, -75, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("4080", 2001, 2001, 40, -80, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("3580", 2001, 2001, 35, -80, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w070ds3", 2001, 2001, 50, -70, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w070ds3", 2001, 2001, 55, -70, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w065ds3", 2001, 2001, 50, -65, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w065ds3", 2001, 2001, 55, -65, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w060ds3", 2001, 2001, 50, -60, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w060ds3", 2001, 2001, 55, -60, .0025, .0025, true));
 		
-		//HACK
-		DEMManager.allIx = new HashSet<Long>();
-		for (DEMFile dem : dm.DEMs) {
-			for (long ix : dem.coords()) {
-				allIx.add(ix);
-			}
-		}
 		
 		boolean up = true;
 		TopologyNetwork tn = dm.buildAll(up);

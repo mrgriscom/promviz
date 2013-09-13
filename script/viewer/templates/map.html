@@ -24,6 +24,7 @@ body {
 <script>
 
 {% autoescape None %}
+MODE = {{ json_encode(mode) }};
 DATA = {{ json_encode(data) }};
 
 $(document).ready(function() {

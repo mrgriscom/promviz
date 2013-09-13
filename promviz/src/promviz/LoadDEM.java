@@ -135,7 +135,7 @@ public class LoadDEM {
 			throw new RuntimeException(ioe);
 		}
 
-		TopologyNetwork tn = new TopologyNetwork(up);
+		TopologyNetwork tn = new TopologyNetwork(up, null);
 		tn.build(m);
 		
 		for (Point p : m.points.values()) {
