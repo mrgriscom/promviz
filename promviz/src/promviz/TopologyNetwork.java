@@ -29,6 +29,8 @@ public class TopologyNetwork implements IMesh {
 		}
 	}
 	
+	public TopologyNetwork() { }
+	
 	public TopologyNetwork(boolean up, DEMManager dm) {
 		this.up = up;
 		points = new HashMap<Long, Point>();
@@ -163,6 +165,11 @@ public class TopologyNetwork implements IMesh {
 				return 0;
 			}
 		};
+		tallyPending(allPrefixes, frontierTotals);
+		return frontierTotals;
+	}
+	
+	public void tallyPending(Set<Prefix> allPrefixes, Map<Set<Prefix>, Integer> frontierTotals) {
 		for (Set<Long> terms : pending.values()) {
 			for (long term : terms) {
 				tallyAdjacency(term, allPrefixes, frontierTotals);
@@ -171,7 +178,6 @@ public class TopologyNetwork implements IMesh {
 		for (long fringe : unprocessedFringe) {
 			tallyAdjacency(fringe, allPrefixes, frontierTotals);
 		}
-		return frontierTotals;
 	}
 
 	Prefix matchPrefix(long ix, Set<Prefix> prefixes) {

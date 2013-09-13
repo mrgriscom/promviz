@@ -33,6 +33,7 @@ class SummitsHandler(web.RequestHandler):
                 'properties': {
                     'prom_ft': s['prom'] / .3048,
                     'elev_ft': s['elev'] / .3048,
+                    'min_bound': s['min_bound'],
                     'geo': s['summitgeo'],
                 },
             }

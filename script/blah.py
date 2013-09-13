@@ -22,8 +22,12 @@ def to_geojson(k):
             return [c[1], c[0]]
 
         if hasattr(coords[0], '__iter__'):
-            type = 'LineString'
-            coords = [coord(c) for c in coords]
+            if hasattr(coords[0][0], '__iter__'):
+                type = 'MultiLineString'
+                coords = [[coord(c) for c in k] for k in coords]
+            else:
+                type = 'LineString'
+                coords = [coord(c) for c in coords]
         else:
             type = 'Point'
             coords = coord(coords)
@@ -53,6 +57,7 @@ def to_geojson(k):
                     geo=k['saddlegeo'],
                     ),
             feature(k['path'], type='divide'),
+            feature(k['runoff'], type='domain'),
         ]
     }, indent=2)
 
@@ -60,6 +65,7 @@ def to_geojson(k):
     with open(path, 'w') as f:
         f.write(content)
     
+    """
     print '<a target="_blank" href="http://localhost:8000/view/%(path)s?%(tag)s"><span style="font-family: monospace;">%(peakgeo)s %(saddlegeostem)s</span> %(prom).1f%(minbound)s (%(pathlen)d)</a><br>' % {
         'path': path[5:],
         'prom': k['prom'] / .3048,
@@ -69,6 +75,7 @@ def to_geojson(k):
         'saddlegeostem': common_prefix(k['saddlegeo'], k['summitgeo'])[:11],
         'tag': tag,
     }
+    """
 
 def common_prefix(sub, sup, pad='-'):
     x = list(sub)

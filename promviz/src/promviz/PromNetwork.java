@@ -86,18 +86,41 @@ public class PromNetwork {
 			return set.size();
 		}
 	}
-	
+
 	public static PromInfo prominence(TopologyNetwork tree, Point p, final boolean up) {
-		if (up != tree.up) {
-			throw new IllegalArgumentException("incompatible topology tree");
+		return _prominence(tree, p, up, false);
+	}
+	
+	public static List<List<Point>> runoff(TopologyNetwork antiTree, Point saddle, final boolean up) {
+		List<List<Point>> runoffs = new ArrayList<List<Point>>();
+		for (Point lead : antiTree.adjacent(saddle)) {
+			// necessary?
+			if (lead == null) {
+				continue;
+			}
+			
+			PromNetwork.PromInfo saddle_pi = PromNetwork._prominence(antiTree, lead, !up, true);
+			saddle_pi.path.add(saddle);
+			runoffs.add(saddle_pi.path);
 		}
-		
-		Comparator<Point> c = new Comparator<Point>() {
+		return runoffs;
+	}
+
+	static Comparator<Point> _cmp(final boolean up) {
+		return new Comparator<Point>() {
 			@Override
 			public int compare(Point p0, Point p1) {
 				return up ? ElevComparator.cmp(p0, p1) : ElevComparator.cmp(p1, p0);
 			}
 		};
+	}
+
+	public static PromInfo _prominence(TopologyNetwork tree, Point p, boolean up, boolean endlessChase) {
+		if (up != tree.up) {
+			throw new IllegalArgumentException("incompatible topology tree");
+		}
+		
+		Comparator<Point> c = _cmp(up);
 		
 		PromInfo pi = new PromInfo(p, c);
 		Front front = new Front(c, tree);
@@ -121,7 +144,7 @@ public class PromNetwork {
 				break;
 			}
 			pi.add(cur);
-			if (c.compare(cur, p) > 0) {
+			if (!endlessChase && c.compare(cur, p) > 0) {
 				break;
 			}
 

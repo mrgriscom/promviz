@@ -59,6 +59,14 @@ function init($div, data) {
 OVERLAY = null;
 function loadData(map, data) {
     var overlay = L.geoJson(data, {
+        style: function(feature) {
+            var props = feature.properties;
+            if (props.type == 'divide') {
+                return {color: '#00f'};
+            } else if (props.type == 'domain') {
+                return {color: '#0f0'};
+            }
+        },
         pointToLayer: function(feature, latlng) {
             if (MODE == 'single') {
                 return L.circleMarker(latlng, {
@@ -104,7 +112,7 @@ function loadData(map, data) {
                 layer.bindPopup($div[0]);
             } else {
                 var $div = $('<div>');
-                $div.html('<div><a target="_blank" href="/view/prom' + props.geo + '.geojson">' + props.geo + '</a></div><div>' + round(props.prom_ft, 1) + '</div><div>' + round(props.elev_ft, 1) + '</div>');
+                $div.html('<div><a target="_blank" href="/view/prom' + props.geo + '.geojson">' + props.geo + '</a></div><div>' + round(props.prom_ft, 1) + (props.min_bound ? '*' : '') + '</div><div>' + round(props.elev_ft, 1) + '</div>');
                 layer.bindPopup($div[0]);
             }
         },

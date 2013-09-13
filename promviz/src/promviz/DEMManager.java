@@ -25,14 +25,14 @@ public class DEMManager {
 		DEMs = new ArrayList<DEMFile>();
 	}
 	
-	TopologyNetwork buildAll(boolean up) {
+	DualTopologyNetwork buildAll() {
 		Map<Prefix, Set<DEMFile>> coverage = this.partitionDEM();
 		Set<Prefix> allPrefixes = coverage.keySet();
 		Logging.log("partitioning complete");
 		Set<Prefix> yetToProcess = new HashSet<Prefix>(coverage.keySet()); //mutable!
 
 		PagedMesh m = new PagedMesh(MESH_MAX_POINTS);
-		TopologyNetwork tn = new TopologyNetwork(up, this);
+		DualTopologyNetwork tn = new DualTopologyNetwork(this);
 		while (!tn.complete(allPrefixes, yetToProcess)) {
 			Prefix nextPrefix = getNextPrefix(allPrefixes, yetToProcess, tn, m);
 			if (m.isLoaded(nextPrefix)) {
@@ -307,31 +307,35 @@ public class DEMManager {
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w080ds3", 2001, 2001, 35, -80, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w075ds3", 2001, 2001, 35, -75, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w070ds3", 2001, 2001, 40, -70, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w065ds3", 2001, 2001, 40, -65, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w065ds3", 2001, 2001, 45, -65, .0025, .0025, true));
 
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w080ds3", 2001, 2001, 45, -80, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w080ds3", 2001, 2001, 50, -80, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w080ds3", 2001, 2001, 55, -80, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w075ds3", 2001, 2001, 50, -75, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w075ds3", 2001, 2001, 55, -75, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w070ds3", 2001, 2001, 50, -70, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w070ds3", 2001, 2001, 55, -70, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w065ds3", 2001, 2001, 50, -65, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w065ds3", 2001, 2001, 55, -65, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w060ds3", 2001, 2001, 50, -60, .0025, .0025, true));
-		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w060ds3", 2001, 2001, 55, -60, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w080ds3", 2001, 2001, 45, -80, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w080ds3", 2001, 2001, 50, -80, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w080ds3", 2001, 2001, 55, -80, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w075ds3", 2001, 2001, 50, -75, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w075ds3", 2001, 2001, 55, -75, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w070ds3", 2001, 2001, 50, -70, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w070ds3", 2001, 2001, 55, -70, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w065ds3", 2001, 2001, 50, -65, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w065ds3", 2001, 2001, 55, -65, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w060ds3", 2001, 2001, 50, -60, .0025, .0025, true));
+//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n55w060ds3", 2001, 2001, 55, -60, .0025, .0025, true));
 		
 		
 		boolean up = true;
-		TopologyNetwork tn = dm.buildAll(up);
-		System.err.println(tn.points.size() + " nodes in network");
+		DualTopologyNetwork dtn = dm.buildAll();
+		System.err.println(dtn.up.points.size() + " nodes in network (up)");
+		System.err.println(dtn.down.points.size() + " nodes in network (down)");
+
+		TopologyNetwork tn = (up ? dtn.up : dtn.down);
+		TopologyNetwork anti_tn = (!up ? dtn.up : dtn.down);
 		for (Point p : tn.points.values()) {
 			if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
 				continue;
@@ -340,17 +344,43 @@ public class DEMManager {
 			double PROM_CUTOFF = 50.;
 			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
 			if (pi != null && pi.prominence() > PROM_CUTOFF) {
-				StringBuilder path = new StringBuilder();
-				for (int i = 0; i < pi.path.size(); i++) {
-					double[] c = pi.path.get(i).coords();
-					path.append(String.format("[%f, %f]", c[0], c[1]) + (i < pi.path.size() - 1 ? ", " : ""));
+				List<String> domainLimits = new ArrayList<String>();
+				for (List<Point> ro : PromNetwork.runoff(anti_tn, pi.saddle, up)) {
+					domainLimits.add(pathToStr(ro));					
 				}
+				
 				double[] peak = p.coords();
 				double[] saddle = pi.saddle.coords();
 				System.out.println(String.format(
-						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s, \"path\": [%s], \"summitgeo\": \"%s\", \"saddlegeo\": \"%s\"}",
-						peak[0], peak[1], p.elev, pi.prominence(), saddle[0], saddle[1], pi.min_bound_only ? "true" : "false", path.toString(), GeoCode.print(p.geocode), GeoCode.print(pi.saddle.geocode)));
+						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s, \"path\": %s, \"summitgeo\": \"%s\", \"saddlegeo\": \"%s\", \"runoff\": %s}",
+						peak[0], peak[1],
+						p.elev,
+						pi.prominence(),
+						saddle[0], saddle[1],
+						pi.min_bound_only ? "true" : "false",
+						pathToStr(pi.path),
+						GeoCode.print(p.geocode),
+						GeoCode.print(pi.saddle.geocode),
+						String.format("[%s]", join(domainLimits, ", "))
+					));
 			}
 		}
+	}
+	
+	static String join(List<String> strs, String sep) {
+		StringBuilder joined = new StringBuilder();
+		for (int i = 0; i < strs.size(); i++) {
+			joined.append(strs.get(i) + (i < strs.size() - 1 ? sep : ""));
+		}
+		return joined.toString();
+	}
+	
+	static String pathToStr(List<Point> points) {
+		List<String> strs = new ArrayList<String>();
+		for (int i = 0; i < points.size(); i++) {
+			double[] c = points.get(i).coords();
+			strs.add(String.format("[%f, %f]", c[0], c[1]));
+		}
+		return "[" + join(strs, ", ") + "]";
 	}
 }
