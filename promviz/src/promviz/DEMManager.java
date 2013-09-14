@@ -12,6 +12,7 @@ import promviz.util.Logging;
 import promviz.util.Util;
 
 import com.google.common.collect.Iterables;
+import com.google.gson.Gson;
 
 
 public class DEMManager {	
@@ -352,6 +353,9 @@ public class DEMManager {
 			}
 		}
 		
+		Gson ser = new Gson();
+		System.out.println("[");
+		boolean first = true;
 		for (Entry<Point, PromNetwork.PromInfo> e : prominentPoints.entrySet()) {
 			Point p = e.getKey();
 			PromNetwork.PromInfo pi = e.getValue();
@@ -362,39 +366,65 @@ public class DEMManager {
 //				for (List<Point> ro : PromNetwork.runoff(anti_tn, pi.saddle, up)) {
 //					domainLimits.add(pathToStr(ro));					
 //				}
-				
-			double[] peak = p.coords();
-			double[] saddle = pi.saddle.coords();
-			System.out.println(String.format(
-					"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s, \"linepath\": %s, \"summitgeo\": \"%s\", \"saddlegeo\": \"%s\", \"parentpath\": %s, \"runoff\": %s}",
-					peak[0], peak[1],
-					p.elev,
-					pi.prominence(),
-					saddle[0], saddle[1],
-					pi.min_bound_only ? "true" : "false",
-					pathToStr(pi.path),
-					GeoCode.print(p.geocode),
-					GeoCode.print(pi.saddle.geocode),
-					pathToStr(parentage.path),
-					"null" //String.format("[%s]", join(domainLimits, ", "))
-				));
+			
+			System.out.println((first ? "" : ",") + ser.toJson(new PromData(
+					up, p, pi, parentage, prominentPoints
+				)));
+			first = false;
+		}
+		System.out.println("]");
+	}
+	
+	static class PromPoint {
+		double coords[];
+		String geo;
+		double elev;
+		Double prom;
+		
+		public PromPoint(Point p, PromNetwork.PromInfo pi) {
+			this.coords = p.coords();
+			this.geo = GeoCode.print(p.geocode);
+			this.elev = p.elev / .3048;
+			if (pi != null) {
+				prom = pi.prominence() / .3048;
+			}
 		}
 	}
 	
-	static String join(List<String> strs, String sep) {
-		StringBuilder joined = new StringBuilder();
-		for (int i = 0; i < strs.size(); i++) {
-			joined.append(strs.get(i) + (i < strs.size() - 1 ? sep : ""));
+	static class PromData {
+		boolean up;
+		PromPoint summit;
+		PromPoint saddle;
+		boolean min_bound;
+		PromPoint higher;
+		PromPoint parent;
+		List<double[]> higher_path;
+		List<double[]> parent_path;
+		
+		public PromData(boolean up, Point p, PromNetwork.PromInfo pi, PromNetwork.PromInfo parentage,
+				Map<Point, PromNetwork.PromInfo> prominentPoints) {
+			this.up = up;
+			this.summit = new PromPoint(p, pi);
+			this.saddle = new PromPoint(pi.saddle, null);
+			this.min_bound = pi.min_bound_only;
+			
+			this.higher_path = new ArrayList<double[]>();
+			for (Point k : pi.path) {
+				this.higher_path.add(k.coords());
+			}
+			this.parent_path = new ArrayList<double[]>();
+			for (Point k : parentage.path) {
+				this.parent_path.add(k.coords());
+			}
+			
+			if (!pi.min_bound_only && !pi.path.isEmpty()) {
+				this.higher = new PromPoint(pi.path.get(0), null);
+			}
+			if (!parentage.min_bound_only && !parentage.path.isEmpty()) {
+				Point parent = parentage.path.get(0);
+				this.parent = new PromPoint(parent, prominentPoints.get(parent));
+			}
 		}
-		return joined.toString();
 	}
 	
-	static String pathToStr(List<Point> points) {
-		List<String> strs = new ArrayList<String>();
-		for (int i = 0; i < points.size(); i++) {
-			double[] c = points.get(i).coords();
-			strs.add(String.format("[%f, %f]", c[0], c[1]));
-		}
-		return "[" + join(strs, ", ") + "]";
-	}
 }

@@ -71,11 +71,20 @@ function loadData(map, data) {
         },
         pointToLayer: function(feature, latlng) {
             if (MODE == 'single') {
-                return L.circleMarker(latlng, {
-                    color: '#000',
-                    weight: 1.5,
-                    fillColor: (feature.properties.type == 'summit' ? '#f00' : '#ff0'),
-                });
+                var props = feature.properties;
+                var style;
+                if (props.type == 'summit') {
+                    style = {fillColor: '#f00'};
+                } else if (props.type == 'saddle') {
+                    style = {fillColor: '#ff0'};
+                } else if (props.type == 'higher') {
+                    style = {fillColor: '#00f', radius: 5};
+                } else {
+                    style = {fillColor: '#0f0'};
+                }
+                style.color = '#000';
+                style.weight = 1.5;
+                return L.circleMarker(latlng, style);
             } else {
                 var color;
                 if (feature.properties.prom_ft > 4000) {
@@ -104,9 +113,14 @@ function loadData(map, data) {
             var props = feature.properties
             if (MODE == 'single') {                
                 var $div = $('<div>');
-                if (props.type == 'summit') {
-                    $div.html('<div>' + round(props.prom_ft, 1) + (props.min_bound ? '*' : '') + '</div><div>' + round(props.elev_ft, 1) + '</div>')
-                } else if (props.type == 'saddle') {
+                if (props.type == 'summit' || props.type == 'parent') {
+                    var html = '';
+                    if (props.type == 'parent') {
+                        html += '<div><a target="_blank" href="/view/prom' + props.geo + '.geojson">' + props.geo + '</a></div>';
+                    }
+                    html += '<div>' + round(props.prom_ft, 1) + (props.min_bound ? '*' : '') + '</div><div>' + round(props.elev_ft, 1) + '</div>';
+                    $div.html(html);
+                } else if (props.type == 'saddle' || props.type == 'higher') {
                     $div.html('<div>' + round(props.elev_ft, 1) + '</div>');
                 } else {
                     return;

@@ -20,21 +20,21 @@ class SummitsHandler(web.RequestHandler):
     def get(self, prefix):
         max_n = int(self.get_argument('max', 1000))
 
-        summits = filter(lambda e: e['summitgeo'].startswith(prefix), alldata)
-        summits = sorted(summits, key=lambda e: e['prom'], reverse=True)[:max_n]
+        summits = filter(lambda e: e['summit']['geo'].startswith(prefix), alldata)
+        summits = sorted(summits, key=lambda e: e['summit']['prom'], reverse=True)[:max_n]
 
         def feature(s):
             return {
                 'type': 'Feature',
                 'geometry': {
                     'type': 'Point',
-                    'coordinates': [s['summit'][1], s['summit'][0]],
+                    'coordinates': [s['summit']['coords'][1], s['summit']['coords'][0]],
                 },
                 'properties': {
-                    'prom_ft': s['prom'] / .3048,
-                    'elev_ft': s['elev'] / .3048,
-                    'min_bound': s['min_bound'],
-                    'geo': s['summitgeo'],
+                    'prom_ft': s['summit']['prom'],
+                    'elev_ft': s['summit']['elev'],
+                    'min_bound': s.get('min_bound', False),
+                    'geo': s['summit']['geo'],
                 },
             }
 

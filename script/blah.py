@@ -3,18 +3,16 @@ import json
 import sys
 import tempfile
 import uuid
+from subprocess import Popen, PIPE
 
 tag = uuid.uuid4().hex[:12]
 
-raw = os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms6000m -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar promviz.DEMManager %s' % ' '.join(sys.argv[1:])).readlines()
-#raw = open('/tmp/debug.output').readlines()
+os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms6000m -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar:/home/drew/dev/promviz/promviz/lib/gson-2.2.4.jar promviz.DEMManager %s > /tmp/prombackup' % ' '.join(sys.argv[1:]))
 
-data = json.loads('[%s]' % ', '.join(raw))
+with open('/tmp/prombackup') as f:
+    data = json.load(f)
 
-with open('/tmp/prombackup', 'w') as f:
-    json.dump(data, f)
-
-data.sort(key=lambda e: e['prom'], reverse=True)
+data.sort(key=lambda e: e['summit']['prom'], reverse=True)
 
 def to_geojson(k):
     def feature(coords, **props):
@@ -44,28 +42,45 @@ def to_geojson(k):
     data = {
         'type': 'FeatureCollection',
         'features': [
-            feature(k['summit'],
+            feature(k['summit']['coords'],
                     type='summit',
-                    prom_ft=k['prom'] / .3048,
-                    elev_ft=k['elev'] / .3048,
-                    min_bound=k['min_bound'],
-                    geo=k['summitgeo'],
+                    prom_ft=k['summit']['prom'],
+                    elev_ft=k['summit']['elev'],
+                    min_bound=k.get('min_bound', False),
+                    geo=k['summit']['geo'],
                     ),
-            feature(k['saddle'],
+            feature(k['saddle']['coords'],
                     type='saddle',
-                    elev_ft=(k['elev'] - k['prom']) / .3048,
-                    geo=k['saddlegeo'],
+                    elev_ft=k['saddle']['elev'],
+                    geo=k['saddle']['geo'],
                     ),
-            feature(k['linepath'], type='divide'),
-            feature(k['parentpath'], type='toparent'),
+            feature(k['higher_path'], type='divide'),
+            feature(k['parent_path'], type='toparent'),
         ]
     }
+    if k.get('higher'):
+        data['features'].append(
+            feature(k['higher']['coords'],
+                    type='higher',
+                    elev_ft=k['higher']['elev'],
+                    geo=k['higher']['geo'],
+                ),
+        )
+    if k.get('parent'):
+        data['features'].append(
+            feature(k['parent']['coords'],
+                    type='parent',
+                    prom_ft=k['parent']['prom'],
+                    elev_ft=k['parent']['elev'],
+                    geo=k['parent']['geo'],
+                ),
+        )
     if k.get('runoff'):
         data['features'].append(feature(k['runoff'], type='domain'))
 
     content = json.dumps(data, indent=2)
 
-    path = '/tmp/prom%s.geojson' % k['summitgeo']
+    path = '/tmp/prom%s.geojson' % k['summit']['geo']
     with open(path, 'w') as f:
         f.write(content)
     
