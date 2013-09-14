@@ -9,11 +9,37 @@ import json
 from datetime import datetime, timedelta
 import sys
 import re
+import collections
+
+def feature(s):
+    return {
+        'type': 'Feature',
+        'geometry': {
+            'type': 'Point',
+            'coordinates': [s['summit']['coords'][1], s['summit']['coords'][0]],
+        },
+        'properties': {
+            'prom_ft': s['summit']['prom'],
+            'elev_ft': s['summit']['elev'],
+            'min_bound': s.get('min_bound', False),
+            'geo': s['summit']['geo'],
+        },
+    }
 
 class MapViewHandler(web.RequestHandler):
     def get(self, tag):
         with open(os.path.join('/tmp', tag)) as f:
             geojson = json.load(f)
+        
+        summit = [k for k in geojson['features'] if k['properties']['type'] == 'summit'][0]
+        children = [by_geo[childgeo] for childgeo in hierarchy[summit['properties']['geo']]]
+        children.sort(key=lambda s: s['summit']['prom'], reverse=True)
+        for i, child in enumerate(children):
+            f = feature(child)
+            f['properties']['type'] = 'child'
+            f['properties']['order'] = i + 1
+            geojson['features'].append(f)
+
         self.render('map.html', mode='single', data=geojson)
 
 class SummitsHandler(web.RequestHandler):
@@ -22,21 +48,6 @@ class SummitsHandler(web.RequestHandler):
 
         summits = filter(lambda e: e['summit']['geo'].startswith(prefix), alldata)
         summits = sorted(summits, key=lambda e: e['summit']['prom'], reverse=True)[:max_n]
-
-        def feature(s):
-            return {
-                'type': 'Feature',
-                'geometry': {
-                    'type': 'Point',
-                    'coordinates': [s['summit']['coords'][1], s['summit']['coords'][0]],
-                },
-                'properties': {
-                    'prom_ft': s['summit']['prom'],
-                    'elev_ft': s['summit']['elev'],
-                    'min_bound': s.get('min_bound', False),
-                    'geo': s['summit']['geo'],
-                },
-            }
 
         data = {
             'type': 'FeatureCollection',
@@ -64,6 +75,10 @@ if __name__ == "__main__":
 
     with open('/tmp/prombackup') as f:
         alldata = json.load(f)
+    by_geo = dict((p['summit']['geo'], p) for p in alldata)
+    hierarchy = collections.defaultdict(set)
+    for p in alldata:
+        hierarchy[p['parent']['geo'] if 'parent' in p else None].add(p['summit']['geo'])
 
     try:
         IOLoop.instance().start()

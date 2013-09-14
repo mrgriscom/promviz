@@ -297,23 +297,25 @@ public class DEMManager {
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w115ds3", 2001, 2001, 40, -115, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w110ds3", 2001, 2001, 40, -110, .0025, .0025, true));
 
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w090ds3", 2001, 2001, 30, -90, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w090ds3", 2001, 2001, 35, -90, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w090ds3", 2001, 2001, 40, -90, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n25w085ds3", 2001, 2001, 25, -85, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w085ds3", 2001, 2001, 30, -85, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w085ds3", 2001, 2001, 35, -85, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w085ds3", 2001, 2001, 40, -85, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w080ds3", 2001, 2001, 30, -80, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w080ds3", 2001, 2001, 35, -80, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w075ds3", 2001, 2001, 35, -75, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w090ds3", 2001, 2001, 30, -90, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w090ds3", 2001, 2001, 35, -90, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w090ds3", 2001, 2001, 40, -90, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w090ds3", 2001, 2001, 45, -90, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n25w085ds3", 2001, 2001, 25, -85, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w085ds3", 2001, 2001, 30, -85, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w085ds3", 2001, 2001, 35, -85, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w085ds3", 2001, 2001, 40, -85, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w085ds3", 2001, 2001, 45, -85, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n30w080ds3", 2001, 2001, 30, -80, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w080ds3", 2001, 2001, 35, -80, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n35w075ds3", 2001, 2001, 35, -75, .0025, .0025, true));
 		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w070ds3", 2001, 2001, 40, -70, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w065ds3", 2001, 2001, 40, -65, .0025, .0025, true));
-//		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w065ds3", 2001, 2001, 45, -65, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w070ds3", 2001, 2001, 40, -70, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n40w065ds3", 2001, 2001, 40, -65, .0025, .0025, true));
+		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w065ds3", 2001, 2001, 45, -65, .0025, .0025, true));
 
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n45w080ds3", 2001, 2001, 45, -80, .0025, .0025, true));
 //		dm.DEMs.add(new DEMFile("/mnt/ext/pvdata/n50w080ds3", 2001, 2001, 50, -80, .0025, .0025, true));
@@ -336,6 +338,7 @@ public class DEMManager {
 		System.err.println(dtn.down.points.size() + " nodes in network (down)");
 
 		double PROM_CUTOFF = 50.;
+		double ANTI_PROM_CUTOFF = 50.;
 		
 		TopologyNetwork tn = (up ? dtn.up : dtn.down);
 		TopologyNetwork anti_tn = (!up ? dtn.up : dtn.down);

@@ -79,7 +79,9 @@ function loadData(map, data) {
                     style = {fillColor: '#ff0'};
                 } else if (props.type == 'higher') {
                     style = {fillColor: '#00f', radius: 5};
-                } else {
+                } else if (props.type == 'child') {
+                    style = {fillColor: '#0ff', radius: 7.5};
+                } else if (props.type == 'parent') {
                     style = {fillColor: '#0f0'};
                 }
                 style.color = '#000';
@@ -113,9 +115,12 @@ function loadData(map, data) {
             var props = feature.properties
             if (MODE == 'single') {                
                 var $div = $('<div>');
-                if (props.type == 'summit' || props.type == 'parent') {
+                if (props.type == 'summit' || props.type == 'parent' || props.type == 'child') {
                     var html = '';
-                    if (props.type == 'parent') {
+                    if (props.type == 'child') {
+                        html += '<div>#' + props.order + '</div>';
+                    }
+                    if (props.type != 'summit') {
                         html += '<div><a target="_blank" href="/view/prom' + props.geo + '.geojson">' + props.geo + '</a></div>';
                     }
                     html += '<div>' + round(props.prom_ft, 1) + (props.min_bound ? '*' : '') + '</div><div>' + round(props.elev_ft, 1) + '</div>';

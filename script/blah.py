@@ -7,7 +7,8 @@ from subprocess import Popen, PIPE
 
 tag = uuid.uuid4().hex[:12]
 
-os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms6000m -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar:/home/drew/dev/promviz/promviz/lib/gson-2.2.4.jar promviz.DEMManager %s > /tmp/prombackup' % ' '.join(sys.argv[1:]))
+os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms6000m -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar:/home/drew/dev/promviz/promviz/lib/gson-2.2.4.jar promviz.DEMManager %s > /tmp/prominprogress' % ' '.join(sys.argv[1:]))
+os.popen('mv /tmp/prominprogress /tmp/prombackup')
 
 with open('/tmp/prombackup') as f:
     data = json.load(f)
