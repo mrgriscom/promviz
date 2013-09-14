@@ -63,6 +63,8 @@ function loadData(map, data) {
             var props = feature.properties;
             if (props.type == 'divide') {
                 return {color: '#00f'};
+            } else if (props.type == 'toparent') {
+                return {color: '#f00'};
             } else if (props.type == 'domain') {
                 return {color: '#0f0'};
             }

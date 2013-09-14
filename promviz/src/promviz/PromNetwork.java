@@ -87,8 +87,29 @@ public class PromNetwork {
 		}
 	}
 
+	static interface Criterion {
+		boolean condition(Comparator<Point> cmp, Point p, Point cur);
+	}
+	
 	public static PromInfo prominence(TopologyNetwork tree, Point p, final boolean up) {
-		return _prominence(tree, p, up, false);
+		return _prominence(tree, p, up, new Criterion() {
+			@Override
+			public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
+				return cmp.compare(cur, p) > 0;
+			}			
+		});
+	}
+
+	public static PromInfo parent(TopologyNetwork tree, Point p,
+				final boolean up, final Map<Point, PromNetwork.PromInfo> prominentPoints) {
+		final double pProm = prominentPoints.get(p).prominence();
+		return _prominence(tree, p, up, new Criterion() {
+			@Override
+			public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
+				double curProm = (prominentPoints.containsKey(cur) ? prominentPoints.get(cur).prominence() : 0);				
+				return cmp.compare(cur, p) > 0 && curProm > pProm; // not sure the elev comparison is even necessary
+			}
+		});
 	}
 	
 	public static List<List<Point>> runoff(TopologyNetwork antiTree, Point saddle, final boolean up) {
@@ -99,7 +120,12 @@ public class PromNetwork {
 				continue;
 			}
 			
-			PromNetwork.PromInfo saddle_pi = PromNetwork._prominence(antiTree, lead, !up, true);
+			PromNetwork.PromInfo saddle_pi = PromNetwork._prominence(antiTree, lead, !up, new Criterion() {
+				@Override
+				public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
+					return false;
+				}				
+			});
 			saddle_pi.path.add(saddle);
 			runoffs.add(saddle_pi.path);
 		}
@@ -115,7 +141,7 @@ public class PromNetwork {
 		};
 	}
 
-	public static PromInfo _prominence(TopologyNetwork tree, Point p, boolean up, boolean endlessChase) {
+	public static PromInfo _prominence(TopologyNetwork tree, Point p, boolean up, Criterion crit) {
 		if (up != tree.up) {
 			throw new IllegalArgumentException("incompatible topology tree");
 		}
@@ -144,7 +170,7 @@ public class PromNetwork {
 				break;
 			}
 			pi.add(cur);
-			if (!endlessChase && c.compare(cur, p) > 0) {
+			if (crit.condition(c, p, cur)) {
 				break;
 			}
 

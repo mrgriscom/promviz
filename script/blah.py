@@ -41,7 +41,7 @@ def to_geojson(k):
             'properties': props,
         }
 
-    content = json.dumps({
+    data = {
         'type': 'FeatureCollection',
         'features': [
             feature(k['summit'],
@@ -56,27 +56,19 @@ def to_geojson(k):
                     elev_ft=(k['elev'] - k['prom']) / .3048,
                     geo=k['saddlegeo'],
                     ),
-            feature(k['path'], type='divide'),
-            feature(k['runoff'], type='domain'),
+            feature(k['linepath'], type='divide'),
+            feature(k['parentpath'], type='toparent'),
         ]
-    }, indent=2)
+    }
+    if k.get('runoff'):
+        data['features'].append(feature(k['runoff'], type='domain'))
+
+    content = json.dumps(data, indent=2)
 
     path = '/tmp/prom%s.geojson' % k['summitgeo']
     with open(path, 'w') as f:
         f.write(content)
     
-    """
-    print '<a target="_blank" href="http://localhost:8000/view/%(path)s?%(tag)s"><span style="font-family: monospace;">%(peakgeo)s %(saddlegeostem)s</span> %(prom).1f%(minbound)s (%(pathlen)d)</a><br>' % {
-        'path': path[5:],
-        'prom': k['prom'] / .3048,
-        'minbound': '*' if k['min_bound'] else '',
-        'pathlen': len(k['path']),
-        'peakgeo': k['summitgeo'][:11],
-        'saddlegeostem': common_prefix(k['saddlegeo'], k['summitgeo'])[:11],
-        'tag': tag,
-    }
-    """
-
 def common_prefix(sub, sup, pad='-'):
     x = list(sub)
     for i in range(len(sub)):

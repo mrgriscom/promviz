@@ -334,36 +334,50 @@ public class DEMManager {
 		System.err.println(dtn.up.points.size() + " nodes in network (up)");
 		System.err.println(dtn.down.points.size() + " nodes in network (down)");
 
+		double PROM_CUTOFF = 50.;
+		
 		TopologyNetwork tn = (up ? dtn.up : dtn.down);
 		TopologyNetwork anti_tn = (!up ? dtn.up : dtn.down);
+		
+		Map<Point, PromNetwork.PromInfo> prominentPoints = new HashMap<Point, PromNetwork.PromInfo>();
+		
 		for (Point p : tn.points.values()) {
 			if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
 				continue;
 			}
 			
-			double PROM_CUTOFF = 50.;
 			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
 			if (pi != null && pi.prominence() > PROM_CUTOFF) {
-				List<String> domainLimits = new ArrayList<String>();
-				for (List<Point> ro : PromNetwork.runoff(anti_tn, pi.saddle, up)) {
-					domainLimits.add(pathToStr(ro));					
-				}
-				
-				double[] peak = p.coords();
-				double[] saddle = pi.saddle.coords();
-				System.out.println(String.format(
-						"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s, \"path\": %s, \"summitgeo\": \"%s\", \"saddlegeo\": \"%s\", \"runoff\": %s}",
-						peak[0], peak[1],
-						p.elev,
-						pi.prominence(),
-						saddle[0], saddle[1],
-						pi.min_bound_only ? "true" : "false",
-						pathToStr(pi.path),
-						GeoCode.print(p.geocode),
-						GeoCode.print(pi.saddle.geocode),
-						String.format("[%s]", join(domainLimits, ", "))
-					));
+				prominentPoints.put(p, pi);
 			}
+		}
+		
+		for (Entry<Point, PromNetwork.PromInfo> e : prominentPoints.entrySet()) {
+			Point p = e.getKey();
+			PromNetwork.PromInfo pi = e.getValue();
+			
+			PromNetwork.PromInfo parentage = PromNetwork.parent(tn, p, up, prominentPoints);
+			
+//				List<String> domainLimits = new ArrayList<String>();
+//				for (List<Point> ro : PromNetwork.runoff(anti_tn, pi.saddle, up)) {
+//					domainLimits.add(pathToStr(ro));					
+//				}
+				
+			double[] peak = p.coords();
+			double[] saddle = pi.saddle.coords();
+			System.out.println(String.format(
+					"{\"summit\": [%.5f, %.5f], \"elev\": %.1f, \"prom\": %.1f, \"saddle\": [%.5f, %.5f], \"min_bound\": %s, \"linepath\": %s, \"summitgeo\": \"%s\", \"saddlegeo\": \"%s\", \"parentpath\": %s, \"runoff\": %s}",
+					peak[0], peak[1],
+					p.elev,
+					pi.prominence(),
+					saddle[0], saddle[1],
+					pi.min_bound_only ? "true" : "false",
+					pathToStr(pi.path),
+					GeoCode.print(p.geocode),
+					GeoCode.print(pi.saddle.geocode),
+					pathToStr(parentage.path),
+					"null" //String.format("[%s]", join(domainLimits, ", "))
+				));
 		}
 	}
 	
