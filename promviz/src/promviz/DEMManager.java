@@ -21,6 +21,7 @@ public class DEMManager {
 	final int MESH_MAX_POINTS = (1 << 23);
 	
 	List<DEMFile> DEMs;
+	static Projection PROJ;
 	
 	public DEMManager() {
 		DEMs = new ArrayList<DEMFile>();
@@ -114,8 +115,7 @@ public class DEMManager {
 	
 	public static long[] adjacency(Long ix) {
 		double[] ll = GeoCode.toCoord(ix);
-		int r = (int)Math.round(ll[0] / DEMFile.STEP);
-		int c = (int)Math.round(ll[1] / DEMFile.STEP);
+		int[] rc = PROJ.toGrid(ll[0], ll[1]);
 		
 		int[][] offsets = {
 				{0, 1},
@@ -128,11 +128,11 @@ public class DEMManager {
 				{-1, 1},
 			};
 		List<double[]> adj = new ArrayList<double[]>();
-		boolean fully_connected = (Util.mod(r + c, 2) == 0);
+		boolean fully_connected = (Util.mod(rc[0] + rc[1], 2) == 0);
 		for (int[] offset : offsets) {
 			boolean diagonal_connection = (Util.mod(offset[0] + offset[1], 2) == 0);
 			if (fully_connected || !diagonal_connection) {
-				adj.add(DEMFile.gridToCoord(r + offset[1], c + offset[0], true));
+				adj.add(PROJ.fromGrid(rc[0] + offset[0], rc[1] + offset[1]));
 			}
 		}
 		long[] adjix = new long[adj.size()];
@@ -268,10 +268,11 @@ public class DEMManager {
 	// HACKY
 	boolean inScope(long ix) {
 		double[] c = GeoCode.toCoord(ix);
+		int[] xy = PROJ.toGrid(c[0], c[1]);
 		for (DEMFile dem : DEMs) {
-			if (c[0] >= dem.lat0 && c[1] >= dem.lon0 &&
-					c[0] <= (dem.lat0 + dem.dy * (dem.height - 1)) &&
-					c[1] <= (dem.lon0 + dem.dx * (dem.width - 1))) {
+			if (xy[0] >= dem.x0 && xy[1] >= dem.y0 &&
+					xy[0] <= (dem.x0 + dem.height - 1) &&
+					xy[1] <= (dem.y0 + dem.width - 1)) {
 				return true;
 			}
 		}
@@ -283,81 +284,81 @@ public class DEMManager {
 		Logging.init();
 		
 		DEMManager dm = new DEMManager();
-		DEMFile.STEP = .0025;
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w125ds3", 2001, 2001, 30, -125, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w120ds3", 2001, 2001, 30, -120, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w115ds3", 2001, 2001, 30, -115, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w110ds3", 2001, 2001, 30, -110, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w125ds3", 2001, 2001, 35, -125, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w120ds3", 2001, 2001, 35, -120, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w115ds3", 2001, 2001, 35, -115, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w110ds3", 2001, 2001, 35, -110, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w125ds3", 2001, 2001, 40, -125, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w120ds3", 2001, 2001, 40, -120, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w115ds3", 2001, 2001, 40, -115, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w110ds3", 2001, 2001, 40, -110, .0025, .0025, true));
+		PROJ = SRTMDEM.SRTMProjection(3.);
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w125ds3", 2001, 2001, 30, -125, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w120ds3", 2001, 2001, 30, -120, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w115ds3", 2001, 2001, 30, -115, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w110ds3", 2001, 2001, 30, -110, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w125ds3", 2001, 2001, 35, -125, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w120ds3", 2001, 2001, 35, -120, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w115ds3", 2001, 2001, 35, -115, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w110ds3", 2001, 2001, 35, -110, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w125ds3", 2001, 2001, 40, -125, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w120ds3", 2001, 2001, 40, -120, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w115ds3", 2001, 2001, 40, -115, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w110ds3", 2001, 2001, 40, -110, 3.));
 
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w090ds3", 2001, 2001, 30, -90, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w090ds3", 2001, 2001, 35, -90, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w090ds3", 2001, 2001, 40, -90, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w090ds3", 2001, 2001, 45, -90, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25w085ds3", 2001, 2001, 25, -85, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w085ds3", 2001, 2001, 30, -85, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w085ds3", 2001, 2001, 35, -85, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w085ds3", 2001, 2001, 40, -85, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w085ds3", 2001, 2001, 45, -85, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w080ds3", 2001, 2001, 30, -80, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w080ds3", 2001, 2001, 35, -80, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w075ds3", 2001, 2001, 35, -75, .0025, .0025, true));
-		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w070ds3", 2001, 2001, 40, -70, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w065ds3", 2001, 2001, 40, -65, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w065ds3", 2001, 2001, 45, -65, .0025, .0025, true));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w090ds3", 2001, 2001, 30, -90, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w090ds3", 2001, 2001, 35, -90, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w090ds3", 2001, 2001, 40, -90, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w090ds3", 2001, 2001, 45, -90, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25w085ds3", 2001, 2001, 25, -85, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w085ds3", 2001, 2001, 30, -85, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w085ds3", 2001, 2001, 35, -85, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w085ds3", 2001, 2001, 40, -85, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w085ds3", 2001, 2001, 45, -85, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w080ds3", 2001, 2001, 30, -80, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w080ds3", 2001, 2001, 35, -80, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w075ds3", 2001, 2001, 35, -75, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w070ds3", 2001, 2001, 40, -70, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w065ds3", 2001, 2001, 40, -65, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w065ds3", 2001, 2001, 45, -65, 3.));
 
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w080ds3", 2001, 2001, 45, -80, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n50w080ds3", 2001, 2001, 50, -80, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n55w080ds3", 2001, 2001, 55, -80, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n50w075ds3", 2001, 2001, 50, -75, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n55w075ds3", 2001, 2001, 55, -75, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n50w070ds3", 2001, 2001, 50, -70, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n55w070ds3", 2001, 2001, 55, -70, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n50w065ds3", 2001, 2001, 50, -65, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n55w065ds3", 2001, 2001, 55, -65, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n50w060ds3", 2001, 2001, 50, -60, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n55w060ds3", 2001, 2001, 55, -60, .0025, .0025, true));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w080ds3", 2001, 2001, 45, -80, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n50w080ds3", 2001, 2001, 50, -80, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n55w080ds3", 2001, 2001, 55, -80, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n50w075ds3", 2001, 2001, 50, -75, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n55w075ds3", 2001, 2001, 55, -75, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n50w070ds3", 2001, 2001, 50, -70, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n55w070ds3", 2001, 2001, 55, -70, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n50w065ds3", 2001, 2001, 50, -65, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n55w065ds3", 2001, 2001, 55, -65, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n50w060ds3", 2001, 2001, 50, -60, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n55w060ds3", 2001, 2001, 55, -60, 3.));
 		
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e070ds3", 2001, 2001, 25, 70, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e075ds3", 2001, 2001, 25, 75, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e080ds3", 2001, 2001, 25, 80, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e085ds3", 2001, 2001, 25, 85, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e090ds3", 2001, 2001, 25, 90, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e095ds3", 2001, 2001, 25, 95, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e100ds3", 2001, 2001, 25, 100, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e070ds3", 2001, 2001, 30, 70, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e075ds3", 2001, 2001, 30, 75, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e080ds3", 2001, 2001, 30, 80, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e085ds3", 2001, 2001, 30, 85, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e090ds3", 2001, 2001, 30, 90, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e095ds3", 2001, 2001, 30, 95, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e100ds3", 2001, 2001, 30, 100, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e070ds3", 2001, 2001, 35, 70, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e075ds3", 2001, 2001, 35, 75, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e080ds3", 2001, 2001, 35, 80, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e085ds3", 2001, 2001, 35, 85, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e090ds3", 2001, 2001, 35, 90, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e095ds3", 2001, 2001, 35, 95, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e100ds3", 2001, 2001, 35, 100, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e070ds3", 2001, 2001, 40, 70, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e075ds3", 2001, 2001, 40, 75, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e080ds3", 2001, 2001, 40, 80, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e085ds3", 2001, 2001, 40, 85, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e090ds3", 2001, 2001, 40, 90, .0025, .0025, true));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e095ds3", 2001, 2001, 40, 95, .0025, .0025, true));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e070ds3", 2001, 2001, 25, 70, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e075ds3", 2001, 2001, 25, 75, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e080ds3", 2001, 2001, 25, 80, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e085ds3", 2001, 2001, 25, 85, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e090ds3", 2001, 2001, 25, 90, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e095ds3", 2001, 2001, 25, 95, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n25e100ds3", 2001, 2001, 25, 100, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e070ds3", 2001, 2001, 30, 70, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e075ds3", 2001, 2001, 30, 75, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e080ds3", 2001, 2001, 30, 80, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e085ds3", 2001, 2001, 30, 85, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e090ds3", 2001, 2001, 30, 90, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e095ds3", 2001, 2001, 30, 95, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30e100ds3", 2001, 2001, 30, 100, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e070ds3", 2001, 2001, 35, 70, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e075ds3", 2001, 2001, 35, 75, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e080ds3", 2001, 2001, 35, 80, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e085ds3", 2001, 2001, 35, 85, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e090ds3", 2001, 2001, 35, 90, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e095ds3", 2001, 2001, 35, 95, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35e100ds3", 2001, 2001, 35, 100, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e070ds3", 2001, 2001, 40, 70, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e075ds3", 2001, 2001, 40, 75, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e080ds3", 2001, 2001, 40, 80, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e085ds3", 2001, 2001, 40, 85, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e090ds3", 2001, 2001, 40, 90, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40e095ds3", 2001, 2001, 40, 95, 3.));
 
 //		dm.DEMs.add(new GridFloatDEM("/mnt/ext/ned/whitea.img",
 //				6696, 4320, 44.00, -71.78, 9.259259e-5, 9.259259e-5, true));

@@ -9,8 +9,19 @@ import com.google.common.io.LittleEndianDataInputStream;
 
 public class SRTMDEM extends DEMFile {
 
-	public SRTMDEM(String path, int width, int height, double lat0, double lon0, double dx, double dy, boolean sample_mode) {
-		super(path, width, height, lat0, lon0, dx, dy, sample_mode);
+	public static Projection SRTMProjection(double downscaling) {
+		return new GeoProjection(downscaling / 1200.);
+	}
+	
+	public SRTMDEM(String path, int width, int height, double lat0, double lon0, double downscaling) {
+		super(
+			path,
+			SRTMProjection(downscaling),
+			width,
+			height,
+			SRTMProjection(downscaling).toGrid(lat0, lon0)[0],
+			SRTMProjection(downscaling).toGrid(lat0, lon0)[1]
+		); // fucking java
 	}
 	
 	public Object getReader(String path) throws FileNotFoundException {

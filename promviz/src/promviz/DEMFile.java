@@ -1,39 +1,24 @@
 package promviz;
-import java.io.BufferedInputStream;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Iterator;
 
-import com.google.common.io.LittleEndianDataInputStream;
-
-
 public abstract class DEMFile {
 
+	Projection proj;
 	int width;
 	int height;
-	double lat0;
-	double lon0;
-	double dx;
-	double dy;
-	boolean sample_mode; // true == lat0/lon0 correspond to center of pixel; false == correspond to corner of pixel
+	int x0; //left
+	int y0; //bottom
 	String path;
 	
-	public DEMFile(String path, int width, int height, double lat0, double lon0, double dx, double dy, boolean sample_mode) {
+	public DEMFile(String path, Projection proj, int width, int height, int x0, int y0) {
 		this.path = path;
+		this.proj = proj;
 		this.width = width;
 		this.height = height;
-		this.lat0 = lat0;
-		this.lon0 = lon0;
-		this.dx = dx;
-		this.dy = dy;
-		this.sample_mode = sample_mode;
-	}
-	
-	static double STEP;
-	
-	static double[] gridToCoord(int r, int c, boolean sample_mode) {
-		return new double[] {STEP * (r + (sample_mode ? 0 : 0.5)), STEP * (c + (sample_mode ? 0 : 0.5))};
+		this.x0 = x0;
+		this.y0 = y0;
 	}
 	
 	class CoordsIterator implements Iterator<Long> {
@@ -43,8 +28,8 @@ public abstract class DEMFile {
 		int c;
 		
 		public CoordsIterator() {
-			r0 = (int)Math.round(lat0 / STEP);
-			c0 = (int)Math.round(lon0 / STEP);
+			r0 = y0;
+			c0 = x0;
 			r = 0;
 			c = 0;
 		}
@@ -56,7 +41,7 @@ public abstract class DEMFile {
 
 		@Override
 		public Long next() {
-			double[] coord = gridToCoord(r0 + height - 1 - r, c0 + c, sample_mode);
+			double[] coord = proj.fromGrid(c0 + c, r0 + height - 1 - r);
 			
 			c++;
 			if (c == width) {
