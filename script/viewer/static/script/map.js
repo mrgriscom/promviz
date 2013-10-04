@@ -15,8 +15,9 @@ function init($div, data) {
         'Map': mapboxLayer('examples.map-9ijuk24y'),
         'Topo': L.tileLayer('http://services.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}', {maxZoom: 15}),
         'Satellite': mapboxLayer('examples.map-qfyrx5r8'),
+        'Terrain': L.tileLayer('http://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {subdomains: '0123'}),
     }
-    var layerOrder = ['Hypso', 'Topo', 'Map', 'Satellite'];
+    var layerOrder = ['Hypso', 'Terrain', 'Topo', 'Map', 'Satellite'];
     L.control.layers(layers).addTo(map);
 
     var activeLayer = null;

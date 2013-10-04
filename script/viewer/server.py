@@ -28,7 +28,7 @@ def feature(s):
 
 class MapViewHandler(web.RequestHandler):
     def get(self, tag):
-        with open(os.path.join('/tmp', tag)) as f:
+        with open(os.path.join('/home/drew/tmp/pvout', tag)) as f:
             geojson = json.load(f)
         
         summit = [k for k in geojson['features'] if k['properties']['type'] == 'summit'][0]
@@ -73,7 +73,7 @@ if __name__ == "__main__":
     ], template_path='templates', debug=True)
     application.listen(port)
 
-    with open('/tmp/prombackup') as f:
+    with open('/home/drew/tmp/pvout/prombackup') as f:
         alldata = json.load(f)
     by_geo = dict((p['summit']['geo'], p) for p in alldata)
     hierarchy = collections.defaultdict(set)

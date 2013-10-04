@@ -8,9 +8,9 @@ from subprocess import Popen, PIPE
 tag = uuid.uuid4().hex[:12]
 
 os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms6000m -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar:/home/drew/dev/promviz/promviz/lib/gson-2.2.4.jar promviz.DEMManager %s > /tmp/prominprogress' % ' '.join(sys.argv[1:]))
-os.popen('mv /tmp/prominprogress /tmp/prombackup')
+os.popen('mv /tmp/prominprogress ~/tmp/pvout/prombackup')
 
-with open('/tmp/prombackup') as f:
+with open('/home/drew/tmp/pvout/prombackup') as f:
     data = json.load(f)
 
 data.sort(key=lambda e: e['summit']['prom'], reverse=True)
@@ -81,7 +81,7 @@ def to_geojson(k):
 
     content = json.dumps(data, indent=2)
 
-    path = '/tmp/prom%s.geojson' % k['summit']['geo']
+    path = '/home/drew/tmp/pvout/prom%s.geojson' % k['summit']['geo']
     with open(path, 'w') as f:
         f.write(content)
     

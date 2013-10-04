@@ -8,7 +8,7 @@ import java.util.Iterator;
 import com.google.common.io.LittleEndianDataInputStream;
 
 
-public class DEMFile {
+public abstract class DEMFile {
 
 	int width;
 	int height;
@@ -83,8 +83,7 @@ public class DEMFile {
 	}
 	
 	class PointsIterator implements Iterator<Point> {
-		LittleEndianDataInputStream f;
-//		BufferedReader f;
+		Object f;
 		
 		Iterator<Long> coords;
 		DEMManager.Prefix prefix;
@@ -95,8 +94,7 @@ public class DEMFile {
 		public PointsIterator(DEMManager.Prefix prefix) {
 			this.prefix = prefix;
 			try {
-				f = new LittleEndianDataInputStream(new BufferedInputStream(new FileInputStream(path)));
-//				f = new BufferedReader(new InputStreamReader(new FileInputStream(path)));
+				f = getReader(path);
 			} catch (FileNotFoundException fnfe) {
 				throw new RuntimeException(String.format("[%s] not found", path));
 			}
@@ -109,8 +107,7 @@ public class DEMFile {
 				long geocode = coords.next();
 				double elev;
 				try {
-//					elev = Double.valueOf(f.readLine());
-					elev = f.readShort();
+					elev = getNextSample(f);
 				} catch (IOException ioe) {
 					throw new RuntimeException("error reading DEM");
 				}
@@ -151,9 +148,13 @@ public class DEMFile {
 		};
 	}
 			
+	public abstract Object getReader(String path) throws FileNotFoundException;
+	
+	public abstract double getNextSample(Object reader) throws IOException;
+
 	public static void main(String[] args) {
-		for (Long l : new DEMFile("", 20, 10, 40, -75, .01, .01, true).coords()) {
-			System.out.println(GeoCode.print(GeoCode.prefix(l, 26)));
-		}
+//		for (Long l : new DEMFile("", 20, 10, 40, -75, .01, .01, true).coords()) {
+//			System.out.println(GeoCode.print(GeoCode.prefix(l, 26)));
+//		}
 	}
 }
