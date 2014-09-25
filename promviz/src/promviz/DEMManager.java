@@ -16,15 +16,17 @@ import com.google.gson.Gson;
 
 
 public class DEMManager {	
-	final int MAX_BUCKET_DEPTH = 26; // ~5km square
-	final int DEM_TILE_MAX_POINTS = (1 << 20);
+	//final int MAX_BUCKET_DEPTH = 26; // ~5km square
+	final int GRID_TILE_SIZE = (1 << 10);
 	final int MESH_MAX_POINTS = (1 << 23);
 	
 	List<DEMFile> DEMs;
+	List<Projection> projs;
 	static Projection PROJ;
 	
 	public DEMManager() {
 		DEMs = new ArrayList<DEMFile>();
+		projs = new ArrayList<Projection>();
 	}
 	
 	DualTopologyNetwork buildAll() {
@@ -247,8 +249,8 @@ public class DEMManager {
 		return partitions;
 	}
 	
-	public Map<Prefix, Set<DEMFile>> partitionDEM() {
-		Map<Prefix, Set<DEMFile>> partitioning = new HashMap<Prefix, Set<DEMFile>>();
+	public Map<Long, Set<DEMFile>> partitionDEM() {
+		Map<Long, Set<DEMFile>> partitioning = new HashMap<Long, Set<DEMFile>>();
 		partitionDEM(new Prefix(0, 0), partitionBucketing(), partitioning);
 		return partitioning;
 	}
@@ -285,6 +287,8 @@ public class DEMManager {
 		
 		DEMManager dm = new DEMManager();
 		PROJ = SRTMDEM.SRTMProjection(3.);
+		dm.projs.add(PROJ);
+		
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w125ds3", 2001, 2001, 30, -125, 3.));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w120ds3", 2001, 2001, 30, -120, 3.));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w115ds3", 2001, 2001, 30, -115, 3.));

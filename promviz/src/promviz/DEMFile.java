@@ -21,6 +21,14 @@ public abstract class DEMFile {
 		this.y0 = y0;
 	}
 	
+	public int xmax() {
+		return x0 + width - 1;
+	}
+	
+	public int ymax() {
+		return y0 + height - 1;
+	}
+	
 	class CoordsIterator implements Iterator<Long> {
 		int r0;
 		int c0;
@@ -110,9 +118,6 @@ public abstract class DEMFile {
 		public Point next() {
 			long geocode = _nextIx;
 			double elev = _nextElev;
-			if (elev == -32768) {
-				elev = 0; // cgiar has voids filled so nodata is actually ocean
-			}
 			Point p = new Point(geocode, elev);
 			p._adjacent = DEMManager.adjacency(p.geocode);
 			return p;

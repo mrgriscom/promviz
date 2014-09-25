@@ -29,7 +29,11 @@ public class SRTMDEM extends DEMFile {
 	}
 	
 	public double getNextSample(Object reader) throws IOException {
-		return ((LittleEndianDataInputStream)reader).readShort();
+		int elev = ((LittleEndianDataInputStream)reader).readShort();
+		if (elev == -32768) {
+			elev = 0; // cgiar has voids filled so nodata is actually ocean
+		}
+		return elev;
 	}
 
 }
