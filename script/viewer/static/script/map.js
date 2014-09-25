@@ -11,7 +11,8 @@ function init($div, data) {
     };
 
     var layers = {
-        'Hypso': L.tileLayer('http://maps-for-free.com/layer/relief/z{z}/row{y}/{z}_{x}-{y}.jpg', {maxZoom: 11}),
+        'Hypso': L.tileLayer('http://localhost/hypso/{z}/{x}/{y}.png', {maxZoom: 10, tms: true}),
+        'Hypso-old': L.tileLayer('http://maps-for-free.com/layer/relief/z{z}/row{y}/{z}_{x}-{y}.jpg', {maxZoom: 11}),
         'Map': mapboxLayer('examples.map-9ijuk24y'),
         'Topo': L.tileLayer('http://services.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}', {maxZoom: 15}),
         'Satellite': mapboxLayer('examples.map-qfyrx5r8'),
