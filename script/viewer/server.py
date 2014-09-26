@@ -75,6 +75,7 @@ if __name__ == "__main__":
 
     with open('/home/drew/tmp/pvout/prombackup') as f:
         alldata = json.load(f)
+        print 'loaded'
     by_geo = dict((p['summit']['geo'], p) for p in alldata)
     hierarchy = collections.defaultdict(set)
     for p in alldata:

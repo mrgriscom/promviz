@@ -16,9 +16,8 @@ import com.google.gson.Gson;
 
 
 public class DEMManager {	
-	//final int MAX_BUCKET_DEPTH = 26; // ~5km square
-	final int GRID_TILE_SIZE = (1 << 10);
-	final int MESH_MAX_POINTS = (1 << 23);
+	static final int GRID_TILE_SIZE = 10;
+	static final int MESH_MAX_POINTS = (1 << 28);
 	
 	List<DEMFile> DEMs;
 	List<Projection> projs;
@@ -35,7 +34,7 @@ public class DEMManager {
 		Logging.log("partitioning complete");
 		Set<Prefix> yetToProcess = new HashSet<Prefix>(coverage.keySet()); //mutable!
 
-		PagedMesh m = new PagedMesh(MESH_MAX_POINTS);
+		PagedMesh m = new PagedMesh(coverage, MESH_MAX_POINTS);
 		DualTopologyNetwork tn = new DualTopologyNetwork(this);
 		while (!tn.complete(allPrefixes, yetToProcess)) {
 			Prefix nextPrefix = getNextPrefix(allPrefixes, yetToProcess, tn, m);
@@ -44,26 +43,13 @@ public class DEMManager {
 				continue;
 			}
 			
-			Set<Point> data = loadPrefix(nextPrefix, coverage);
-			m.loadPage(nextPrefix, data);
-			tn.buildPartial(m, yetToProcess.contains(nextPrefix) ? data : null);
+			List<DEMFile.Sample> newData = m.loadPage(nextPrefix);
+			tn.buildPartial(m, yetToProcess.contains(nextPrefix) ? newData : null);
 			yetToProcess.remove(nextPrefix);
 		}
 		return tn;
 	}
-	
-	Set<Point> loadPrefix(Prefix prefix, Map<Prefix, Set<DEMFile>> coverage) {
-		Logging.log(String.format("loading segment %s...", prefix));
-		Set<Point> points = new HashSet<Point>();
-		for (DEMFile dem : coverage.get(prefix)) {
-			Iterables.addAll(points, dem.samples(prefix));
-			Logging.log(String.format("  scanned DEM %s", dem.path));
-		}
-						
-		Logging.log(String.format("loading complete (%d points)", points.size()));
-		return points;
-	}
-	
+		
 	Prefix getNextPrefix(Set<Prefix> allPrefixes, Set<Prefix> yetToProcess, TopologyNetwork tn, PagedMesh m) {
 		Map<Set<Prefix>, Integer> frontierTotals = tn.tallyPending(allPrefixes);
 		
@@ -116,8 +102,8 @@ public class DEMManager {
 	}
 	
 	public static long[] adjacency(Long ix) {
-		double[] ll = GeoCode.toCoord(ix);
-		int[] rc = PROJ.toGrid(ll[0], ll[1]);
+		int[] _ix = PointIndex.split(ix);
+		int[] rc = {_ix[1], _ix[2]};
 		
 		int[][] offsets = {
 				{0, 1},
@@ -129,63 +115,54 @@ public class DEMManager {
 				{-1, 0},
 				{-1, 1},
 			};
-		List<double[]> adj = new ArrayList<double[]>();
+		List<Long> adj = new ArrayList<Long>();
 		boolean fully_connected = (Util.mod(rc[0] + rc[1], 2) == 0);
 		for (int[] offset : offsets) {
 			boolean diagonal_connection = (Util.mod(offset[0] + offset[1], 2) == 0);
 			if (fully_connected || !diagonal_connection) {
-				adj.add(PROJ.fromGrid(rc[0] + offset[0], rc[1] + offset[1]));
+				adj.add(PointIndex.make(_ix[0], rc[0] + offset[0], rc[1] + offset[1]));
 			}
 		}
 		long[] adjix = new long[adj.size()];
 		for (int i = 0; i < adjix.length; i++) {
-			double[] coord = adj.get(i);
-			adjix[i] = GeoCode.fromCoord(coord[0], coord[1]);
+			adjix[i] = adj.get(i);
 		}
 		return adjix;
 	}
 	
-	class Prefix implements Comparable<Prefix> {
+	static class Prefix implements Comparable<Prefix> {
 		long prefix;
-		int depth;
+		int res;
 
-		public Prefix(long ix, int depth) {
-			this.prefix = GeoCode.prefix(ix, depth);
-			this.depth = depth;
+		public Prefix(long ix, int res) {
+			this.res = res;
+			this.prefix = ix & this.mask();
 		}
-		
-		Prefix child(int quad) {
-			return new Prefix(prefix | ((long)quad << (64 - depth - 2)), depth + 2);
-		}
-		
-		public Prefix[] children() {
-			return new Prefix[] {
-				child(0),
-				child(1),
-				child(2),
-				child(3),
-			};
+
+		private long mask() {
+			int _mask = (~0 << this.res);
+			return PointIndex.make(~0, _mask, _mask);
 		}
 		
 		public boolean isParent(long ix) {
-			return (GeoCode.prefix(ix, this.depth) == this.prefix);
+			return (ix & this.mask()) == this.prefix;
 		}
 		
 		public boolean equals(Object o) {
 			if (o instanceof Prefix) {
 				Prefix p = (Prefix)o;
-				return (this.prefix == p.prefix && this.depth == p.depth);
+				return (this.prefix == p.prefix && this.res == p.res);
 			} else {
 				return false;
 			}
 		}
 		
 		public int hashCode() {
-			return Long.valueOf(this.prefix | this.depth).hashCode();
+			return Long.valueOf(this.prefix | this.res).hashCode();
 		}
 		
 		public int compareTo(Prefix p) {
-			int result = Integer.valueOf(this.depth).compareTo(p.depth);
+			int result = Integer.valueOf(p.res).compareTo(this.res);
 			if (result == 0) {
 				result = Long.valueOf(this.prefix).compareTo(p.prefix);
 			}
@@ -193,7 +170,8 @@ public class DEMManager {
 		}
 		
 		public String toString() {
-			return String.format("%02d:%s", depth, GeoCode.print(prefix));
+			int[] c = PointIndex.split(this.prefix);
+			return String.format("%d,%d,%d/%d", c[0], c[1], c[2], this.res);
 		}
 	}
 	
@@ -217,60 +195,29 @@ public class DEMManager {
 		}
 	}
 	
-	Map<Prefix, PartitionCounter> partitionBucketing() {
-		class PartitionMap extends DefaultMap<Prefix, PartitionCounter> {
+	public Map<Prefix, Set<DEMFile>> partitionDEM() {
+		class PartitionMap extends DefaultMap<Prefix, Set<DEMFile>> {
 			@Override
-			public PartitionCounter defaultValue() {
-				return new PartitionCounter();
+			public Set<DEMFile> defaultValue() {
+				return new HashSet<DEMFile>();
 			}
 		};
 		
 		PartitionMap partitions = new PartitionMap();
 		for (DEMFile dem : DEMs) {
 			for (long ix : dem.coords()) {
-				Prefix p = new Prefix(ix, MAX_BUCKET_DEPTH);
-				partitions.get(p).addSample(dem);
+				Prefix p = new Prefix(ix, GRID_TILE_SIZE);
+				partitions.get(p).add(dem);
 			}
 		}
-		
-		for (int i = MAX_BUCKET_DEPTH - 2; i >= 0; i -= 2) {
-			PartitionMap tmp = new PartitionMap();
-			for (Entry<Prefix, PartitionCounter> e : partitions.entrySet()) {
-				if (e.getKey().depth != i + 2) {
-					continue;
-				}
-
-				Prefix p = new Prefix(e.getKey().prefix, i);
-				tmp.get(p).combine(e.getValue());
-			}
-			partitions.putAll(tmp);
-		}
-		
+			
 		return partitions;
 	}
 	
-	public Map<Long, Set<DEMFile>> partitionDEM() {
-		Map<Long, Set<DEMFile>> partitioning = new HashMap<Long, Set<DEMFile>>();
-		partitionDEM(new Prefix(0, 0), partitionBucketing(), partitioning);
-		return partitioning;
-	}
-	
-	void partitionDEM(Prefix prefix, Map<Prefix, PartitionCounter> buckets, Map<Prefix, Set<DEMFile>> partitioning) {
-		if (!buckets.containsKey(prefix)) {
-			// empty quad; do nothing
-		} else if (prefix.depth == MAX_BUCKET_DEPTH || buckets.get(prefix).count <= DEM_TILE_MAX_POINTS) {
-			partitioning.put(prefix, buckets.get(prefix).coverage);
-		} else {
-			for (Prefix child : prefix.children()) {
-				partitionDEM(child, buckets, partitioning);
-			}
-		}
-	}
-
 	// HACKY
 	boolean inScope(long ix) {
-		double[] c = GeoCode.toCoord(ix);
-		int[] xy = PROJ.toGrid(c[0], c[1]);
+		int[] _ix = PointIndex.split(ix);
+		int[] xy = {_ix[1], _ix[2]};
 		for (DEMFile dem : DEMs) {
 			if (xy[0] >= dem.x0 && xy[1] >= dem.y0 &&
 					xy[0] <= (dem.x0 + dem.height - 1) &&
@@ -289,18 +236,18 @@ public class DEMManager {
 		PROJ = SRTMDEM.SRTMProjection(3.);
 		dm.projs.add(PROJ);
 		
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w125ds3", 2001, 2001, 30, -125, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w120ds3", 2001, 2001, 30, -120, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w115ds3", 2001, 2001, 30, -115, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w110ds3", 2001, 2001, 30, -110, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w125ds3", 2001, 2001, 35, -125, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w120ds3", 2001, 2001, 35, -120, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w115ds3", 2001, 2001, 35, -115, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w110ds3", 2001, 2001, 35, -110, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w125ds3", 2001, 2001, 40, -125, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w120ds3", 2001, 2001, 40, -120, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w115ds3", 2001, 2001, 40, -115, 3.));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w110ds3", 2001, 2001, 40, -110, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w125ds3", 2001, 2001, 30, -125, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w120ds3", 2001, 2001, 30, -120, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w115ds3", 2001, 2001, 30, -115, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w110ds3", 2001, 2001, 30, -110, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w125ds3", 2001, 2001, 35, -125, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w120ds3", 2001, 2001, 35, -120, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w115ds3", 2001, 2001, 35, -115, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w110ds3", 2001, 2001, 35, -110, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w125ds3", 2001, 2001, 40, -125, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w120ds3", 2001, 2001, 40, -120, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w115ds3", 2001, 2001, 40, -115, 3.));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w110ds3", 2001, 2001, 40, -110, 3.));
 
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n30w090ds3", 2001, 2001, 30, -90, 3.));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w090ds3", 2001, 2001, 35, -90, 3.));
@@ -315,10 +262,10 @@ public class DEMManager {
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w080ds3", 2001, 2001, 35, -80, 3.));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w080ds3", 2001, 2001, 40, -80, 3.));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n35w075ds3", 2001, 2001, 35, -75, 3.));
-		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, 3.));
-		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, 3.));
-		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w070ds3", 2001, 2001, 40, -70, 3.));
-		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w075ds3", 2001, 2001, 40, -75, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w075ds3", 2001, 2001, 45, -75, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w070ds3", 2001, 2001, 40, -70, 3.));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w070ds3", 2001, 2001, 45, -70, 3.));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n40w065ds3", 2001, 2001, 40, -65, 3.));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/pvdata/n45w065ds3", 2001, 2001, 45, -65, 3.));
 
@@ -420,8 +367,8 @@ public class DEMManager {
 		Double prom;
 		
 		public PromPoint(Point p, PromNetwork.PromInfo pi) {
-			this.coords = p.coords();
-			this.geo = GeoCode.print(p.geocode);
+			this.coords = PointIndex.toLatLon(p.ix);
+			this.geo = GeoCode.print(GeoCode.fromCoord(this.coords[0], this.coords[1]));
 			this.elev = p.elev / .3048;
 			if (pi != null) {
 				prom = pi.prominence() / .3048;
@@ -448,11 +395,11 @@ public class DEMManager {
 			
 			this.higher_path = new ArrayList<double[]>();
 			for (Point k : pi.path) {
-				this.higher_path.add(k.coords());
+				this.higher_path.add(PointIndex.toLatLon(k.ix));
 			}
 			this.parent_path = new ArrayList<double[]>();
 			for (Point k : parentage.path) {
-				this.parent_path.add(k.coords());
+				this.parent_path.add(PointIndex.toLatLon(k.ix));
 			}
 			
 			if (!pi.min_bound_only && !pi.path.isEmpty()) {

@@ -1,5 +1,6 @@
 package promviz;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -17,7 +18,7 @@ public class DualTopologyNetwork extends TopologyNetwork {
 		down = new TopologyNetwork(false, dm);
 	}
 	
-	public void buildPartial(PagedMesh m, Set<Point> newPage) {
+	public void buildPartial(PagedMesh m, List<DEMFile.Sample> newPage) {
 		up.buildPartial(m, newPage);
 		down.buildPartial(m, newPage);
 	}

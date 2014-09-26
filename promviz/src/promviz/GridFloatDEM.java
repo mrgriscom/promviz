@@ -24,8 +24,8 @@ public class GridFloatDEM extends DEMFile {
 		return new LittleEndianDataInputStream(new BufferedInputStream(new FileInputStream(path)));
 	}
 	
-	public double getNextSample(Object reader) throws IOException {
-		double e = ((LittleEndianDataInputStream)reader).readFloat();
+	public float getNextSample(Object reader) throws IOException {
+		float e = ((LittleEndianDataInputStream)reader).readFloat();
 		return e;
 	}
 

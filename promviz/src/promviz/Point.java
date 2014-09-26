@@ -12,7 +12,7 @@ public class Point implements Comparable<Point> {
 	public static final int CLASS_SADDLE = 3;
 	public static final int CLASS_INDETERMINATE = 4;
 	
-	long geocode;
+	long ix;
 	float elev; // meters
 
 	/* list of point geocodes adjacent to this point, listed in a clockwise direction
@@ -22,19 +22,18 @@ public class Point implements Comparable<Point> {
 	 */
 	long[] _adjacent = new long[0];
 
-	public Point(double lat, double lon, double elev) {
-		this.geocode = GeoCode.fromCoord(lat, lon);
+	public Point(long ix, double elev) {
+		this.ix = ix;
 		this.elev = (float)elev;
 	}
 	
-	public Point(long geocode, double elev) {
-		this.geocode = geocode;
-		this.elev = (float)elev;
+	public long[] adjIx() {
+		return _adjacent;
 	}
 	
 	public List<Point> adjacent(IMesh m) {
 		List<Point> adj = new ArrayList<Point>();
-		for (long geocode : _adjacent) {
+		for (long geocode : adjIx()) {
 			adj.add(geocode != -1 ? m.get(geocode) : null);
 		}
 		return adj;
@@ -116,19 +115,16 @@ public class Point implements Comparable<Point> {
 		return L;
 	}
 	
-	public double[] coords() {
-		return GeoCode.toCoord(this.geocode);
-	}
-	
 	public String toString() {
-		double[] coords = this.coords();
-		return String.format("<%f,%f %f %dadj>", coords[0], coords[1], this.elev, this._adjacent.length);
+//		double[] coords = this.coords();
+//		return String.format("<%f,%f %f %dadj>", coords[0], coords[1], this.elev, this._adjacent.length);
+		return "fixme";
 	}
 
 	@Override
 	public boolean equals(Object o) {
 		if (o instanceof Point) {
-			return this.geocode == ((Point)o).geocode;
+			return this.ix == ((Point)o).ix;
 		} else {
 			return false;
 		}
@@ -136,11 +132,11 @@ public class Point implements Comparable<Point> {
 	
 	@Override
 	public int hashCode() {
-		return Long.valueOf(this.geocode).hashCode();
+		return Long.valueOf(this.ix).hashCode();
 	}
 	
 	@Override
 	public int compareTo(Point p) {
-		return Long.valueOf(this.geocode).compareTo(p.geocode);
+		return Long.valueOf(this.ix).compareTo(p.ix);
 	}
 }

@@ -45,10 +45,10 @@ public class TopologyNetwork implements IMesh {
 	}
 	
 	Point getPoint(Point p) {
-		Point match = points.get(p.geocode);
+		Point match = points.get(p.ix);
 		if (match == null) {
-			match = new Point(p.geocode, p.elev);
-			points.put(match.geocode, match);
+			match = new Point(p.ix, p.elev);
+			points.put(match.ix, match);
 		}
 		return match;
 	}
@@ -64,7 +64,7 @@ public class TopologyNetwork implements IMesh {
 		// all this does is add the new point's geocode to the adjacency array if it isn't already in there
 		boolean exists = false;
 		for (Long l : p._adjacent) {
-			if (l == to.geocode) {
+			if (l == to.ix) {
 				exists = true;
 				break;
 			}
@@ -72,27 +72,24 @@ public class TopologyNetwork implements IMesh {
 		if (!exists) {
 			long[] new_ = new long[p._adjacent.length + 1];
 			System.arraycopy(p._adjacent, 0, new_, 0, p._adjacent.length);
-			new_[p._adjacent.length] = to.geocode;
+			new_[p._adjacent.length] = to.ix;
 			p._adjacent = new_;
 		}
 	}
 
 	void addPending(Point saddle, Point term) {
 		saddle = getPoint(saddle);
-		pending.get(saddle).add(term.geocode);
+		pending.get(saddle).add(term.ix);
 	}
 	
-	public void build(Mesh m) {
-		build(m, m.points.values());
-	}
-	
-	public void build(IMesh m, Collection<Point> points) {
-		for (Point p : points) {
+	public void build(IMesh m, List<DEMFile.Sample> points) {
+		for (DEMFile.Sample s : points) {
+			Point p = new GridPoint(s);
 			int pointClass = p.classify(m);
 			if (pointClass == Point.CLASS_SADDLE) {
 				processSaddle(m, p);
 			} else if (pointClass == Point.CLASS_INDETERMINATE) {
-				unprocessedFringe.add(p.geocode);
+				unprocessedFringe.add(p.ix);
 			}
 		}
 	}
@@ -113,7 +110,7 @@ public class TopologyNetwork implements IMesh {
 		return result;
 	}
 	
-	public void buildPartial(PagedMesh m, Set<Point> newPage) {
+	public void buildPartial(PagedMesh m, List<DEMFile.Sample> newPage) {
 		Map<Point, Set<Long>> oldPending = pending;
 		pending = new PendingMap();
 		for (Entry<Point, Set<Long>> e : oldPending.entrySet()) {

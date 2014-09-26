@@ -49,7 +49,7 @@ public abstract class DEMFile {
 
 		@Override
 		public Long next() {
-			double[] coord = proj.fromGrid(c0 + c, r0 + height - 1 - r);
+			long ix = PointIndex.make(proj.refID, c0 + c, r0 + height - 1 - r);
 			
 			c++;
 			if (c == width) {
@@ -57,7 +57,7 @@ public abstract class DEMFile {
 				r++;
 			}
 			
-			return GeoCode.fromCoord(coord[0], coord[1]);
+			return ix;
 		}
 
 		@Override
@@ -75,16 +75,26 @@ public abstract class DEMFile {
 		};
 	}
 	
-	class PointsIterator implements Iterator<Point> {
+	static class Sample {
+		public Sample(long ix, float elev) {
+			this.ix = ix;
+			this.elev = elev;
+		}
+			
+		long ix;
+		float elev;
+	}
+	
+	class SamplesIterator implements Iterator<Sample> {
 		Object f;
 		
 		Iterator<Long> coords;
 		DEMManager.Prefix prefix;
 		
 		long _nextIx;
-		double _nextElev;
+		float _nextElev;
 
-		public PointsIterator(DEMManager.Prefix prefix) {
+		public SamplesIterator(DEMManager.Prefix prefix) {
 			this.prefix = prefix;
 			try {
 				f = getReader(path);
@@ -97,16 +107,16 @@ public abstract class DEMFile {
 		@Override
 		public boolean hasNext() {
 			while (coords.hasNext()) {
-				long geocode = coords.next();
-				double elev;
+				long ix = coords.next();
+				float elev;
 				try {
 					elev = getNextSample(f);
 				} catch (IOException ioe) {
 					throw new RuntimeException("error reading DEM");
 				}
 
-				if (prefix.isParent(geocode)) {
-					_nextIx = geocode;
+				if (prefix.isParent(ix)) {
+					_nextIx = ix;
 					_nextElev = elev;
 					return true;
 				}
@@ -115,12 +125,8 @@ public abstract class DEMFile {
 		}
 
 		@Override
-		public Point next() {
-			long geocode = _nextIx;
-			double elev = _nextElev;
-			Point p = new Point(geocode, elev);
-			p._adjacent = DEMManager.adjacency(p.geocode);
-			return p;
+		public Sample next() {
+			return new Sample(_nextIx, _nextElev);
 		}
 
 		@Override
@@ -129,18 +135,22 @@ public abstract class DEMFile {
 		}		
 	}
 
-	public Iterable<Point> samples(final DEMManager.Prefix prefix) {
-		return new Iterable<Point>() {
+	public Iterable<Sample> samples(final DEMManager.Prefix prefix) {
+		return new Iterable<Sample>() {
 			@Override
-			public Iterator<Point> iterator() {
-				return new PointsIterator(prefix);
-			}			
+			public Iterator<Sample> iterator() {
+				return new SamplesIterator(prefix);
+			}
 		};
 	}
-			
+	
+	public String toString() {
+		return path;
+	}
+	
 	public abstract Object getReader(String path) throws FileNotFoundException;
 	
-	public abstract double getNextSample(Object reader) throws IOException;
+	public abstract float getNextSample(Object reader) throws IOException;
 
 	public static void main(String[] args) {
 //		for (Long l : new DEMFile("", 20, 10, 40, -75, .01, .01, true).coords()) {

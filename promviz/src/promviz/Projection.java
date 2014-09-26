@@ -2,6 +2,8 @@ package promviz;
 
 public abstract class Projection {
 	
+	int refID;
+	
 	boolean sampleMode; // true == lat0/lon0 correspond to center of pixel; false == correspond to corner of pixel
 
 	public Projection() {

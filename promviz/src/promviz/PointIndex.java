@@ -19,6 +19,11 @@ public class PointIndex {
 		return new int[] {projId, x, y};
 	}
 	
+	public static double[] toLatLon(long ix) {
+		int[] _ix = split(ix);
+		return DEMManager.PROJ.fromGrid(_ix[1], _ix[2]);
+	}
+	
 	public static long truncate(long ix, int depth) {
 		int[] c = split(ix);
 		int x = c[1] | (~0 << depth);
