@@ -11,47 +11,103 @@ import sys
 import re
 import collections
 
-def feature(s):
-    return {
+def summit_feature(s, **props):
+    f = {
         'type': 'Feature',
         'geometry': {
             'type': 'Point',
-            'coordinates': [s['summit']['coords'][1], s['summit']['coords'][0]],
+            'coordinates': [s['coords'][1], s['coords'][0]],
         },
         'properties': {
-            'prom_ft': s['summit']['prom'],
-            'elev_ft': s['summit']['elev'],
+            'type': s.get('type'),
+            'name': s.get('name'),
+            'prom_ft': s['prom'] / .3048,
+            'elev_ft': s['elev'] / .3048,
             'min_bound': s.get('min_bound', False),
-            'geo': s['summit']['geo'],
+            'geo': s['geo'],
         },
     }
+    f['properties'].update(props)
+    return f
+
+def to_geojson(k):
+    def _feature(coords, **props):
+        def coord(c):
+            return [c[1], c[0]]
+
+        if hasattr(coords[0], '__iter__'):
+            if hasattr(coords[0][0], '__iter__'):
+                type = 'MultiLineString'
+                coords = [[coord(c) for c in k] for k in coords]
+            else:
+                type = 'LineString'
+                coords = [coord(c) for c in coords]
+        else:
+            type = 'Point'
+            coords = coord(coords)
+
+        return {
+            'type': 'Feature',
+            'geometry': {
+                'type': type,
+                'coordinates': coords,
+            },
+            'properties': props,
+        }
+
+    data = {
+        'type': 'FeatureCollection',
+        'features': [
+            summit_feature(k[k['type']], type=k['type']),
+            _feature(k['saddle']['coords'],
+                     type='saddle',
+                     name=k['saddle'].get('name'),
+                     elev_ft=k['saddle']['elev'] / .3048,
+                     geo=k['saddle']['geo'],
+                    ),
+            _feature(k['threshold_path'], type='divide'),
+            _feature(k['parent_path'], type='toparent'),
+        ]
+    }
+    if k.get('threshold'):
+        data['features'].append(
+            _feature(k['threshold']['coords'],
+                     type='threshold',
+                 ),
+        )
+    if k.get('parent'):
+        data['features'].append(summit_feature(k['_parent'][k['_parent']['type']], type='parent'))
+    for child in k.get('_children', []):
+        data['features'].append(summit_feature(child[child['type']], type='child', ix=child['ix']))
+    #if k.get('runoff'):
+    #    data['features'].append(feature(k['runoff'], type='domain'))
+
+    return data
 
 class MapViewHandler(web.RequestHandler):
     def get(self, tag):
-        with open(os.path.join('/home/drew/tmp/pvout', tag)) as f:
-            geojson = json.load(f)
+        def loadgeo(geo):
+            with open(os.path.join('/home/drew/tmp/pvout', 'prom%s.json' % geo)) as f:
+                return json.load(f)
         
-        summit = [k for k in geojson['features'] if k['properties']['type'] == 'summit'][0]
-        children = [by_geo[childgeo] for childgeo in hierarchy[summit['properties']['geo']]]
-        children.sort(key=lambda s: s['summit']['prom'], reverse=True)
-        for i, child in enumerate(children):
-            f = feature(child)
-            f['properties']['type'] = 'child'
-            f['properties']['order'] = i + 1
-            geojson['features'].append(f)
+        data = loadgeo(tag)
+        data['_parent'] = loadgeo(data['parent']['geo']) if 'parent' in data else None
+        data['_children'] = [loadgeo(c) for c in data.get('children', [])]
+        for i, ch in enumerate(data['_children']):
+            ch['ix'] = i + 1
 
-        self.render('map.html', mode='single', data=geojson)
+        self.render('map.html', mode='single', data=to_geojson(data))
 
 class SummitsHandler(web.RequestHandler):
     def get(self, prefix):
         max_n = int(self.get_argument('max', 1000))
 
-        summits = filter(lambda e: e['summit']['geo'].startswith(prefix), alldata)
-        summits = sorted(summits, key=lambda e: e['summit']['prom'], reverse=True)[:max_n]
+        summits = filter(lambda e: e['geo'].startswith(prefix), index)
+        summits = sorted(summits, key=lambda e: e['prom'], reverse=True)[:max_n]
 
         data = {
             'type': 'FeatureCollection',
-            'features': [feature(s) for s in summits],
+            'features': [summit_feature(s) for s in summits],
         }
 
         self.render('map.html', mode='many', data=data)
@@ -73,13 +129,9 @@ if __name__ == "__main__":
     ], template_path='templates', debug=True)
     application.listen(port)
 
-    with open('/home/drew/tmp/pvout/prombackup') as f:
-        alldata = json.load(f)
+    with open('/home/drew/tmp/pvout/_index') as f:
+        index = json.load(f)
         print 'loaded'
-    by_geo = dict((p['summit']['geo'], p) for p in alldata)
-    hierarchy = collections.defaultdict(set)
-    for p in alldata:
-        hierarchy[p['parent']['geo'] if 'parent' in p else None].add(p['summit']['geo'])
 
     try:
         IOLoop.instance().start()

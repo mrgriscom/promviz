@@ -75,11 +75,11 @@ function loadData(map, data) {
             if (MODE == 'single') {
                 var props = feature.properties;
                 var style;
-                if (props.type == 'summit') {
+                if (props.type == 'peak' || props.type == 'pit') {
                     style = {fillColor: '#f00'};
                 } else if (props.type == 'saddle') {
                     style = {fillColor: '#ff0'};
-                } else if (props.type == 'higher') {
+                } else if (props.type == 'threshold') {
                     style = {fillColor: '#00f', radius: 5};
                 } else if (props.type == 'child') {
                     style = {fillColor: '#0ff', radius: 7.5};
@@ -117,25 +117,37 @@ function loadData(map, data) {
             var props = feature.properties
             if (MODE == 'single') {                
                 var $div = $('<div>');
-                if (props.type == 'summit' || props.type == 'parent' || props.type == 'child') {
-                    var html = '';
+                var self = (props.type == 'peak' || props.type == 'pit');
+                if (self || props.type == 'parent' || props.type == 'child') {
+                    var title = props.name || props.geo;
+                    if (!self) {
+                        title = '<a target="_blank" href="/view/' + props.geo + '">' + title + '</a>';
+                    }
+                    var html = '<div>' + title + '</div>';
                     if (props.type == 'child') {
-                        html += '<div>#' + props.order + '</div>';
+                        html += '<div>#' + props.ix + '</div>';
                     }
-                    if (props.type != 'summit') {
-                        html += '<div><a target="_blank" href="/view/prom' + props.geo + '.geojson">' + props.geo + '</a></div>';
+                    html += '<div>' + props.prom_ft.toFixed(1) + (props.min_bound ? '*' : '') + '</div><div>' + props.elev_ft.toFixed(1) + '</div>';
+                    if (self) {
+                        html += '<hr><table style="font-size: 12px;">';
+                        _.each(DATA.features, function(e) {
+                            var p = e.properties;
+                            if (p.type == 'child') {
+                                html += '<tr><td>' + p.ix + '</td><td><a target="_blank" href="/view/' + p.geo + '">' + (p.name || p.geo) + '</a></td><td>' + p.prom_ft.toFixed(1) + '</td></tr>';
+                            }
+                        });
+                        html += '</table>';
                     }
-                    html += '<div>' + round(props.prom_ft, 1) + (props.min_bound ? '*' : '') + '</div><div>' + round(props.elev_ft, 1) + '</div>';
                     $div.html(html);
-                } else if (props.type == 'saddle' || props.type == 'higher') {
-                    $div.html('<div>' + round(props.elev_ft, 1) + '</div>');
+                } else if (props.type == 'saddle') {
+                    $div.html('<div>' + (props.name || '') + '</div><div>' + props.elev_ft.toFixed(1) + '</div>');
                 } else {
                     return;
                 }
                 layer.bindPopup($div[0]);
             } else {
                 var $div = $('<div>');
-                $div.html('<div><a target="_blank" href="/view/prom' + props.geo + '.geojson">' + props.geo + '</a></div><div>' + round(props.prom_ft, 1) + (props.min_bound ? '*' : '') + '</div><div>' + round(props.elev_ft, 1) + '</div>');
+                $div.html('<div><a target="_blank" href="/view/' + props.geo + '">' + (props.name || props.geo) + '</a></div><div>' + props.prom_ft.toFixed(1) + (props.min_bound ? '*' : '') + '</div><div>' + props.elev_ft.toFixed(1) + '</div>');
                 layer.bindPopup($div[0]);
             }
         },

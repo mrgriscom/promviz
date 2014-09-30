@@ -1,6 +1,8 @@
 package promviz;
 
 import java.io.BufferedInputStream;
+import java.io.DataInput;
+import java.io.DataInputStream;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -9,6 +11,9 @@ import com.google.common.io.LittleEndianDataInputStream;
 
 public class SRTMDEM extends DEMFile {
 
+	final boolean LITTLE_ENDIAN = false;
+	final boolean NODATA_IS_OCEAN = false;
+	
 	public static Projection SRTMProjection(double downscaling) {
 		return new GeoProjection(downscaling / 1200.);
 	}
@@ -25,13 +30,17 @@ public class SRTMDEM extends DEMFile {
 	}
 	
 	public Object getReader(String path) throws FileNotFoundException {
-		return new LittleEndianDataInputStream(new BufferedInputStream(new FileInputStream(path)));
+		if (LITTLE_ENDIAN) {
+			return new LittleEndianDataInputStream(new BufferedInputStream(new FileInputStream(path)));
+		} else {
+			return new DataInputStream(new BufferedInputStream(new FileInputStream(path)));			
+		}
 	}
 	
 	public float getNextSample(Object reader) throws IOException {
-		int elev = ((LittleEndianDataInputStream)reader).readShort();
+		float elev = ((DataInput)reader).readShort();
 		if (elev == -32768) {
-			elev = 0; // cgiar has voids filled so nodata is actually ocean
+			elev = (NODATA_IS_OCEAN ? 0 : Float.NaN);
 		}
 		return elev;
 	}
