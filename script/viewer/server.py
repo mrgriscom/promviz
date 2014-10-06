@@ -131,7 +131,7 @@ if __name__ == "__main__":
 
     with open('/home/drew/tmp/pvout/_index') as f:
         index = json.load(f)
-        print 'loaded'
+        print 'loaded (%d)' % len(index)
 
     try:
         IOLoop.instance().start()

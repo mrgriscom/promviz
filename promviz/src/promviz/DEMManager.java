@@ -216,6 +216,7 @@ public class DEMManager {
 	
 	// HACKY
 	boolean inScope(long ix) {
+		// FIXME bug lurking here: nodata areas within loaded DEM extents
 		int[] _ix = PointIndex.split(ix);
 		int[] xy = {_ix[1], _ix[2]};
 		for (DEMFile dem : DEMs) {
@@ -233,15 +234,30 @@ public class DEMManager {
 		Logging.init();
 		
 		DEMManager dm = new DEMManager();
-		PROJ = SRTMDEM.SRTMProjection(1.);
+		//PROJ = SRTMDEM.SRTMProjection(1.);
+		PROJ = GridFloatDEM.NEDProjection();
 		dm.projs.add(PROJ);
 		
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N40W078.hgt", 1201, 1201, 40, -78, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N41W078.hgt", 1201, 1201, 41, -78, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N42W078.hgt", 1201, 1201, 42, -78, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N43W078.hgt", 1201, 1201, 43, -78, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N44W078.hgt", 1201, 1201, 44, -78, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N39W077.hgt", 1201, 1201, 39, -77, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N40W077.hgt", 1201, 1201, 40, -77, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N41W077.hgt", 1201, 1201, 41, -77, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N42W077.hgt", 1201, 1201, 42, -77, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N43W077.hgt", 1201, 1201, 43, -77, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N44W077.hgt", 1201, 1201, 44, -77, 1));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N45W077.hgt", 1201, 1201, 45, -77, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N38W076.hgt", 1201, 1201, 38, -76, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N39W076.hgt", 1201, 1201, 39, -76, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N40W076.hgt", 1201, 1201, 40, -76, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N41W076.hgt", 1201, 1201, 41, -76, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N42W076.hgt", 1201, 1201, 42, -76, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N43W076.hgt", 1201, 1201, 43, -76, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N44W076.hgt", 1201, 1201, 44, -76, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N45W076.hgt", 1201, 1201, 45, -76, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N38W075.hgt", 1201, 1201, 38, -75, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N39W075.hgt", 1201, 1201, 39, -75, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N40W075.hgt", 1201, 1201, 40, -75, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N41W075.hgt", 1201, 1201, 41, -75, 1));
@@ -268,11 +284,10 @@ public class DEMManager {
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N41W072.hgt", 1201, 1201, 41, -72, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N42W072.hgt", 1201, 1201, 42, -72, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N43W072.hgt", 1201, 1201, 43, -72, 1));
-		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N44W072.hgt", 1201, 1201, 44, -72, 1));
+//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N44W072.hgt", 1201, 1201, 44, -72, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N45W072.hgt", 1201, 1201, 45, -72, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N46W072.hgt", 1201, 1201, 46, -72, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N47W072.hgt", 1201, 1201, 47, -72, 1));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N48W072.hgt", 1201, 1201, 48, -72, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N41W071.hgt", 1201, 1201, 41, -71, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N42W071.hgt", 1201, 1201, 42, -71, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N43W071.hgt", 1201, 1201, 43, -71, 1));
@@ -331,7 +346,6 @@ public class DEMManager {
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N45W063.hgt", 1201, 1201, 45, -63, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N46W063.hgt", 1201, 1201, 46, -63, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N47W063.hgt", 1201, 1201, 47, -63, 1));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N49W063.hgt", 1201, 1201, 49, -63, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N44W062.hgt", 1201, 1201, 44, -62, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N45W062.hgt", 1201, 1201, 45, -62, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N46W062.hgt", 1201, 1201, 46, -62, 1));
@@ -339,13 +353,14 @@ public class DEMManager {
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N45W061.hgt", 1201, 1201, 45, -61, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N46W061.hgt", 1201, 1201, 46, -61, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N47W061.hgt", 1201, 1201, 47, -61, 1));
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N44W060.hgt", 1201, 1201, 44, -60, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N45W060.hgt", 1201, 1201, 45, -60, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N46W060.hgt", 1201, 1201, 46, -60, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N47W060.hgt", 1201, 1201, 47, -60, 1));
 
-//		dm.DEMs.add(new GridFloatDEM("/mnt/ext/ned/whitea.img",
-//				6696, 4320, 44.00, -71.78, 9.259259e-5, 9.259259e-5, true));
+		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n42w073/floatn42w073_13.flt",
+				10812, 10812, 40.9994444, -73.0005555, 9.259259e-5, 9.259259e-5, true));
+//		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n45w072/floatn45w072_13.flt",
+//				10812, 10812, 43.9994444, -72.0005555, 9.259259e-5, 9.259259e-5, true));
 		
 		boolean up = true;
 		//boolean up = false;
@@ -353,8 +368,8 @@ public class DEMManager {
 		System.err.println(dtn.up.points.size() + " nodes in network (up)");
 		System.err.println(dtn.down.points.size() + " nodes in network (down)");
 
-		double PROM_CUTOFF = 50.;
-		double ANTI_PROM_CUTOFF = 50.;
+		double PROM_CUTOFF = 5.;
+		double ANTI_PROM_CUTOFF = PROM_CUTOFF;
 		
 		TopologyNetwork tn = (up ? dtn.up : dtn.down);
 		TopologyNetwork anti_tn = (!up ? dtn.up : dtn.down);
@@ -371,6 +386,12 @@ public class DEMManager {
 				prominentPoints.put(p, pi);
 			}
 		}
+
+		Map<Point, PromNetwork.PromInfo> saddleIndex = new HashMap<Point, PromNetwork.PromInfo>();
+		for (Entry<Point, PromNetwork.PromInfo> e : prominentPoints.entrySet()) {
+			// TODO i think we need to refine the tiebreaker logic here
+			saddleIndex.put(e.getValue().saddle, e.getValue());
+		}
 		
 		Gson ser = new Gson();
 		System.out.println("[");
@@ -381,13 +402,15 @@ public class DEMManager {
 			
 			PromNetwork.PromInfo parentage = PromNetwork.parent(tn, p, up, prominentPoints);
 			
+			List<Point> domainSaddles = null; //PromNetwork.domainSaddles(tn, p, saddleIndex, (float)pi.prominence());
 //				List<String> domainLimits = new ArrayList<String>();
 //				for (List<Point> ro : PromNetwork.runoff(anti_tn, pi.saddle, up)) {
 //					domainLimits.add(pathToStr(ro));					
 //				}
+			//domainSaddles.remove(pi.saddle);
 			
 			System.out.println((first ? "" : ",") + ser.toJson(new PromData(
-					up, p, pi, parentage, prominentPoints
+					up, p, pi, parentage, domainSaddles, prominentPoints
 				)));
 			first = false;
 		}
@@ -419,13 +442,21 @@ public class DEMManager {
 		PromPoint parent;
 		List<double[]> higher_path;
 		List<double[]> parent_path;
+		//List<PromPoint> secondary_saddles;
 		
 		public PromData(boolean up, Point p, PromNetwork.PromInfo pi, PromNetwork.PromInfo parentage,
-				Map<Point, PromNetwork.PromInfo> prominentPoints) {
+				List<Point> domainSaddles, Map<Point, PromNetwork.PromInfo> prominentPoints) {
 			this.up = up;
 			this.summit = new PromPoint(p, pi);
 			this.saddle = new PromPoint(pi.saddle, null);
 			this.min_bound = pi.min_bound_only;
+		
+			/*
+			this.secondary_saddles = new ArrayList<PromPoint>();
+			for (Point ss : domainSaddles) {
+				this.secondary_saddles.add(new PromPoint(ss, null));
+			}
+			*/
 			
 			this.higher_path = new ArrayList<double[]>();
 			for (Point k : pi.path) {

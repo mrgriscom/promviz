@@ -112,6 +112,24 @@ public class PromNetwork {
 		});
 	}
 	
+	public static List<Point> domainSaddles(TopologyNetwork tree, Point p, Map<Point, PromNetwork.PromInfo> saddleIndex, float threshold) {
+		List<Point> saddles = new ArrayList<Point>();
+		saddleSearch(saddles, saddleIndex, tree, threshold, p, null);
+		return saddles;
+	}
+	
+	static void saddleSearch(List<Point> saddles, Map<Point, PromNetwork.PromInfo> saddleIndex, TopologyNetwork tree, float threshold, Point p, Point parent) {
+		for (Point adj : tree.adjacent(p)) {
+			PromNetwork.PromInfo saddleInfo = saddleIndex.get(adj);
+			if (saddleInfo != null && saddleInfo.prominence() >= threshold) {
+				saddles.add(adj);
+			} else if (adj != parent) {
+				saddleSearch(saddles, saddleIndex, tree, threshold, adj, p);
+			}
+		}
+		
+	}
+	
 	public static List<List<Point>> runoff(TopologyNetwork antiTree, Point saddle, final boolean up) {
 		List<List<Point>> runoffs = new ArrayList<List<Point>>();
 		for (Point lead : antiTree.adjacent(saddle)) {

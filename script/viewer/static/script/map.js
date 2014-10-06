@@ -5,20 +5,17 @@ function init($div, data) {
     var map = L.map($div.attr('id')).setView([30, 0], 2);
 
     var mapboxLayer = function(tag) {
-        return L.tileLayer('http://api.tiles.mapbox.com/v3/' + tag + '/{z}/{x}/{y}.png', {
-            attribution: '<a href="http://www.mapbox.com/about/maps/">MapBox</a>',
-        });
+        return L.tileLayer('http://api.tiles.mapbox.com/v3/' + tag + '/{z}/{x}/{y}.png');
     };
 
     var layers = {
-        'Hypso': L.tileLayer('http://localhost/hypso/{z}/{x}/{y}.png', {maxZoom: 10, tms: true}),
+        'Hypso': L.tileLayer('http://s3.amazonaws.com/oilslick/{z}/{x}/{y}.jpg', {maxZoom: 11}),
         'Hypso-old': L.tileLayer('http://maps-for-free.com/layer/relief/z{z}/row{y}/{z}_{x}-{y}.jpg', {maxZoom: 11}),
-        'Map': mapboxLayer('examples.map-9ijuk24y'),
         'Topo': L.tileLayer('http://services.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}', {maxZoom: 15}),
         'Satellite': mapboxLayer('examples.map-qfyrx5r8'),
         'Terrain': L.tileLayer('http://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {subdomains: '0123'}),
     }
-    var layerOrder = ['Hypso', 'Terrain', 'Topo', 'Map', 'Satellite'];
+    var layerOrder = ['Hypso', 'Hypso-old', 'Terrain', 'Topo', 'Satellite'];
     L.control.layers(layers).addTo(map);
 
     var activeLayer = null;

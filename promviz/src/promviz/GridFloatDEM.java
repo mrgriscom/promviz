@@ -9,14 +9,20 @@ import com.google.common.io.LittleEndianDataInputStream;
 
 public class GridFloatDEM extends DEMFile {
 
+	final boolean NODATA_IS_OCEAN = true;
+	
+	public static Projection NEDProjection() {
+		return new GeoProjection(1 / 10800.);
+	}
+	
 	public GridFloatDEM(String path, int width, int height, double lat0, double lon0, double dx, double dy, boolean sample_mode) {
 		super(
 			path,
-			new GeoProjection(dx, dy, 0, 0, sample_mode),
+			NEDProjection(),
 			width,
 			height,
-			new GeoProjection(dx, dy, 0, 0, sample_mode).toGrid(lat0, lon0)[0],
-			new GeoProjection(dx, dy, 0, 0, sample_mode).toGrid(lat0, lon0)[1]
+			NEDProjection().toGrid(lat0, lon0)[0],
+			NEDProjection().toGrid(lat0, lon0)[1]
 		); // fucking java
 	}
 	
@@ -26,6 +32,9 @@ public class GridFloatDEM extends DEMFile {
 	
 	public float getNextSample(Object reader) throws IOException {
 		float e = ((LittleEndianDataInputStream)reader).readFloat();
+		if (e == -9999) {
+			e = (NODATA_IS_OCEAN ? 0 : Float.NaN);
+		}
 		return e;
 	}
 
