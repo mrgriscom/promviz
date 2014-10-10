@@ -7,6 +7,7 @@ import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -108,8 +109,10 @@ public class TopologyNetwork implements IMesh {
 	}
 	
 	void addEdge(Point a, Point b) {
-		addDirectedEdge(a, b);
-		addDirectedEdge(b, a);
+		if (f == null) {
+			addDirectedEdge(a, b);
+			addDirectedEdge(b, a);
+		}
 		try {
 			if (f != null) {
 				f.writeLong(a.ix);
@@ -217,6 +220,20 @@ public class TopologyNetwork implements IMesh {
 
 		if (newPage != null) {
 			build(m, newPage);
+		}
+		
+		trimNetwork();
+	}
+	
+	void trimNetwork() {
+		List<Point> toRemove = new ArrayList<Point>();
+		for (Point p : points.values()) {
+			if (!pending.containsKey(p)) {
+				toRemove.add(p);
+			}
+		}
+		for (Point p : toRemove) {
+			points.remove(p);
 		}
 	}
 	
