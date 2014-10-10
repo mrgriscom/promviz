@@ -34,7 +34,7 @@ public class DEMManager {
 		Set<Prefix> yetToProcess = new HashSet<Prefix>(coverage.keySet()); //mutable!
 
 		PagedMesh m = new PagedMesh(coverage, MESH_MAX_POINTS);
-		DualTopologyNetwork tn = new DualTopologyNetwork(this);
+		DualTopologyNetwork tn = new DualTopologyNetwork(this, true);
 		while (!tn.complete(allPrefixes, yetToProcess)) {
 			Prefix nextPrefix = getNextPrefix(allPrefixes, yetToProcess, tn, m);
 			if (m.isLoaded(nextPrefix)) {
@@ -234,11 +234,11 @@ public class DEMManager {
 		Logging.init();
 		
 		DEMManager dm = new DEMManager();
-		//PROJ = SRTMDEM.SRTMProjection(1.);
-		PROJ = GridFloatDEM.NEDProjection();
+		PROJ = SRTMDEM.SRTMProjection(1.);
+		//PROJ = GridFloatDEM.NEDProjection();
 		dm.projs.add(PROJ);
 		
-//		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N40W078.hgt", 1201, 1201, 40, -78, 1));
+		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N40W078.hgt", 1201, 1201, 40, -78, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N41W078.hgt", 1201, 1201, 41, -78, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N42W078.hgt", 1201, 1201, 42, -78, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N43W078.hgt", 1201, 1201, 43, -78, 1));
@@ -357,16 +357,22 @@ public class DEMManager {
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N46W060.hgt", 1201, 1201, 46, -60, 1));
 //		dm.DEMs.add(new SRTMDEM("/mnt/ext/gis/ferranti/hgts/N47W060.hgt", 1201, 1201, 47, -60, 1));
 
-		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n42w073/floatn42w073_13.flt",
-				10812, 10812, 40.9994444, -73.0005555, 9.259259e-5, 9.259259e-5, true));
+//		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n42w073/floatn42w073_13.flt",
+//				10812, 10812, 40.9994444, -73.0005555, 9.259259e-5, 9.259259e-5, true));
 //		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n45w072/floatn45w072_13.flt",
 //				10812, 10812, 43.9994444, -72.0005555, 9.259259e-5, 9.259259e-5, true));
 		
 		boolean up = true;
 		//boolean up = false;
-		DualTopologyNetwork dtn = dm.buildAll();
-		System.err.println(dtn.up.points.size() + " nodes in network (up)");
-		System.err.println(dtn.down.points.size() + " nodes in network (down)");
+		
+//		DualTopologyNetwork dtn = dm.buildAll();
+//		dtn.up.cleanup();
+//		dtn.down.cleanup();
+		
+		DualTopologyNetwork dtn = DualTopologyNetwork.load(dm);
+
+		System.err.println(dtn.up.points.size() + " nodes in network (up), " + dtn.up.numEdges + " edges");
+		System.err.println(dtn.down.points.size() + " nodes in network (down), " + dtn.down.numEdges + " edges");
 
 		double PROM_CUTOFF = 5.;
 		double ANTI_PROM_CUTOFF = PROM_CUTOFF;

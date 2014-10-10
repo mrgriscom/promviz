@@ -18,6 +18,7 @@ def calc_prom():
     return data
 
 def get_name(conn, pos, type, res=40030000./360/3600):
+    return None
     cur = conn.cursor(cursor_factory=DictCursor)
     feature_classes = {
         'peak': ['Summit', 'Pillar', 'Ridge'],

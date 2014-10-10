@@ -13,9 +13,24 @@ public class DualTopologyNetwork extends TopologyNetwork {
 	TopologyNetwork up;
 	TopologyNetwork down;
 	
-	public DualTopologyNetwork(DEMManager dm) {
+	public DualTopologyNetwork(DEMManager dm, boolean cache) {
 		up = new TopologyNetwork(true, dm);
 		down = new TopologyNetwork(false, dm);
+		if (cache) {
+			up.enableCache();
+			down.enableCache();
+		}
+	}
+	
+	public DualTopologyNetwork() {
+		
+	}
+	
+	public static DualTopologyNetwork load(DEMManager dm) {
+		DualTopologyNetwork dtn = new DualTopologyNetwork();
+		dtn.up = TopologyNetwork.load(true, dm);
+		dtn.down = TopologyNetwork.load(false, dm);
+		return dtn;
 	}
 	
 	public void buildPartial(PagedMesh m, List<DEMFile.Sample> newPage) {

@@ -1,6 +1,12 @@
 package promviz;
-import java.util.ArrayList;
-import java.util.Collection;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.EOFException;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -22,6 +28,9 @@ public class TopologyNetwork implements IMesh {
 	
 	DEMManager dm;
 	
+	DataOutputStream f;
+	int numEdges = 0;
+	
 	class PendingMap extends DefaultMap<Point, Set<Long>> {
 		@Override
 		public Set<Long> defaultValue() {
@@ -40,6 +49,51 @@ public class TopologyNetwork implements IMesh {
 		this.dm = dm;
 	}
 	
+	public void enableCache() {
+		try {
+			f = new DataOutputStream(new BufferedOutputStream(new FileOutputStream("/tmp/promnet-" + (up ? "up" : "down"))));
+		} catch (IOException ioe) {
+			throw new RuntimeException();
+		}		
+	}
+	
+	public static TopologyNetwork load(boolean up, DEMManager dm) {
+		TopologyNetwork tn = new TopologyNetwork(up, dm);
+		PagedMesh m = new PagedMesh(dm.partitionDEM(), dm.MESH_MAX_POINTS);
+		try {
+			DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream("/tmp/promnet-" + (up ? "up" : "down"))));
+			try {
+				while (true) {
+					long[] ix = {in.readLong(), in.readLong()};
+					Point[] p = new Point[2];
+					for (int i = 0; i < 2; i++) {
+						long _ix = ix[i];
+						if (_ix == 0xFFFFFFFFFFFFFFFFL) {
+							continue;
+						}
+						Point _p = tn.get(_ix);
+						if (_p == null) {
+							_p = m.get(_ix);
+						}
+						if (_p == null) {
+							m.loadPage(new DEMManager.Prefix(_ix, DEMManager.GRID_TILE_SIZE));
+							_p = m.get(_ix);
+						}
+						p[i] = _p;
+					}
+					if (ix[1] == 0xFFFFFFFFFFFFFFFFL) {
+						tn.pending.put(tn.getPoint(p[0]), null);
+					} else {
+						tn.addEdge(tn.getPoint(p[0]), tn.getPoint(p[1]));
+					}
+				}
+			} catch (EOFException eof) {}		
+		} catch (IOException ioe) {
+			throw new RuntimeException();
+		}
+		return tn;
+	}
+	
 	public Point get(long ix) {
 		return points.get(ix);
 	}
@@ -56,6 +110,27 @@ public class TopologyNetwork implements IMesh {
 	void addEdge(Point a, Point b) {
 		addDirectedEdge(a, b);
 		addDirectedEdge(b, a);
+		try {
+			if (f != null) {
+				f.writeLong(a.ix);
+				f.writeLong(b.ix);
+			}
+			numEdges++;
+		} catch (IOException ioe) {
+			throw new RuntimeException();
+		}
+	}
+	
+	void cleanup() {
+		try {
+			for (Point p : pending.keySet()) {
+				f.writeLong(p.ix);
+				f.writeLong(0xFFFFFFFFFFFFFFFFL);
+			}
+			f.close();
+		} catch (IOException ioe) {
+			throw new RuntimeException();
+		}
 	}
 	
 	void addDirectedEdge(Point from, Point to) {
