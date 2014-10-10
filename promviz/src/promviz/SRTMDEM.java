@@ -12,7 +12,7 @@ import com.google.common.io.LittleEndianDataInputStream;
 public class SRTMDEM extends DEMFile {
 
 	final boolean LITTLE_ENDIAN = false;
-	final boolean NODATA_IS_OCEAN = false;
+	final boolean NODATA_IS_OCEAN = true;
 	
 	public static Projection SRTMProjection(double downscaling) {
 		return new GeoProjection(downscaling / 1200.);
