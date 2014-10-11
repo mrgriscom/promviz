@@ -233,62 +233,106 @@ public class PromNetwork {
 		return pi;
 	}
 
-//	public static void bigOlPromSearch(Point p, TopologyNetwork tree, Map<Point, PromInfo> results) {
-//		boolean up = true;
-//		Comparator<Point> c = _cmp(up);
-//		Criterion crit = new Criterion() {
-//			@Override
-//			public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
-//				return cmp.compare(cur, p) > 0;
-//			}			
-//		};
-//		
-//		PromInfo pi = new PromInfo(p, c);
-//		Front front = new Front(c, tree);
-//		front.add(p);
-//		Map<Point, Point> backtrace = new HashMap<Point, Point>();
-//
-//		// point is not part of network (ie too close to edge to have connecting saddle)
-//		if (tree.adjacent(p) == null) {
-//			return;
-//		}
-//
-//		Point cur = null;
-//		outer:
-//		while (true) {
-//			cur = front.next();
-//			if (cur == null) {
-//				// we've searched the whole world
-//				pi.global_max = true;
-//				break;
-//			}
-//			pi.add(cur);
-//			if (crit.condition(c, p, cur)) {
-//				break;
-//			}
-//
-//			if (tree.pending.containsKey(cur)) {
-//				// reached an edge
-//				pi.min_bound_only = true;
-//				break outer;				
-//			}
-//			for (Point adj : tree.adjacent(cur)) {
-//				if (adj == cur) { // FIXME
-//					System.err.println("neighbor with self [" + cur.ix + "]... wtf???");
-//					continue;
-//				}
-//				
-//				if (front.add(adj)) {
-//					backtrace.put(adj, cur);
-//				}
-//			}
-//			
-//			front.prune();
-//		}
-//		
-//		pi.finalize(backtrace, cur);
-//		results.put(p, pi);
-//		
-//		
-//	}
+	static class PromInfo2 {
+		Point p;
+		Point saddle;
+		boolean global_max;
+		boolean min_bound_only;
+		Comparator<Point> c;
+		List<Point> path;
+		
+		public PromInfo2(Point p, Comparator<Point> c) {
+			this.p = p;
+			this.c = c;
+		}
+		
+		public double prominence() {
+			return Math.abs(p.elev - saddle.elev);
+		}
+		
+		public void add(Point cur) {
+			if (saddle == null || c.compare(cur, saddle) < 0) {
+				saddle = cur;
+			}
+		}
+		
+		public void finalize(Map<Point, Point> backtrace, Point horizon) {
+			this.path = new ArrayList<Point>();
+			Point cur = horizon; //saddle;
+			while (cur != null) {
+				this.path.add(cur);
+				cur = backtrace.get(cur);
+			}
+		}
+		
+		public PromInfo toNormal() {
+			PromInfo pi = new PromInfo(this.p, this.c);
+			pi.saddle = this.saddle;
+			pi.global_max = this.global_max;
+			pi.min_bound_only = this.min_bound_only;
+			pi.path = new ArrayList<Point>();
+			pi.path.add(this.p);
+			pi.path.add(this.saddle);
+			return pi;
+		}
+	}
+	
+	public static void bigOlPromSearch(Point p, TopologyNetwork tree, Map<Point, PromInfo> results) {
+		boolean up = true;
+		Comparator<Point> c = _cmp(up);
+		Criterion crit = new Criterion() {
+			@Override
+			public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
+				return cmp.compare(cur, p) > 0;
+			}			
+		};
+		
+		PromInfo2 pi = new PromInfo2(p, c);
+		Front front = new Front(c, tree);
+		front.add(p);
+		Map<Point, Point> backtrace = new HashMap<Point, Point>();
+	
+		// point is not part of network (ie too close to edge to have connecting saddle)
+		if (tree.adjacent(p) == null) {
+			return;
+		}
+	
+		Point cur = null;
+		outer:
+		while (true) {
+			cur = front.next();
+			if (cur == null) {
+				// we've searched the whole world
+				pi.global_max = true;
+				break;
+			}
+			pi.add(cur);
+			if (crit.condition(c, p, cur)) {
+				break;
+			}
+	
+			if (tree.pending.containsKey(cur)) {
+				// reached an edge
+				pi.min_bound_only = true;
+				break outer;				
+			}
+			for (Point adj : tree.adjacent(cur)) {
+				if (adj == cur) { // FIXME
+					//System.err.println("neighbor with self [" + cur.ix + "]... wtf???");
+					continue;
+				}
+				
+				if (front.add(adj)) {
+					backtrace.put(adj, cur);
+				}
+			}
+			
+			front.prune();
+		}
+		
+		pi.finalize(backtrace, cur);
+		results.put(p,  pi.toNormal());
+		
+		
+	}
 }

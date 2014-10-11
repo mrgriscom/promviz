@@ -1,5 +1,6 @@
 package promviz;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -365,7 +366,7 @@ public class DEMManager {
 //		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n45w072/floatn45w072_13.flt",
 //				10812, 10812, 43.9994444, -72.0005555, 9.259259e-5, 9.259259e-5, true));
 		
-		boolean up = true;
+		final boolean up = true;
 		//boolean up = false;
 
 		DualTopologyNetwork dtn;
@@ -388,22 +389,38 @@ public class DEMManager {
 		
 		Map<Point, PromNetwork.PromInfo> prominentPoints = new HashMap<Point, PromNetwork.PromInfo>();
 		
+		Point highest = null;
+		Comparator<Point> cmp = new Comparator<Point>() {
+			@Override
+			public int compare(Point p0, Point p1) {
+				return up ? ElevComparator.cmp(p0, p1) : ElevComparator.cmp(p1, p0);
+			}
+		};
 		for (Point p : tn.points.values()) {
-			if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
-				continue;
-			}
-			
-			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
-			if (pi != null && pi.prominence() > PROM_CUTOFF) {
-				prominentPoints.put(p, pi);
+			if (highest == null || cmp.compare(p, highest) > 0) {
+				highest = p;
 			}
 		}
+		Logging.log("highest: " + highest.elev);
+		PromNetwork.bigOlPromSearch(highest, tn, prominentPoints);
+//		prominentPoints.put(highest, PromNetwork.prominence(tn, highest, up));
+		
+//		for (Point p : tn.points.values()) {
+//			if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
+//				continue;
+//			}
+//			
+//			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
+//			if (pi != null && pi.prominence() > PROM_CUTOFF) {
+//				prominentPoints.put(p, pi);
+//			}
+//		}
 
-		Map<Point, PromNetwork.PromInfo> saddleIndex = new HashMap<Point, PromNetwork.PromInfo>();
-		for (Entry<Point, PromNetwork.PromInfo> e : prominentPoints.entrySet()) {
-			// TODO i think we need to refine the tiebreaker logic here
-			saddleIndex.put(e.getValue().saddle, e.getValue());
-		}
+//		Map<Point, PromNetwork.PromInfo> saddleIndex = new HashMap<Point, PromNetwork.PromInfo>();
+//		for (Entry<Point, PromNetwork.PromInfo> e : prominentPoints.entrySet()) {
+//			// TODO i think we need to refine the tiebreaker logic here
+//			saddleIndex.put(e.getValue().saddle, e.getValue());
+//		}
 		
 		Gson ser = new Gson();
 		System.out.println("[");
@@ -412,7 +429,7 @@ public class DEMManager {
 			Point p = e.getKey();
 			PromNetwork.PromInfo pi = e.getValue();
 			
-			PromNetwork.PromInfo parentage = PromNetwork.parent(tn, p, up, prominentPoints);
+			PromNetwork.PromInfo parentage = pi; //PromNetwork.parent(tn, p, up, prominentPoints);
 			
 			List<Point> domainSaddles = null; //PromNetwork.domainSaddles(tn, p, saddleIndex, (float)pi.prominence());
 //				List<String> domainLimits = new ArrayList<String>();
