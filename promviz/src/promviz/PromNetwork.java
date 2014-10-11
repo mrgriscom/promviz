@@ -7,6 +7,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.Map.Entry;
+
+import promviz.util.Logging;
 
 public class PromNetwork {
 
@@ -59,11 +62,12 @@ public class PromNetwork {
 			set = new HashSet<Point>();
 		}
 		
-		public void add(Point p) {
+		public boolean add(Point p) {
 			boolean newItem = set.add(p);
 			if (newItem) {
 				queue.add(p);
 			}
+			return newItem;
 		}
 		
 		public Point next() {
@@ -169,9 +173,8 @@ public class PromNetwork {
 		PromInfo pi = new PromInfo(p, c);
 		Front front = new Front(c, tree);
 		front.add(p);
-		Set<Point> seen = new HashSet<Point>();
+		Map<Point, Set<Point>> seen = new HashMap<Point, Set<Point>>();
 		Map<Point, Point> backtrace = new HashMap<Point, Point>();
-		//int seenPruneThreshold = 1;
 
 		// point is not part of network (ie too close to edge to have connecting saddle)
 		if (tree.adjacent(p) == null) {
@@ -192,30 +195,42 @@ public class PromNetwork {
 				break;
 			}
 
-			seen.add(cur);
-
 			if (tree.pending.containsKey(cur)) {
 				// reached an edge
 				pi.min_bound_only = true;
 				break outer;				
 			}
+			seen.put(cur, new HashSet<Point>());
 			for (Point adj : tree.adjacent(cur)) {
-				if (!seen.contains(adj)) {
-					front.add(adj);
-					backtrace.put(adj, cur);
+				if (adj == cur) { // FIXME
+					System.err.println("neighbor with self [" + cur.ix + "]... wtf???");
+					continue;
+				}
+				
+				Set<Point> predecessorIx = seen.get(adj);
+				if (predecessorIx != null && predecessorIx.contains(cur)) {
+					predecessorIx.remove(cur);
+					if (predecessorIx.isEmpty()) {
+						seen.remove(adj);
+					}
+				} else {
+					if (front.add(adj)) {
+						backtrace.put(adj, cur);
+					}
+					seen.get(cur).add(adj);
 				}
 			}
-
-			// prune set of already handled points
-//			if (seen.size() > seenPruneThreshold) {
-//				seen.retainAll(front.adjacent(tree));
-//				seenPruneThreshold = 2 * seen.size();
-//			}
 		}
 		
 		pi.finalize(backtrace, cur);
 		return pi;
 	}
 
-	
+	public static void bigOlPromSearch(Point start) {
+//		priority queue
+//		set for queue contents
+//		mapping: when node is popped from queue, map node to all neighbors just added to queue or already in queue
+//		  when node is popped from queue, for each neighbor, if entry in map, remove self from value. if value empty, delete Entry.
+//		
+	}
 }
