@@ -49,7 +49,9 @@ public class PromNetwork {
 	static class Front {
 		PriorityQueue<Point> queue;
 		Set<Point> set;
+		Set<Point> seen;
 		TopologyNetwork tree;
+		int pruneThreshold = 1;
 		
 		public Front(final Comparator<Point> c, TopologyNetwork tree) {
 			this.tree = tree;
@@ -60,9 +62,14 @@ public class PromNetwork {
 				}				
 			});
 			set = new HashSet<Point>();
+			seen = new HashSet<Point>();
 		}
 		
 		public boolean add(Point p) {
+			if (seen.contains(p)) {
+				return false;
+			}
+			
 			boolean newItem = set.add(p);
 			if (newItem) {
 				queue.add(p);
@@ -73,7 +80,16 @@ public class PromNetwork {
 		public Point next() {
 			Point p = queue.poll();
 			set.remove(p);
+			seen.add(p);
 			return p;
+		}
+
+		public void prune() {
+			if (seen.size() > pruneThreshold) {
+				seen.retainAll(this.adjacent());
+				pruneThreshold = Math.max(pruneThreshold, 2 * seen.size());
+				//System.err.println("pruned " + pruneThreshold);
+			}
 		}
 		
 		public Set<Point> adjacent() {
@@ -173,7 +189,6 @@ public class PromNetwork {
 		PromInfo pi = new PromInfo(p, c);
 		Front front = new Front(c, tree);
 		front.add(p);
-		Map<Point, Set<Point>> seen = new HashMap<Point, Set<Point>>();
 		Map<Point, Point> backtrace = new HashMap<Point, Point>();
 
 		// point is not part of network (ie too close to edge to have connecting saddle)
@@ -200,37 +215,80 @@ public class PromNetwork {
 				pi.min_bound_only = true;
 				break outer;				
 			}
-			seen.put(cur, new HashSet<Point>());
 			for (Point adj : tree.adjacent(cur)) {
 				if (adj == cur) { // FIXME
-					System.err.println("neighbor with self [" + cur.ix + "]... wtf???");
+					//System.err.println("neighbor with self [" + cur.ix + "]... wtf???");
 					continue;
 				}
 				
-				Set<Point> predecessorIx = seen.get(adj);
-				if (predecessorIx != null && predecessorIx.contains(cur)) {
-					predecessorIx.remove(cur);
-					if (predecessorIx.isEmpty()) {
-						seen.remove(adj);
-					}
-				} else {
-					if (front.add(adj)) {
-						backtrace.put(adj, cur);
-					}
-					seen.get(cur).add(adj);
+				if (front.add(adj)) {
+					backtrace.put(adj, cur);
 				}
 			}
+			
+			front.prune();
 		}
 		
 		pi.finalize(backtrace, cur);
 		return pi;
 	}
 
-	public static void bigOlPromSearch(Point start) {
-//		priority queue
-//		set for queue contents
-//		mapping: when node is popped from queue, map node to all neighbors just added to queue or already in queue
-//		  when node is popped from queue, for each neighbor, if entry in map, remove self from value. if value empty, delete Entry.
+//	public static void bigOlPromSearch(Point p, TopologyNetwork tree, Map<Point, PromInfo> results) {
+//		boolean up = true;
+//		Comparator<Point> c = _cmp(up);
+//		Criterion crit = new Criterion() {
+//			@Override
+//			public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
+//				return cmp.compare(cur, p) > 0;
+//			}			
+//		};
 //		
-	}
+//		PromInfo pi = new PromInfo(p, c);
+//		Front front = new Front(c, tree);
+//		front.add(p);
+//		Map<Point, Point> backtrace = new HashMap<Point, Point>();
+//
+//		// point is not part of network (ie too close to edge to have connecting saddle)
+//		if (tree.adjacent(p) == null) {
+//			return;
+//		}
+//
+//		Point cur = null;
+//		outer:
+//		while (true) {
+//			cur = front.next();
+//			if (cur == null) {
+//				// we've searched the whole world
+//				pi.global_max = true;
+//				break;
+//			}
+//			pi.add(cur);
+//			if (crit.condition(c, p, cur)) {
+//				break;
+//			}
+//
+//			if (tree.pending.containsKey(cur)) {
+//				// reached an edge
+//				pi.min_bound_only = true;
+//				break outer;				
+//			}
+//			for (Point adj : tree.adjacent(cur)) {
+//				if (adj == cur) { // FIXME
+//					System.err.println("neighbor with self [" + cur.ix + "]... wtf???");
+//					continue;
+//				}
+//				
+//				if (front.add(adj)) {
+//					backtrace.put(adj, cur);
+//				}
+//			}
+//			
+//			front.prune();
+//		}
+//		
+//		pi.finalize(backtrace, cur);
+//		results.put(p, pi);
+//		
+//		
+//	}
 }
