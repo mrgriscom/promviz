@@ -402,7 +402,7 @@ public class DEMManager {
 			}
 		}
 		Logging.log("highest: " + highest.elev);
-		PromNetwork.bigOlPromSearch(highest, tn, prominentPoints);
+		PromNetwork.bigOlPromSearch(highest, tn, prominentPoints, PROM_CUTOFF);
 //		prominentPoints.put(highest, PromNetwork.prominence(tn, highest, up));
 		
 //		for (Point p : tn.points.values()) {

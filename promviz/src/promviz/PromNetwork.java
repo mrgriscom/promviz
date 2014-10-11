@@ -1,15 +1,14 @@
 package promviz;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.Map.Entry;
-
-import promviz.util.Logging;
 
 public class PromNetwork {
 
@@ -241,6 +240,11 @@ public class PromNetwork {
 		Comparator<Point> c;
 		List<Point> path;
 		
+		public PromInfo2(Point peak, Point saddle) {
+			this.p = peak;
+			this.saddle = saddle;
+		}
+		
 		public PromInfo2(Point p, Comparator<Point> c) {
 			this.p = p;
 			this.c = c;
@@ -255,16 +259,7 @@ public class PromNetwork {
 				saddle = cur;
 			}
 		}
-		
-		public void finalize(Map<Point, Point> backtrace, Point horizon) {
-			this.path = new ArrayList<Point>();
-			Point cur = horizon; //saddle;
-			while (cur != null) {
-				this.path.add(cur);
-				cur = backtrace.get(cur);
-			}
-		}
-		
+				
 		public PromInfo toNormal() {
 			PromInfo pi = new PromInfo(this.p, this.c);
 			pi.saddle = this.saddle;
@@ -277,7 +272,7 @@ public class PromNetwork {
 		}
 	}
 	
-	public static void bigOlPromSearch(Point p, TopologyNetwork tree, Map<Point, PromInfo> results) {
+	public static void bigOlPromSearch(Point root, TopologyNetwork tree, Map<Point, PromInfo> results, double cutoff) {
 		boolean up = true;
 		Comparator<Point> c = _cmp(up);
 		Criterion crit = new Criterion() {
@@ -287,35 +282,35 @@ public class PromNetwork {
 			}			
 		};
 		
-		PromInfo2 pi = new PromInfo2(p, c);
+		Deque<Point> peaks = new ArrayDeque<Point>(); 
+		Deque<Point> saddles = new ArrayDeque<Point>(); 
 		Front front = new Front(c, tree);
-		front.add(p);
-		Map<Point, Point> backtrace = new HashMap<Point, Point>();
+		front.add(root);
+		//Map<Point, Point> backtrace = new HashMap<Point, Point>();
 	
 		// point is not part of network (ie too close to edge to have connecting saddle)
-		if (tree.adjacent(p) == null) {
+		if (tree.adjacent(root) == null) {
 			return;
 		}
 	
 		Point cur = null;
-		outer:
 		while (true) {
 			cur = front.next();
 			if (cur == null) {
 				// we've searched the whole world
-				pi.global_max = true;
-				break;
+				//pi.global_max = true;
+				//break;
+				return;
 			}
-			pi.add(cur);
-			if (crit.condition(c, p, cur)) {
-				break;
-			}
-	
-			if (tree.pending.containsKey(cur)) {
-				// reached an edge
-				pi.min_bound_only = true;
-				break outer;				
-			}
+			
+//			double[] ll = PointIndex.toLatLon(cur.ix);
+//			System.err.println("cur: " + ll[0] + "," + ll[1] + " " + cur.elev + " " + (cur.classify(tree) == Point.CLASS_SUMMIT ? "summit" : "saddle"));
+//			for (Point a : cur.adjacent(tree)) {
+//				ll = PointIndex.toLatLon(a.ix);
+//				System.err.println("-> " + ll[0] + "," + ll[1] + " " + a.elev + " " + (a.classify(tree) == Point.CLASS_SUMMIT ? "summit" : "saddle") + " " + (front.seen.contains(a) || front.set.contains(a) ? "excl" : ""));
+//			}
+			
+			boolean deadEnd = true;
 			for (Point adj : tree.adjacent(cur)) {
 				if (adj == cur) { // FIXME
 					//System.err.println("neighbor with self [" + cur.ix + "]... wtf???");
@@ -323,15 +318,86 @@ public class PromNetwork {
 				}
 				
 				if (front.add(adj)) {
-					backtrace.put(adj, cur);
+					deadEnd = false;
+
+					// weird temporary workaround for saddles pointing to saddles
+					if (cur.classify(tree) != Point.CLASS_SUMMIT && adj.classify(tree) != Point.CLASS_SUMMIT) {
+						deadEnd = true;
+						System.err.println("weird topology");
+					}
+					//backtrace.put(adj, cur);
 				}
 			}
-			
 			front.prune();
+						
+			if (cur.classify(tree) != Point.CLASS_SUMMIT) {
+				if (deadEnd) {
+					// basin saddle
+					continue;
+				}
+				while (saddles.peekFirst() != null && c.compare(cur, saddles.peekFirst()) < 0) {
+					Point saddle = saddles.removeFirst();
+					Point peak = peaks.removeFirst();
+					
+					PromInfo pi = new PromInfo2(peak, saddle).toNormal();
+					if (pi.prominence() >= cutoff) {
+						results.put(peak, pi);
+					}
+				}
+				saddles.addFirst(cur);
+			} else {
+				if (peaks.size() == saddles.size() + 1) {
+					System.err.println("ignoring forked saddle");
+					continue;
+				}
+				
+				while (peaks.peekFirst() != null && c.compare(cur, peaks.peekFirst()) > 0) {
+					Point saddle = saddles.removeFirst();
+					Point peak = peaks.removeFirst();
+
+					PromInfo pi = new PromInfo2(peak, saddle).toNormal();
+					if (pi.prominence() >= cutoff) {
+						results.put(peak, pi);
+					}
+				}
+				peaks.addFirst(cur);
+			}
+
+//			System.err.println("peaks");
+//			for (Point _p : peaks) {
+//				ll = PointIndex.toLatLon(_p.ix);
+//				System.err.println(ll[0] + "," + ll[1] + " " + _p.elev);
+//			}
+//			System.err.println("saddles");
+//			for (Point _p : saddles) {
+//				ll = PointIndex.toLatLon(_p.ix);
+//				System.err.println(ll[0] + "," + ll[1] + " " + _p.elev);
+//			}
+//			System.err.println("");
+						
+			if (tree.pending.containsKey(cur)) {
+				while (!saddles.isEmpty()) {
+					Point peak = peaks.removeLast();
+					Point saddle = saddles.removeLast();
+					PromInfo pi = new PromInfo2(peak, saddle).toNormal();
+					pi.min_bound_only = true;
+					if (pi.prominence() >= cutoff) {
+						results.put(peak, pi);
+					}
+				}
+				// reached an edge
+				//pi.min_bound_only = true;
+				//break outer;				
+				return;
+			}
+			
+//			if (peaks.peekLast().elev != 1908) {
+//				throw new RuntimeException();
+//			}
 		}
 		
-		pi.finalize(backtrace, cur);
-		results.put(p,  pi.toNormal());
+		//pi.finalize(backtrace, cur);
+		//results.put(p,  pi.toNormal());
 		
 		
 	}
