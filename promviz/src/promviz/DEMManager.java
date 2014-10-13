@@ -402,19 +402,19 @@ public class DEMManager {
 			}
 		}
 		Logging.log("highest: " + highest.elev);
-		PromNetwork.bigOlPromSearch(highest, tn, prominentPoints, PROM_CUTOFF);
+//		PromNetwork.bigOlPromSearch(highest, tn, prominentPoints, PROM_CUTOFF);
 //		prominentPoints.put(highest, PromNetwork.prominence(tn, highest, up));
 		
-//		for (Point p : tn.points.values()) {
-//			if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
-//				continue;
-//			}
-//			
-//			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
-//			if (pi != null && pi.prominence() > PROM_CUTOFF) {
-//				prominentPoints.put(p, pi);
-//			}
-//		}
+		for (Point p : tn.points.values()) {
+			if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
+				continue;
+			}
+			
+			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
+			if (pi != null && pi.prominence() > PROM_CUTOFF) {
+				prominentPoints.put(p, pi);
+			}
+		}
 
 //		Map<Point, PromNetwork.PromInfo> saddleIndex = new HashMap<Point, PromNetwork.PromInfo>();
 //		for (Entry<Point, PromNetwork.PromInfo> e : prominentPoints.entrySet()) {
