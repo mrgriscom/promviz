@@ -381,7 +381,7 @@ public class DEMManager {
 		System.err.println(dtn.up.points.size() + " nodes in network (up), " + dtn.up.numEdges + " edges");
 		System.err.println(dtn.down.points.size() + " nodes in network (down), " + dtn.down.numEdges + " edges");
 
-		double PROM_CUTOFF = 5.;
+		double PROM_CUTOFF = 300; //5.;
 		double ANTI_PROM_CUTOFF = PROM_CUTOFF;
 		
 		TopologyNetwork tn = (up ? dtn.up : dtn.down);
@@ -429,7 +429,13 @@ public class DEMManager {
 			Point p = e.getKey();
 			PromNetwork.PromInfo pi = e.getValue();
 			
-			PromNetwork.PromInfo parentage = pi; //PromNetwork.parent(tn, p, up, prominentPoints);
+			PromNetwork.PromInfo parentfill = new PromNetwork.PromInfo(pi.p, pi.c);
+			parentfill.saddle = pi.saddle;
+			parentfill.path = new ArrayList<Point>();
+			parentfill.path.add(pi.p);
+			parentfill.path.add(pi.saddle);
+			parentfill.min_bound_only = true;
+			PromNetwork.PromInfo parentage = parentfill; //PromNetwork.parent(tn, p, up, prominentPoints);
 			
 			List<Point> domainSaddles = null; //PromNetwork.domainSaddles(tn, p, saddleIndex, (float)pi.prominence());
 //				List<String> domainLimits = new ArrayList<String>();

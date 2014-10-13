@@ -259,15 +259,34 @@ public class PromNetwork {
 				saddle = cur;
 			}
 		}
-				
+		
+		public void finalizeForward(Map<Point, Point> backtrace, Point horizon) {
+			this.path = new ArrayList<Point>();
+			Point cur = horizon;
+			while (true) {
+				this.path.add(cur);
+				if (cur.equals(this.p)) {
+					break;
+				}
+				cur = backtrace.get(cur);
+				if (cur == null) {
+					break;
+				}
+			}
+		}
+		
 		public PromInfo toNormal() {
 			PromInfo pi = new PromInfo(this.p, this.c);
 			pi.saddle = this.saddle;
 			pi.global_max = this.global_max;
 			pi.min_bound_only = this.min_bound_only;
-			pi.path = new ArrayList<Point>();
-			pi.path.add(this.p);
-			pi.path.add(this.saddle);
+			if (this.path != null) {
+				pi.path = this.path;
+			} else {
+				pi.path = new ArrayList<Point>();
+				pi.path.add(this.p);
+				pi.path.add(this.saddle);
+			}
 			return pi;
 		}
 	}
@@ -286,7 +305,7 @@ public class PromNetwork {
 		Deque<Point> saddles = new ArrayDeque<Point>(); 
 		Front front = new Front(c, tree);
 		front.add(root);
-		//Map<Point, Point> backtrace = new HashMap<Point, Point>();
+		Map<Point, Point> backtrace = new HashMap<Point, Point>();
 	
 		// point is not part of network (ie too close to edge to have connecting saddle)
 		if (tree.adjacent(root) == null) {
@@ -305,7 +324,7 @@ public class PromNetwork {
 			
 //			double[] ll = PointIndex.toLatLon(cur.ix);
 //			System.err.println("cur: " + ll[0] + "," + ll[1] + " " + cur.elev + " " + (cur.classify(tree) == Point.CLASS_SUMMIT ? "summit" : "saddle"));
-//			for (Point a : cur.adjacent(tree)) {
+//			for (Point a : tree.adjacent(cur)) {
 //				ll = PointIndex.toLatLon(a.ix);
 //				System.err.println("-> " + ll[0] + "," + ll[1] + " " + a.elev + " " + (a.classify(tree) == Point.CLASS_SUMMIT ? "summit" : "saddle") + " " + (front.seen.contains(a) || front.set.contains(a) ? "excl" : ""));
 //			}
@@ -316,16 +335,16 @@ public class PromNetwork {
 					//System.err.println("neighbor with self [" + cur.ix + "]... wtf???");
 					continue;
 				}
+				// weird temporary workaround for saddles pointing to saddles
+				if ((cur.classify(tree) == Point.CLASS_SUMMIT) == (adj.classify(tree) == Point.CLASS_SUMMIT)) {
+					// note this also handles the self-referential case above
+//					System.err.println("weird topology");
+					continue;
+				}
 				
 				if (front.add(adj)) {
 					deadEnd = false;
-
-					// weird temporary workaround for saddles pointing to saddles
-					if (cur.classify(tree) != Point.CLASS_SUMMIT && adj.classify(tree) != Point.CLASS_SUMMIT) {
-						deadEnd = true;
-						System.err.println("weird topology");
-					}
-					//backtrace.put(adj, cur);
+					backtrace.put(adj, cur);
 				}
 			}
 			front.prune();
@@ -338,26 +357,28 @@ public class PromNetwork {
 				while (saddles.peekFirst() != null && c.compare(cur, saddles.peekFirst()) < 0) {
 					Point saddle = saddles.removeFirst();
 					Point peak = peaks.removeFirst();
-					
-					PromInfo pi = new PromInfo2(peak, saddle).toNormal();
+					// path backtracks
+					PromInfo2 pi = new PromInfo2(peak, saddle);
 					if (pi.prominence() >= cutoff) {
-						results.put(peak, pi);
+						//pi.finalize(backtrace, cur);
+						results.put(peak, pi.toNormal());
 					}
 				}
 				saddles.addFirst(cur);
 			} else {
 				if (peaks.size() == saddles.size() + 1) {
-					System.err.println("ignoring forked saddle");
+//					System.err.println("ignoring forked saddle");
 					continue;
 				}
 				
 				while (peaks.peekFirst() != null && c.compare(cur, peaks.peekFirst()) > 0) {
 					Point saddle = saddles.removeFirst();
 					Point peak = peaks.removeFirst();
-
-					PromInfo pi = new PromInfo2(peak, saddle).toNormal();
+					// path goes forward
+					PromInfo2 pi = new PromInfo2(peak, saddle);
 					if (pi.prominence() >= cutoff) {
-						results.put(peak, pi);
+						pi.finalizeForward(backtrace, cur);
+						results.put(peak, pi.toNormal());
 					}
 				}
 				peaks.addFirst(cur);
@@ -381,6 +402,7 @@ public class PromNetwork {
 					Point saddle = saddles.removeLast();
 					PromInfo pi = new PromInfo2(peak, saddle).toNormal();
 					pi.min_bound_only = true;
+					pi.finalize(backtrace, cur);
 					if (pi.prominence() >= cutoff) {
 						results.put(peak, pi);
 					}
