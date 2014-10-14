@@ -31,6 +31,11 @@ public class PointIndex {
 		return make(c[0], x, y);
 	}
 	
+	public static String geocode(long ix) {
+		double[] ll = PointIndex.toLatLon(ix);
+		return GeoCode.print(GeoCode.fromCoord(ll[0], ll[1]));
+	}
+	
 	static void testA(int proj, int x, int y) {
 		long ix = make(proj, x, y);
 		int[] reverse = split(ix);

@@ -377,7 +377,7 @@ public class DEMManager {
 		} else {
 			dtn = DualTopologyNetwork.load(dm);
 		}
-			
+		
 		System.err.println(dtn.up.points.size() + " nodes in network (up), " + dtn.up.numEdges + " edges");
 		System.err.println(dtn.down.points.size() + " nodes in network (down), " + dtn.down.numEdges + " edges");
 
@@ -389,23 +389,23 @@ public class DEMManager {
 		
 		Map<Point, PromNetwork.PromInfo> prominentPoints = new HashMap<Point, PromNetwork.PromInfo>();
 		
-		Point highest = null;
-		Comparator<Point> cmp = new Comparator<Point>() {
-			@Override
-			public int compare(Point p0, Point p1) {
-				return up ? ElevComparator.cmp(p0, p1) : ElevComparator.cmp(p1, p0);
-			}
-		};
-		for (Point p : tn.points.values()) {
-			if (highest == null || cmp.compare(p, highest) > 0) {
-				highest = p;
-			}
-		}
-		Logging.log("highest: " + highest.elev);
-//		PromNetwork.bigOlPromSearch(highest, tn, prominentPoints, PROM_CUTOFF);
+//		Point highest = null;
+//		Comparator<Point> cmp = new Comparator<Point>() {
+//			@Override
+//			public int compare(Point p0, Point p1) {
+//				return up ? ElevComparator.cmp(p0, p1) : ElevComparator.cmp(p1, p0);
+//			}
+//		};
+//		for (Point p : tn.allPoints()) {
+//			if (highest == null || cmp.compare(p, highest) > 0) {
+//				highest = p;
+//			}
+//		}
+//		Logging.log("highest: " + highest.elev);
 //		prominentPoints.put(highest, PromNetwork.prominence(tn, highest, up));
+//		PromNetwork.bigOlPromSearch(highest, tn, prominentPoints, PROM_CUTOFF);
 		
-		for (Point p : tn.points.values()) {
+		for (Point p : tn.allPoints()) {
 			if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
 				continue;
 			}
@@ -431,9 +431,9 @@ public class DEMManager {
 			
 			PromNetwork.PromInfo parentfill = new PromNetwork.PromInfo(pi.p, pi.c);
 			parentfill.saddle = pi.saddle;
-			parentfill.path = new ArrayList<Point>();
-			parentfill.path.add(pi.p);
-			parentfill.path.add(pi.saddle);
+			parentfill.path = new ArrayList<Long>();
+			parentfill.path.add(pi.p.ix);
+			parentfill.path.add(pi.saddle.ix);
 			parentfill.min_bound_only = true;
 			PromNetwork.PromInfo parentage = parentfill; //PromNetwork.parent(tn, p, up, prominentPoints);
 			
@@ -468,6 +468,11 @@ public class DEMManager {
 				prom = pi.prominence();
 			}
 		}
+		
+		public PromPoint(long ix) {
+			this.coords = PointIndex.toLatLon(ix);
+			this.geo = GeoCode.print(GeoCode.fromCoord(this.coords[0], this.coords[1]));			
+		}
 	}
 	
 	static class PromData {
@@ -496,20 +501,19 @@ public class DEMManager {
 			*/
 			
 			this.higher_path = new ArrayList<double[]>();
-			for (Point k : pi.path) {
-				this.higher_path.add(PointIndex.toLatLon(k.ix));
+			for (long k : pi.path) {
+				this.higher_path.add(PointIndex.toLatLon(k));
 			}
 			this.parent_path = new ArrayList<double[]>();
-			for (Point k : parentage.path) {
-				this.parent_path.add(PointIndex.toLatLon(k.ix));
+			for (long k : parentage.path) {
+				this.parent_path.add(PointIndex.toLatLon(k));
 			}
 			
 			if (!pi.min_bound_only && !pi.path.isEmpty()) {
-				this.higher = new PromPoint(pi.path.get(0), null);
+				this.higher = new PromPoint(pi.path.get(0));
 			}
 			if (!parentage.min_bound_only && !parentage.path.isEmpty()) {
-				Point parent = parentage.path.get(0);
-				this.parent = new PromPoint(parent, prominentPoints.get(parent));
+				this.parent = new PromPoint(parentage.path.get(0));
 			}
 		}
 	}

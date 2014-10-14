@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 
+import promviz.util.Logging;
+
 import com.google.common.collect.Lists;
 
 public class PromNetwork {
@@ -25,7 +27,7 @@ public class PromNetwork {
 		boolean global_max;
 		boolean min_bound_only;
 		Comparator<Point> c;
-		List<Point> path;
+		List<Long> path;
 		
 		public PromInfo(Point p, Comparator<Point> c) {
 			this.p = p;
@@ -43,8 +45,13 @@ public class PromNetwork {
 		}
 		
 		public void finalize(Front f, Point horizon) {
-			this.path = Lists.newArrayList(f.trace(horizon));
-			
+			if (horizon != null) {
+				this.path = Lists.newArrayList(f.trace(horizon));
+			} else {
+				this.path = new ArrayList<Long>();
+				this.path.add(this.p.ix);
+				this.path.add(this.saddle.ix);
+			}
 //			try {
 //				PrintWriter w = new PrintWriter("/tmp/backtrace");
 //				for (Map.Entry<Point, Point> e : f.backtrace.entrySet()) {
@@ -65,26 +72,25 @@ public class PromNetwork {
 	static class Front {
 		PriorityQueue<Point> queue;
 		Set<Point> set;
-		Set<Point> seen;
+		Set<Long> seen;
 		TopologyNetwork tree;
-		Map<Point, Point> backtrace;
+		Map<Long, Long> backtrace;
 		int pruneThreshold = 1;
 		
 		public Front(final Comparator<Point> c, TopologyNetwork tree) {
 			this.tree = tree;
 			queue = new PriorityQueue<Point>(10, new Comparator<Point>() {
-				@Override
 				public int compare(Point p1, Point p2) {
 					return -c.compare(p1, p2);
 				}				
 			});
 			set = new HashSet<Point>();
-			seen = new HashSet<Point>();
-			backtrace = new HashMap<Point, Point>();
+			seen = new HashSet<Long>();
+			backtrace = new HashMap<Long, Long>();
 		}
 		
 		public boolean add(Point p, Point parent) {
-			if (seen.contains(p)) {
+			if (seen.contains(p.ix)) {
 				return false;
 			}
 			
@@ -92,7 +98,7 @@ public class PromNetwork {
 			if (newItem) {
 				queue.add(p);
 				if (parent != null) {
-					backtrace.put(p, parent);
+					backtrace.put(p.ix, parent.ix);
 				}
 			}
 			return newItem;
@@ -100,8 +106,10 @@ public class PromNetwork {
 		
 		public Point next() {
 			Point p = queue.poll();
-			set.remove(p);
-			seen.add(p);
+			if (p != null) {
+				set.remove(p);
+				seen.add(p.ix);
+			}
 			return p;
 		}
 
@@ -110,18 +118,18 @@ public class PromNetwork {
 				seen.retainAll(this.adjacent());
 				pruneThreshold = Math.max(pruneThreshold, 2 * seen.size());
 				
-				Set<Point> backtraceKeep = new HashSet<Point>();
+				Set<Long> backtraceKeep = new HashSet<Long>();
 				for (Point p : set) {
-					for (Point t : trace(p)) {
+					for (Long t : trace(p)) {
 						boolean newItem = backtraceKeep.add(t);
 						if (!newItem) {
 							break;
 						}
 					}
 				}
-				Iterator<Point> iter = backtrace.keySet().iterator();
+				Iterator<Long> iter = backtrace.keySet().iterator();
 				while (iter.hasNext()) {
-					Point p = iter.next();
+					long p = iter.next();
 					if (!backtraceKeep.contains(p)) {
 				        iter.remove();
 				    }
@@ -131,20 +139,21 @@ public class PromNetwork {
 			}
 		}
 		
-		class TraceIterator implements Iterator<Point> {
-			Point cur;
+		class TraceIterator implements Iterator<Long> {
+			long cur;
 			
-			public TraceIterator(Point start) {
+			public TraceIterator(long start) {
 				this.cur = start;
 			}
 			
 			public boolean hasNext() {
-				return this.cur != null;
+				return this.cur != -1;
 			}
 
-			public Point next() {
-				Point toRet = this.cur;
-				this.cur = backtrace.get(this.cur);
+			public Long next() {
+				long toRet = this.cur;
+				Long next = backtrace.get(this.cur);
+				this.cur = (next != null ? next : -1);
 				return toRet;
 			}
 
@@ -153,19 +162,19 @@ public class PromNetwork {
 			}
 		}
 		
-		public Iterable<Point> trace(final Point start) {
-			return new Iterable<Point>() {
-				public Iterator<Point> iterator() {
-					return new TraceIterator(start);
+		public Iterable<Long> trace(final Point start) {
+			return new Iterable<Long>() {
+				public Iterator<Long> iterator() {
+					return new TraceIterator(start.ix);
 				}				
 			};
 		}
 		
-		public Set<Point> adjacent() {
-			Set<Point> frontAdj = new HashSet<Point>();
+		public Set<Long> adjacent() {
+			Set<Long> frontAdj = new HashSet<Long>();
 			for (Point f : queue) {
 				for (Point adj : tree.adjacent(f)) {
-					frontAdj.add(adj);
+					frontAdj.add(adj.ix);
 				}
 			}
 			return frontAdj;
@@ -233,8 +242,8 @@ public class PromNetwork {
 					return false;
 				}				
 			});
-			saddle_pi.path.add(saddle);
-			runoffs.add(saddle_pi.path);
+//			saddle_pi.path.add(saddle);
+//			runoffs.add(saddle_pi.path);
 		}
 		return runoffs;
 	}
@@ -271,6 +280,7 @@ public class PromNetwork {
 			if (cur == null) {
 				// we've searched the whole world
 				pi.global_max = true;
+				Logging.log("global max? " + p.ix + " " + PointIndex.geocode(p.ix));
 				break;
 			}
 			pi.add(cur);
@@ -361,13 +371,13 @@ public class PromNetwork {
 			pi.saddle = this.saddle;
 			pi.global_max = this.global_max;
 			pi.min_bound_only = this.min_bound_only;
-			if (this.path != null) {
-				pi.path = this.path;
-			} else {
-				pi.path = new ArrayList<Point>();
-				pi.path.add(this.p);
-				pi.path.add(this.saddle);
-			}
+//			if (this.path != null) {
+//				pi.path = this.path;
+//			} else {
+//				pi.path = new ArrayList<Point>();
+//				pi.path.add(this.p);
+//				pi.path.add(this.saddle);
+//			}
 			return pi;
 		}
 	}
@@ -432,7 +442,7 @@ public class PromNetwork {
 					// path backtracks
 					PromInfo2 pi = new PromInfo2(peak, saddle);
 					if (pi.prominence() >= cutoff) {
-						pi.finalizeBackward(front.backtrace, null);
+//						pi.finalizeBackward(front.backtrace, null);
 						results.put(peak, pi.toNormal());
 					}
 				}
@@ -449,7 +459,7 @@ public class PromNetwork {
 					// path goes forward
 					PromInfo2 pi = new PromInfo2(peak, saddle);
 					if (pi.prominence() >= cutoff) {
-						pi.finalizeForward(front.backtrace, cur);
+//						pi.finalizeForward(front.backtrace, cur);
 						results.put(peak, pi.toNormal());
 					}
 				}

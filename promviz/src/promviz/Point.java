@@ -118,7 +118,7 @@ public class Point implements Comparable<Point> {
 	public String toString() {
 //		double[] coords = this.coords();
 //		return String.format("<%f,%f %f %dadj>", coords[0], coords[1], this.elev, this._adjacent.length);
-		return "fixme";
+		return "" + this.ix;
 	}
 
 	@Override

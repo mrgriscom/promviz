@@ -28,8 +28,8 @@ public class DualTopologyNetwork extends TopologyNetwork {
 	
 	public static DualTopologyNetwork load(DEMManager dm) {
 		DualTopologyNetwork dtn = new DualTopologyNetwork();
-		dtn.up = TopologyNetwork.load(true, dm);
-		dtn.down = TopologyNetwork.load(false, dm);
+		dtn.up = new PagedTopologyNetwork(true, dm);
+		dtn.down = new PagedTopologyNetwork(false, dm);
 		return dtn;
 	}
 	

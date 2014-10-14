@@ -124,6 +124,10 @@ public class TopologyNetwork implements IMesh {
 		}
 	}
 	
+	public Iterable<Point> allPoints() {
+		return points.values();
+	}
+	
 	void cleanup() {
 		try {
 			for (Point p : pending.keySet()) {
@@ -135,6 +139,8 @@ public class TopologyNetwork implements IMesh {
 			throw new RuntimeException();
 		}
 	}
+	
+	
 	
 	void addDirectedEdge(Point from, Point to) {
 		Point p = getPoint(from);
