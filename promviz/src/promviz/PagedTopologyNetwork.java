@@ -24,7 +24,7 @@ import com.google.common.collect.Lists;
 
 public class PagedTopologyNetwork extends TopologyNetwork {
 
-	final int MAX_POINTS = 1 << 24;
+	final int MAX_POINTS = 1 << 23;
 		
 	long ctr = 0;
 	class PrefixInfo {
@@ -39,7 +39,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 	
 	public PagedTopologyNetwork(boolean up, DEMManager dm) {
 		this.up = up;
-		points = new HashMap<Long, Point>();
+		points = new HashMap<Long, Point>((int)(MAX_POINTS / .75));
 		pending = new PendingMap();
 
 		prefixes = new HashMap<DEMManager.Prefix, PrefixInfo>();
