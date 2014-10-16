@@ -24,7 +24,7 @@ import com.google.common.collect.Lists;
 
 public class PagedTopologyNetwork extends TopologyNetwork {
 
-	final int MAX_POINTS = 1 << 23;
+	static final int MAX_POINTS = 1 << 23;
 		
 	long ctr = 0;
 	class PrefixInfo {
@@ -268,11 +268,6 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			new_[p._adjacent.length] = to_ix;
 			p._adjacent = new_;
 		}
-	}
-
-	void addPending(Point saddle, Point term) {
-		saddle = getPoint(saddle);
-		pending.get(saddle).add(term.ix);
 	}
 	
 	Prefix matchPrefix(long ix) {

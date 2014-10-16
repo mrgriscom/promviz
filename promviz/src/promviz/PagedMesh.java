@@ -9,26 +9,28 @@ import java.util.Queue;
 import java.util.Set;
 
 import promviz.DEMManager.Prefix;
+import promviz.PagedTopologyNetwork.PrefixInfo;
 import promviz.util.Logging;
 
 public class PagedMesh implements IMesh {
 
 	Map<Prefix, Set<DEMFile>> coverage;
 	int maxPoints;
-	Map<Long, Segment> segments;
-	Queue<Prefix> loadedSegments;
+	Map<Prefix, Segment> segments;
+	
+	long ctr = 0;
 	
 	public PagedMesh(Map<Prefix, Set<DEMFile>> coverage, int maxPoints) {
 		this.coverage = coverage;
 		this.maxPoints = maxPoints;
-		segments = new HashMap<Long, Segment>();
-		loadedSegments = new LinkedList<Prefix>();
+		segments = new HashMap<Prefix, Segment>();
 	}
 
 	static class Segment {
 		Prefix p;
 		float[] data;
 		int[] pbase;
+		long ctr;
 		
 		public Segment(Prefix p) {
 			this.p = p;
@@ -55,13 +57,13 @@ public class PagedMesh implements IMesh {
 	}
 	
 	public int curSize() {
-		return (1 << (2 * DEMManager.GRID_TILE_SIZE)) * loadedSegments.size();
+		return (1 << (2 * DEMManager.GRID_TILE_SIZE)) * segments.size();
 	}
 	
 	public Point get(long ix) {
-		long ixbase = new DEMManager.Prefix(ix, DEMManager.GRID_TILE_SIZE).prefix;
-		Segment seg = segments.get(ixbase);
+		Segment seg = segments.get(new DEMManager.Prefix(ix, DEMManager.GRID_TILE_SIZE));
 		if (seg != null) {
+			seg.ctr = ctr++;
 			float elev = seg.get(ix);
 			if (!Float.isNaN(elev)) {
 				return new GridPoint(ix, elev);
@@ -71,13 +73,13 @@ public class PagedMesh implements IMesh {
 	}
 	
 	public boolean isLoaded(Prefix prefix) {
-		return loadedSegments.contains(prefix);
+		return segments.containsKey(prefix);
 	}
 	
 	public List<DEMFile.Sample> loadPrefixData(Prefix prefix) {
 		Logging.log(String.format("loading segment %s...", prefix));
 		Segment seg = new Segment(prefix);
-		segments.put(prefix.prefix, seg);
+		segments.put(prefix, seg);
 		List<DEMFile.Sample> newData = new ArrayList<DEMFile.Sample>();
 		for (DEMFile dem : coverage.get(prefix)) {
 			for (DEMFile.Sample s : dem.samples(prefix)) {
@@ -98,15 +100,21 @@ public class PagedMesh implements IMesh {
 		while (curSize() > maxPoints) {
 			removeOldestPage();
 		}
-		loadedSegments.add(prefix);
 		List<DEMFile.Sample> newData = loadPrefixData(prefix);
 		Logging.log(String.format("%d total points in mesh", curSize()));
 		return newData;
 	}
 	
 	public void removeOldestPage() {
-		Prefix oldest = loadedSegments.remove();
-		Logging.log("booting " + oldest);
+		Map.Entry<Prefix, Segment> toEject = null;
+		for (Map.Entry<Prefix, Segment> e : segments.entrySet()) {
+			if (toEject == null || e.getValue().ctr < toEject.getValue().ctr) {
+				toEject = e;
+			}
+		}
+
+		segments.remove(toEject.getKey());
+		Logging.log("booting " + toEject.getKey());
 	}
 	
 }
