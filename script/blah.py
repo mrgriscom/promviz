@@ -9,9 +9,11 @@ from subprocess import Popen, PIPE
 import util as u
 import time
 import settings
+import os.path
 
 def calc_prom():
-    f = os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms%(memory)s -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar:/home/drew/dev/promviz/promviz/lib/gson-2.2.4.jar promviz.DEMManager %(args)s' % {'args': ' '.join("'%s'" % k for k in sys.argv[1:]), 'memory': settings.memory})
+    projroot = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'promviz')
+    f = os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms%(memory)s -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath %(root)s/bin:%(root)s/lib/guava-14.0.1.jar:%(root)s/lib/gson-2.2.4.jar promviz.DEMManager %(args)s' % {'args': ' '.join("'%s'" % k for k in sys.argv[1:]), 'memory': settings.memory, 'root': projroot})
 
     while True:
         ln = f.readline()
