@@ -4,6 +4,7 @@ import util as u
 from cStringIO import StringIO
 import settings
 import os.path
+import itertools
 
 def load_full(mode):
     path = '/tmp/promnet-%s' % mode
@@ -85,7 +86,7 @@ def consolidate_tally(tally):
     return buckets
 
 def partition(mode, buckets):
-    MAX_EDGES_AT_ONCE = 2**20 #25
+    MAX_EDGES_AT_ONCE = int(settings.memory) / 32
     for chunk in chunker(load_full(mode), MAX_EDGES_AT_ONCE):
         partition_chunk(mode, buckets, chunk)
 
@@ -117,14 +118,14 @@ def partition_chunk(mode, buckets, chunk):
             f.write(buf.getvalue())
 
 def chunker(it, size):
-    chunk = []
-    for e in it:
-        chunk.append(e)
-        if len(chunk) == size:
-            yield chunk
-            chunk = []
-    if chunk:
-        yield chunk
+    while True:
+        slc = itertools.islice(it, size)
+        try:
+            first = slc.next()
+        except StopIteration:
+            break
+
+        yield itertools.chain([first], slc)
 
 if __name__ == "__main__":
 

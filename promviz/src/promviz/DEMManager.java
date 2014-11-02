@@ -20,7 +20,7 @@ import com.google.gson.Gson;
 public class DEMManager {	
 
 	static final int GRID_TILE_SIZE = 11;
-	static int MESH_MAX_POINTS;
+	static long MESH_MAX_POINTS;
 	
 	List<DEMFile> DEMs;
 	List<Projection> projs;
@@ -297,7 +297,7 @@ public class DEMManager {
 
 		DualTopologyNetwork dtn;
 		if (buildtn) {
-			MESH_MAX_POINTS = (1 << 30);
+			MESH_MAX_POINTS = Long.parseLong(props.getProperty("memory")) / 8;
 			dtn = dm.buildAll();
 			dtn.up.cleanup();
 			dtn.down.cleanup();

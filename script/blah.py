@@ -11,7 +11,7 @@ import time
 import settings
 
 def calc_prom():
-    f = os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms6000m -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar:/home/drew/dev/promviz/promviz/lib/gson-2.2.4.jar promviz.DEMManager %s' % ' '.join("'%s'" % k for k in sys.argv[1:]))
+    f = os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms%(memory)s -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar:/home/drew/dev/promviz/promviz/lib/gson-2.2.4.jar promviz.DEMManager %(args)s' % {'args': ' '.join("'%s'" % k for k in sys.argv[1:]), 'memory': settings.memory})
 
     while True:
         ln = f.readline()

@@ -15,12 +15,12 @@ import promviz.util.Logging;
 public class PagedMesh implements IMesh {
 
 	Map<Prefix, Set<DEMFile>> coverage;
-	int maxPoints;
+	long maxPoints;
 	Map<Prefix, Segment> segments;
 	
 	long ctr = 0;
 	
-	public PagedMesh(Map<Prefix, Set<DEMFile>> coverage, int maxPoints) {
+	public PagedMesh(Map<Prefix, Set<DEMFile>> coverage, long maxPoints) {
 		this.coverage = coverage;
 		this.maxPoints = maxPoints;
 		segments = new HashMap<Prefix, Segment>();
@@ -56,8 +56,8 @@ public class PagedMesh implements IMesh {
 		}
 	}
 	
-	public int curSize() {
-		return (1 << (2 * DEMManager.GRID_TILE_SIZE)) * segments.size();
+	public long curSize() {
+		return (long)(1 << (2 * DEMManager.GRID_TILE_SIZE)) * segments.size();
 	}
 	
 	public Point get(long ix) {

@@ -24,8 +24,8 @@ import com.google.common.collect.Lists;
 
 public class PagedTopologyNetwork extends TopologyNetwork {
 
-	static final int MAX_POINTS = 1 << 23;
-		
+	static final int MAX_POINTS = (int)(Long.parseLong(DEMManager.props.getProperty("memory")) / 768);
+
 	long ctr = 0;
 	class PrefixInfo {
 		String path;
