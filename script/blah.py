@@ -4,8 +4,8 @@ import sys
 import tempfile
 import uuid
 from subprocess import Popen, PIPE
-import psycopg2
-from psycopg2.extras import DictCursor
+#import psycopg2
+#from psycopg2.extras import DictCursor
 import util as u
 import time
 import settings
@@ -25,6 +25,7 @@ def calc_prom():
 
 def get_name(conn, pos, type, res=40030000./360/3600):
     return None
+
     cur = conn.cursor(cursor_factory=DictCursor)
     feature_classes = {
         'peak': ['Summit', 'Pillar', 'Ridge'],
@@ -108,7 +109,7 @@ if __name__ == "__main__":
     for d in (settings.dir_dem, settings.dir_net, settings.dir_out):
         os.popen('mkdir -p "%s"' % d)
 
-    conn = psycopg2.connect('dbname=%s' % 'gazetteer')
+    conn = None #psycopg2.connect('dbname=%s' % 'gazetteer')
 
     index_data = []
     def core(p):
