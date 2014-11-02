@@ -17,6 +17,7 @@ import java.util.Set;
 
 import promviz.DEMManager.Prefix;
 import promviz.util.DefaultMap;
+import promviz.util.Logging;
 
 
 
@@ -167,6 +168,8 @@ public class TopologyNetwork implements IMesh {
 	}
 	
 	public void build(IMesh m, List<DEMFile.Sample> points) {
+		long start = System.currentTimeMillis();
+		
 		for (DEMFile.Sample s : points) {
 			Point p = new GridPoint(s);
 			int pointClass = p.classify(m);
@@ -176,6 +179,8 @@ public class TopologyNetwork implements IMesh {
 				unprocessedFringe.add(p.ix);
 			}
 		}
+		
+		Logging.log("@build new page " + (System.currentTimeMillis() - start));
 	}
 
 	void processSaddle(IMesh m, Point p) {
@@ -209,6 +214,7 @@ public class TopologyNetwork implements IMesh {
 				}
 			}
 		}
+		Logging.log("# pending: " + oldPending.size() + " -> " + pending.size());
 		Set<Long> fringeNowProcessed = new HashSet<Long>();
 		for (long ix : unprocessedFringe) {
 			// TODO don't reprocess points that were also pending leads?
@@ -223,6 +229,7 @@ public class TopologyNetwork implements IMesh {
 			}
 		}
 		unprocessedFringe.removeAll(fringeNowProcessed);
+		Logging.log("# fringe: " + (unprocessedFringe.size() + fringeNowProcessed.size()) + " -> " + unprocessedFringe.size());
 
 		if (newPage != null) {
 			build(m, newPage);

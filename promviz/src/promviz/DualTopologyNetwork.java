@@ -6,6 +6,7 @@ import java.util.Set;
 
 import promviz.DEMManager.Prefix;
 import promviz.util.DefaultMap;
+import promviz.util.Logging;
 
 
 public class DualTopologyNetwork extends TopologyNetwork {
@@ -34,11 +35,17 @@ public class DualTopologyNetwork extends TopologyNetwork {
 	}
 	
 	public void buildPartial(PagedMesh m, List<DEMFile.Sample> newPage) {
+		long start = System.currentTimeMillis();
+		
 		up.buildPartial(m, newPage);
 		down.buildPartial(m, newPage);
+
+		Logging.log("@buildPartial: " + (System.currentTimeMillis() - start));
 	}
 
 	public Map<Set<Prefix>, Integer> tallyPending(Set<Prefix> allPrefixes) {
+		long start = System.currentTimeMillis();
+				
 		Map<Set<Prefix>, Integer> frontierTotals = new DefaultMap<Set<Prefix>, Integer>() {
 			@Override
 			public Integer defaultValue() {
@@ -47,6 +54,9 @@ public class DualTopologyNetwork extends TopologyNetwork {
 		};
 		up.tallyPending(allPrefixes, frontierTotals);
 		down.tallyPending(allPrefixes, frontierTotals);
+
+		Logging.log("@tallyPending: " + (System.currentTimeMillis() - start));
+		
 		return frontierTotals;
 	}
 

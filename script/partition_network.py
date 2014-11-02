@@ -1,16 +1,22 @@
 import struct
 import collections
 import util as u
+from cStringIO import StringIO
 
 def load_full(mode):
     path = '/tmp/promnet-%s' % mode
     fmt = '>QQ'
     size = struct.calcsize(fmt)
     with open(path) as f:
+        i = 0
         while True:
+            i += 1
+            #if i % 100000 == 0:
+            #    print i
+
             data = f.read(size)
             if not data:
-                return
+                break
             yield tuple(parse_ix(p) for p in struct.unpack_from(fmt, data))
 
 def parse_ix(ix):
@@ -77,34 +83,50 @@ def consolidate_tally(tally):
     return buckets
 
 def partition(mode, buckets):
-    def bucket_path(b):
-        return '/tmp/pnet/%s-%d,%d,%d,%d' % (mode, b[0], b[1][0], b[1][1], b[1][2])
-    f_ix = dict((b, open(bucket_path(b), 'w')) for b in buckets)
+    MAX_EDGES_AT_ONCE = 2**20 #25
+    for chunk in chunker(load_full(mode), MAX_EDGES_AT_ONCE):
+        partition_chunk(mode, buckets, chunk)
 
+def partition_chunk(mode, buckets, chunk):
     def get_bucket(ix):
         for res in xrange(BASE_RES, 100):
             b = (res, prefix(ix, res))
             if b in buckets:
                 return b
 
+    f_ix = collections.defaultdict(StringIO)
     def write_edge(bucket, e):
         data = struct.pack('>QQ', pack_ix(e[0]), pack_ix(e[1]) if e[1] is not None else 0xFFFFFFFFFFFFFFFF)
         f_ix[bucket].write(data)
 
-    data = load_full(mode)
-    for e in data:
+    for e in chunk:
         bucket1 = get_bucket(e[0])
         bucket2 = get_bucket(e[1]) if e[1] is not None else None
-
+        
         write_edge(bucket1, e)
         if bucket2 is not None and bucket2 != bucket1:
             write_edge(bucket2, e)
 
-    for f in f_ix.values():
-        f.close()
+    def bucket_path(b):
+        return '/tmp/pnet/%s-%d,%d,%d,%d' % (mode, b[0], b[1][0], b[1][1], b[1][2])
+
+    for bucket, buf in f_ix.iteritems():
+        with open(bucket_path(bucket), 'a') as f:
+            f.write(buf.getvalue())
+
+def chunker(it, size):
+    chunk = []
+    for e in it:
+        chunk.append(e)
+        if len(chunk) == size:
+            yield chunk
+            chunk = []
+    if chunk:
+        yield chunk
 
 if __name__ == "__main__":
 
     tally = initial_tally(load_full('up'))
     buckets = consolidate_tally(tally)
+    print '%s buckets' % len(buckets)
     partition('up', buckets)
