@@ -55,7 +55,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 	}
 	
 	void loadPrefixes() {
-		File folder = new File("/tmp/pnet");
+		File folder = new File(DEMManager.props.getProperty("dir_net"));
 		File[] listOfFiles = folder.listFiles();
 		for (File f : listOfFiles) {
 			String[] a = f.getName().split("-", 2);
@@ -66,7 +66,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			String[] b = a[1].split(",");
 			DEMManager.Prefix pf = new DEMManager.Prefix(PointIndex.make(Integer.parseInt(b[1]), Integer.parseInt(b[2]), Integer.parseInt(b[3])), Integer.parseInt(b[0]));
 			PrefixInfo pfi = new PrefixInfo();
-			pfi.path = "/tmp/pnet/" + f.getName();
+			pfi.path = DEMManager.props.getProperty("dir_net") + "/" + f.getName();
 			pfi.loaded = false;
 			prefixes.put(pf, pfi);
 		}

@@ -8,6 +8,7 @@ import psycopg2
 from psycopg2.extras import DictCursor
 import util as u
 import time
+import settings
 
 def calc_prom():
     f = os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -Xms6000m -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath /home/drew/dev/promviz/promviz/bin:/home/drew/dev/promviz/promviz/lib/guava-14.0.1.jar:/home/drew/dev/promviz/promviz/lib/gson-2.2.4.jar promviz.DEMManager %s' % ' '.join("'%s'" % k for k in sys.argv[1:]))
@@ -94,15 +95,18 @@ def write_master(ix):
     ix.sort(key=lambda e: e['prom'], reverse=True)
     with open('/tmp/pvindex', 'w') as f:
         json.dump(ix, f)
-    os.popen('mv /tmp/pvindex /home/drew/tmp/pvout/_index')
+    os.popen('mv /tmp/pvindex %s' % os.path.join(settings.dir_out, '_index'))
 
 def save_point(p):
-    path = '/home/drew/tmp/pvout/prom%s.json' % p[p['type']]['geo']
+    path = os.path.join(settings.dir_out, 'prom%s.json' % p[p['type']]['geo'])
     with open(path, 'w') as f:
         content = json.dumps(p, indent=2)
         f.write(content)
 
 if __name__ == "__main__":
+
+    for d in (settings.dir_dem, settings.dir_net, settings.dir_out):
+        os.popen('mkdir -p "%s"' % d)
 
     conn = psycopg2.connect('dbname=%s' % 'gazetteer')
 

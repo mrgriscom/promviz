@@ -11,6 +11,10 @@ import sys
 import re
 import collections
 
+import os.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import settings
+
 def summit_feature(s, **props):
     f = {
         'type': 'Feature',
@@ -87,7 +91,7 @@ def to_geojson(k):
 class MapViewHandler(web.RequestHandler):
     def get(self, tag):
         def loadgeo(geo):
-            with open(os.path.join('/home/drew/tmp/pvout', 'prom%s.json' % geo)) as f:
+            with open(os.path.join(settings.dir_out, 'prom%s.json' % geo)) as f:
                 return json.load(f)
         
         data = loadgeo(tag)
@@ -129,7 +133,7 @@ if __name__ == "__main__":
     ], template_path='templates', debug=True)
     application.listen(port)
 
-    with open('/home/drew/tmp/pvout/_index') as f:
+    with open(os.path.join(settings.dir_out, '_index')) as f:
         index = json.load(f)
         print 'loaded (%d)' % len(index)
 

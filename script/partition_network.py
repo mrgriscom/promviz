@@ -2,6 +2,8 @@ import struct
 import collections
 import util as u
 from cStringIO import StringIO
+import settings
+import os.path
 
 def load_full(mode):
     path = '/tmp/promnet-%s' % mode
@@ -108,7 +110,7 @@ def partition_chunk(mode, buckets, chunk):
             write_edge(bucket2, e)
 
     def bucket_path(b):
-        return '/tmp/pnet/%s-%d,%d,%d,%d' % (mode, b[0], b[1][0], b[1][1], b[1][2])
+        return os.path.join(settings.dir_net, '%s-%d,%d,%d,%d' % (mode, b[0], b[1][0], b[1][1], b[1][2]))
 
     for bucket, buf in f_ix.iteritems():
         with open(bucket_path(bucket), 'a') as f:

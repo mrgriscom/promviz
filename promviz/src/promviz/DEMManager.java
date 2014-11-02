@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Properties;
 import java.util.Set;
 
 import promviz.util.DefaultMap;
@@ -18,14 +19,14 @@ import com.google.gson.Gson;
 
 public class DEMManager {	
 
-	static final boolean buildtn = false;
-
 	static final int GRID_TILE_SIZE = 11;
-	static final int MESH_MAX_POINTS = buildtn ? (1 << 30) : (1 << 26);
+	static int MESH_MAX_POINTS;
 	
 	List<DEMFile> DEMs;
 	List<Projection> projs;
 	static Projection PROJ;
+	
+	static Properties props;
 	
 	public DEMManager() {
 		DEMs = new ArrayList<DEMFile>();
@@ -263,12 +264,27 @@ public class DEMManager {
 		
 		Logging.init();
 		
+		props = new Properties();
+		try {
+			props.load(ClassLoader.getSystemResourceAsStream("config.properties"));
+		} catch (IOException e) {
+			throw new RuntimeException();
+		}
+		
 		DEMManager dm = new DEMManager();
 		PROJ = SRTMDEM.SRTMProjection(1.);
 		//PROJ = GridFloatDEM.NEDProjection();
 		dm.projs.add(PROJ);
 		
-		String region = args[0];
+		boolean buildtn;
+		if (args[0].equals("--build")) {
+			buildtn = true;
+		} else if (args[0].equals("--search")) {
+			buildtn = false;
+		} else {
+			throw new RuntimeException("operation not specified");
+		}
+		String region = args[1];
 		loadDEMs(dm, region);
 		
 //		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n42w073/floatn42w073_13.flt",
@@ -281,16 +297,22 @@ public class DEMManager {
 
 		DualTopologyNetwork dtn;
 		if (buildtn) {
+			MESH_MAX_POINTS = (1 << 30);
 			dtn = dm.buildAll();
 			dtn.up.cleanup();
 			dtn.down.cleanup();
 		} else {
+			MESH_MAX_POINTS = (1 << 26);
 			dtn = DualTopologyNetwork.load(dm);
 		}
 		
 		System.err.println(dtn.up.points.size() + " nodes in network (up), " + dtn.up.numEdges + " edges");
 		System.err.println(dtn.down.points.size() + " nodes in network (down), " + dtn.down.numEdges + " edges");
 
+		if (buildtn) {
+			return;
+		}
+		
 		double PROM_CUTOFF = 15.;
 		double ANTI_PROM_CUTOFF = PROM_CUTOFF;
 		
