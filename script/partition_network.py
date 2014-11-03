@@ -14,8 +14,8 @@ def load_full(mode):
         i = 0
         while True:
             i += 1
-            #if i % 100000 == 0:
-            #    print i
+            if i % 1000000 == 0:
+                print i
 
             data = f.read(size)
             if not data:
@@ -44,14 +44,13 @@ BASE_RES = 5
 def initial_tally(edges):
     buckets = collections.defaultdict(lambda: 0)
     for e in edges:
-        if e[1] is None:
-            continue
-
         pf1 = prefix(e[0], BASE_RES)
-        pf2 = prefix(e[1], BASE_RES)
         buckets[pf1] += 1
-        if pf2 != pf1:
-            buckets[pf2] += 1
+
+        if e[1] is not None:
+            pf2 = prefix(e[1], BASE_RES)
+            if pf2 != pf1:
+                buckets[pf2] += 1
 
     return buckets
 
