@@ -216,7 +216,7 @@ public class DEMManager {
 				partitions.get(p).add(dem);
 			}
 		}
-			
+
 		return partitions;
 	}
 	
@@ -227,8 +227,8 @@ public class DEMManager {
 		int[] xy = {_ix[1], _ix[2]};
 		for (DEMFile dem : DEMs) {
 			if (xy[0] >= dem.x0 && xy[1] >= dem.y0 &&
-					xy[0] <= (dem.x0 + dem.height - 1) &&
-					xy[1] <= (dem.y0 + dem.width - 1)) {
+					xy[0] < (dem.x0 + dem.height) &&
+					xy[1] < (dem.y0 + dem.width)) {
 				return true;
 			}
 		}

@@ -28,6 +28,8 @@ public class TopologyNetwork implements IMesh {
 	Set<Long> unprocessedFringe;
 	boolean up;
 	
+	Set<Long> pendInterior = new HashSet<Long>();
+	
 	DEMManager dm;
 	
 	DataOutputStream f;
@@ -252,12 +254,15 @@ public class TopologyNetwork implements IMesh {
 	
 	public boolean complete(Set<Prefix> allPrefixes, Set<Prefix> unprocessed) {
 		// FIXME what about interior nodata nodes? we will never load data for them. if they're on the ridgepath, infinite loop?
+		if (!unprocessed.isEmpty()) {
+			return false;
+		}
 		for (Entry<Set<Prefix>, Integer> e : tallyPending(allPrefixes).entrySet()) {
 			if (e.getValue() > 0) {
 				return false;
 			}
 		}
-		return unprocessed.isEmpty();
+		return true;
 	}
 
 	public Map<Set<Prefix>, Integer> tallyPending(Set<Prefix> allPrefixes) {
@@ -272,23 +277,56 @@ public class TopologyNetwork implements IMesh {
 	}
 	
 	public void tallyPending(Set<Prefix> allPrefixes, Map<Set<Prefix>, Integer> frontierTotals) {
+		for (Entry<Point, Set<Long>> e : pending.entrySet()) {
+			Set<Long> terms = e.getValue();
+			List<Long> edgePend = new ArrayList<Long>();	
+			for (long term : terms) {
+				boolean interior = tallyAdjacency(term, allPrefixes, frontierTotals);
+				if (interior) {
+					pendInterior.add(term);
+				} else {
+					edgePend.add(term);
+					
+					try {
+						f.writeLong(e.getKey().ix);
+						f.writeLong(0xFFFFFFFFFFFFFFFFL);
+					} catch (IOException ioe) { }
+				}
+			}
+			terms.removeAll(edgePend);
+		}
+		
+		List<Long> edgeFringe = new ArrayList<Long>();
+		for (long fringe : unprocessedFringe) {
+			boolean interior = tallyAdjacency(fringe, allPrefixes, frontierTotals);
+			if (interior) {
+				pendInterior.add(fringe);
+			} else {
+				edgeFringe.add(fringe);
+			}
+		}
+		unprocessedFringe.removeAll(edgeFringe);
+
+		// trim pendInterior to only what is still relevant
+		Set<Long> newPendInterior = new HashSet<Long>();
 		for (Set<Long> terms : pending.values()) {
 			for (long term : terms) {
-				tallyAdjacency(term, allPrefixes, frontierTotals);
+				if (pendInterior.contains(term)) {
+					newPendInterior.add(term);
+				}
 			}
 		}
 		for (long fringe : unprocessedFringe) {
-			tallyAdjacency(fringe, allPrefixes, frontierTotals);
+			if (pendInterior.contains(fringe)) {
+				newPendInterior.add(fringe);
+			}
 		}
+		pendInterior = newPendInterior;
 	}
 
 	Prefix matchPrefix(long ix, Set<Prefix> prefixes) {
-		for (Prefix potential : prefixes) {
-			if (potential.isParent(ix)) {
-				return potential;
-			}
-		}
-		return null;
+		Prefix p = new Prefix(ix, DEMManager.GRID_TILE_SIZE);
+		return (prefixes.contains(p) ? p : null);
 	}
 	
 	boolean tallyAdjacency(long ix, Set<Prefix> allPrefixes, Map<Set<Prefix>, Integer> totals) {
@@ -297,15 +335,19 @@ public class TopologyNetwork implements IMesh {
 		for (long adj : DEMManager.adjacency(ix)) {
 			// find the parititon the adjacent point lies in
 			Prefix partition = matchPrefix(adj, allPrefixes);
-			if (partition == null) {
-				// point is adjacent to a point that will never be loaded, i.e., on the edge of the
-				// entire region of interest; it will be indeterminate forever
-				return false;
+
+			if (!pendInterior.contains(ix)) {
+				if (partition == null) {
+					// point is adjacent to a point that will never be loaded, i.e., on the edge of the
+					// entire region of interest; it will be indeterminate forever
+					return false;
+				}
+				if (!dm.inScope(adj)) {
+				//i think this is the only required check; the prefix-matching above can be discarded
+					return false;
+				}
 			}
-			if (!dm.inScope(adj)) {
-			//i think this is the only required check; the prefix-matching above can be discarded
-				return false;
-			}
+				
 			frontiers.add(partition);
 		}
 		

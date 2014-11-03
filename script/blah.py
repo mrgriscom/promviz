@@ -111,6 +111,8 @@ if __name__ == "__main__":
     for d in (settings.dir_dem, settings.dir_net, settings.dir_out, settings.dir_netdump):
         os.popen('mkdir -p "%s"' % d)
 
+    os.popen('python demregion.py "%s" > /dev/null' % sys.argv[2])
+
     conn = None #psycopg2.connect('dbname=%s' % 'gazetteer')
 
     index_data = []
