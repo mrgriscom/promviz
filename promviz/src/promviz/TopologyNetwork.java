@@ -53,7 +53,7 @@ public class TopologyNetwork implements IMesh {
 	
 	public void enableCache() {
 		try {
-			f = new DataOutputStream(new BufferedOutputStream(new FileOutputStream("/tmp/promnet-" + (up ? "up" : "down"))));
+			f = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(DEMManager.props.getProperty("dir_netdump") + "/" + (up ? "up" : "down"))));
 		} catch (IOException ioe) {
 			throw new RuntimeException();
 		}		
@@ -63,7 +63,7 @@ public class TopologyNetwork implements IMesh {
 		TopologyNetwork tn = new TopologyNetwork(up, dm);
 		PagedMesh m = new PagedMesh(dm.partitionDEM(), dm.MESH_MAX_POINTS);
 		try {
-			DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream("/tmp/promnet-" + (up ? "up" : "down"))));
+			DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(DEMManager.props.getProperty("dir_netdump") + "/" + (up ? "up" : "down"))));
 			try {
 				while (true) {
 					long[] ix = {in.readLong(), in.readLong()};

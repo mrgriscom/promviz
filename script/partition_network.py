@@ -7,7 +7,7 @@ import os.path
 import itertools
 
 def load_full(mode):
-    path = '/tmp/promnet-%s' % mode
+    path = os.path.join(settings.dir_netdump, mode)
     fmt = '>QQ'
     size = struct.calcsize(fmt)
     with open(path) as f:
