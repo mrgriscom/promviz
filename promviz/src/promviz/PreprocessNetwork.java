@@ -281,7 +281,7 @@ public class PreprocessNetwork {
 					}
 				}) {
 					ixs.add(edge[0]);
-					if (edge[1] != -1) {
+					if (edge[1] != -1 && p.isParent(edge[1])) {
 						ixs.add(edge[1]);
 					}
 				}
@@ -291,7 +291,7 @@ public class PreprocessNetwork {
 					f = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(prefixPath("elev", p), true)));
 					
 					for (long ix : ixs) {
-						if (p.isParent(ix)) {
+						if (grid.isParent(ix)) {
 							f.writeLong(ix);
 							f.writeFloat(m.get(ix).elev);
 						}
