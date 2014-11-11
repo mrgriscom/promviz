@@ -52,6 +52,9 @@ public class PreprocessNetwork {
 				nextEdge = new long[] {in.readLong(), in.readLong()};
 			} catch (EOFException eof) {
 				nextEdge = null;
+				try {
+					in.close();
+				} catch (IOException e) { }
 			} catch (IOException ioe) {
 				throw new RuntimeException(ioe);
 			}

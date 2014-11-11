@@ -4,6 +4,7 @@ import java.io.BufferedInputStream;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 
 import com.google.common.io.LittleEndianDataInputStream;
 
@@ -29,7 +30,11 @@ public class GridFloatDEM extends DEMFile {
 	public Object getReader(String path) throws FileNotFoundException {
 		return new LittleEndianDataInputStream(new BufferedInputStream(new FileInputStream(path)));
 	}
-	
+
+	public void closeReader(Object f) throws IOException {
+		((InputStream)f).close();
+	}
+
 	public float getNextSample(Object reader) throws IOException {
 		float e = ((LittleEndianDataInputStream)reader).readFloat();
 		if (e == -9999) {

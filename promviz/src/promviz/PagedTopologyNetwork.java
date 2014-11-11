@@ -109,7 +109,8 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 				while (true) {
 					data.add(new long[] {in.readLong(), in.readLong()});
 				}
-			} catch (EOFException eof) {}		
+			} catch (EOFException eof) {}
+			in.close();
 		} catch (IOException ioe) {
 			throw new RuntimeException();
 		}
@@ -121,7 +122,8 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 				while (true) {
 					elev.put(in.readLong(), in.readFloat());
 				}
-			} catch (EOFException eof) {}		
+			} catch (EOFException eof) {}
+			in.close();
 		} catch (IOException ioe) {
 			throw new RuntimeException();
 		}

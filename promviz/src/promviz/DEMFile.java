@@ -121,6 +121,9 @@ public abstract class DEMFile {
 					return true;
 				}
 			}
+			try {
+				closeReader(f);
+			} catch (IOException ioe) { }
 			return false;
 		}
 
@@ -149,6 +152,8 @@ public abstract class DEMFile {
 	}
 	
 	public abstract Object getReader(String path) throws FileNotFoundException;
+	
+	public abstract void closeReader(Object f) throws IOException;
 	
 	public abstract float getNextSample(Object reader) throws IOException;
 

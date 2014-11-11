@@ -61,42 +61,42 @@ public class TopologyNetwork implements IMesh {
 		}		
 	}
 	
-	public static TopologyNetwork load(boolean up, DEMManager dm) {
-		TopologyNetwork tn = new TopologyNetwork(up, dm);
-		PagedMesh m = new PagedMesh(dm.partitionDEM(), dm.MESH_MAX_POINTS);
-		try {
-			DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(DEMManager.props.getProperty("dir_netdump") + "/" + (up ? "up" : "down"))));
-			try {
-				while (true) {
-					long[] ix = {in.readLong(), in.readLong()};
-					Point[] p = new Point[2];
-					for (int i = 0; i < 2; i++) {
-						long _ix = ix[i];
-						if (_ix == 0xFFFFFFFFFFFFFFFFL) {
-							continue;
-						}
-						Point _p = tn.get(_ix);
-						if (_p == null) {
-							_p = m.get(_ix);
-						}
-						if (_p == null) {
-							m.loadPage(new DEMManager.Prefix(_ix, DEMManager.GRID_TILE_SIZE));
-							_p = m.get(_ix);
-						}
-						p[i] = _p;
-					}
-					if (ix[1] == 0xFFFFFFFFFFFFFFFFL) {
-						tn.pending.put(tn.getPoint(p[0]), null);
-					} else {
-						tn.addEdge(tn.getPoint(p[0]), tn.getPoint(p[1]));
-					}
-				}
-			} catch (EOFException eof) {}		
-		} catch (IOException ioe) {
-			throw new RuntimeException();
-		}
-		return tn;
-	}
+//	public static TopologyNetwork load(boolean up, DEMManager dm) {
+//		TopologyNetwork tn = new TopologyNetwork(up, dm);
+//		PagedMesh m = new PagedMesh(dm.partitionDEM(), dm.MESH_MAX_POINTS);
+//		try {
+//			DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(DEMManager.props.getProperty("dir_netdump") + "/" + (up ? "up" : "down"))));
+//			try {
+//				while (true) {
+//					long[] ix = {in.readLong(), in.readLong()};
+//					Point[] p = new Point[2];
+//					for (int i = 0; i < 2; i++) {
+//						long _ix = ix[i];
+//						if (_ix == 0xFFFFFFFFFFFFFFFFL) {
+//							continue;
+//						}
+//						Point _p = tn.get(_ix);
+//						if (_p == null) {
+//							_p = m.get(_ix);
+//						}
+//						if (_p == null) {
+//							m.loadPage(new DEMManager.Prefix(_ix, DEMManager.GRID_TILE_SIZE));
+//							_p = m.get(_ix);
+//						}
+//						p[i] = _p;
+//					}
+//					if (ix[1] == 0xFFFFFFFFFFFFFFFFL) {
+//						tn.pending.put(tn.getPoint(p[0]), null);
+//					} else {
+//						tn.addEdge(tn.getPoint(p[0]), tn.getPoint(p[1]));
+//					}
+//				}
+//			} catch (EOFException eof) {}		
+//		} catch (IOException ioe) {
+//			throw new RuntimeException();
+//		}
+//		return tn;
+//	}
 	
 	public Point get(long ix) {
 		return points.get(ix);

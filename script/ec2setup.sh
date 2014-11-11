@@ -22,4 +22,5 @@ sudo mkdir /mnt/ssd
 sudo mount /dev/xvdb1 /mnt/ssd
 sudo chown ubuntu:ubuntu /mnt/ssd
 
-bash ~/promviz/script/ec2pull.sh
+cd ~/promviz/script
+bash ./ec2pull.sh

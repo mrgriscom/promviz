@@ -6,6 +6,7 @@ import java.io.DataInputStream;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 
 import com.google.common.io.LittleEndianDataInputStream;
 
@@ -35,6 +36,10 @@ public class SRTMDEM extends DEMFile {
 		} else {
 			return new DataInputStream(new BufferedInputStream(new FileInputStream(path)));			
 		}
+	}
+	
+	public void closeReader(Object f) throws IOException {
+		((InputStream)f).close();
 	}
 	
 	public float getNextSample(Object reader) throws IOException {
