@@ -36,7 +36,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 	}
 	
 	Map<DEMManager.Prefix, PrefixInfo> prefixes;
-	PagedMesh m;
+	PagedMesh m; // unused
 	
 	public PagedTopologyNetwork(boolean up, DEMManager dm) {
 		this.up = up;
