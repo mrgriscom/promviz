@@ -48,7 +48,7 @@ public class DualTopologyNetwork extends TopologyNetwork {
 				
 		Map<Set<Prefix>, Integer> frontierTotals = new DefaultMap<Set<Prefix>, Integer>() {
 			@Override
-			public Integer defaultValue() {
+			public Integer defaultValue(Set<Prefix> _) {
 				return 0;
 			}
 		};

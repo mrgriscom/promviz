@@ -61,7 +61,7 @@ public class DEMManager {
 		
 		Map<Prefix, Set<Set<Prefix>>> pendingPrefixes = new DefaultMap<Prefix, Set<Set<Prefix>>>() {
 			@Override
-			public Set<Set<Prefix>> defaultValue() {
+			public Set<Set<Prefix>> defaultValue(Prefix _) {
 				return new HashSet<Set<Prefix>>();
 			}			
 		};
@@ -145,6 +145,13 @@ public class DEMManager {
 			this.prefix = ix & this.mask();
 		}
 
+		public Prefix(Prefix p, int res) {
+			this(p.prefix, res);
+			if (res < p.res) {
+				throw new IllegalArgumentException();
+			}
+		}
+		
 		private long mask() {
 			int _mask = (~0 << this.res);
 			return PointIndex.make(~0, _mask, _mask);
@@ -152,6 +159,30 @@ public class DEMManager {
 		
 		public boolean isParent(long ix) {
 			return (ix & this.mask()) == this.prefix;
+		}
+		
+		public Prefix[] children(int level) {
+			if (level <= 0) {
+				level = 1;
+			}
+			
+			int chRes = res - level;
+			if (chRes < 0) {
+				return null;
+			}
+			
+			int[] p = PointIndex.split(prefix);
+			Prefix[] ch = new Prefix[1 << (2*level)];
+			for (int i = 0; i < (1<<level); i++) {
+				for (int j = 0; j < (1<<level); j++) {
+					ch[(i << level) + j] = new Prefix(PointIndex.make(
+								p[0],
+								p[1] + (i << chRes),
+								p[2] + (j << chRes)
+							), chRes);
+				}
+			}
+			return ch;
 		}
 		
 		public boolean equals(Object o) {
@@ -204,7 +235,7 @@ public class DEMManager {
 	public Map<Prefix, Set<DEMFile>> partitionDEM() {
 		class PartitionMap extends DefaultMap<Prefix, Set<DEMFile>> {
 			@Override
-			public Set<DEMFile> defaultValue() {
+			public Set<DEMFile> defaultValue(Prefix _) {
 				return new HashSet<DEMFile>();
 			}
 		};
@@ -260,58 +291,44 @@ public class DEMManager {
 		Logging.log("DEMs inventoried");
 	}
 	
-	public static void main(String[] args) {
-		
-		Logging.init();
-		
+	public static void initProps() {
 		props = new Properties();
 		try {
 			props.load(ClassLoader.getSystemResourceAsStream("config.properties"));
 		} catch (IOException e) {
 			throw new RuntimeException();
-		}
-		
-		DEMManager dm = new DEMManager();
-		PROJ = SRTMDEM.SRTMProjection(1.);
-		//PROJ = GridFloatDEM.NEDProjection();
-		dm.projs.add(PROJ);
-		
-		boolean buildtn;
-		if (args[0].equals("--build")) {
-			buildtn = true;
-		} else if (args[0].equals("--search")) {
-			buildtn = false;
-		} else {
-			throw new RuntimeException("operation not specified");
-		}
-		String region = args[1];
+		}		
+	}
+	
+	static void buildTopologyNetwork(DEMManager dm, String region) {
 		loadDEMs(dm, region);
 		
-//		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n42w073/floatn42w073_13.flt",
-//				10812, 10812, 40.9994444, -73.0005555, 9.259259e-5, 9.259259e-5, true));
-//		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n45w072/floatn45w072_13.flt",
-//				10812, 10812, 43.9994444, -72.0005555, 9.259259e-5, 9.259259e-5, true));
+		DualTopologyNetwork dtn;
+		MESH_MAX_POINTS = Long.parseLong(props.getProperty("memory")) / 8;
+		dtn = dm.buildAll();
+		dtn.up.cleanup();
+		dtn.down.cleanup();
 		
+		System.err.println("edges in network (up), " + dtn.up.numEdges);
+		System.err.println("edges in network (down), " + dtn.down.numEdges);
+	}
+	
+	static void preprocessNetwork(DEMManager dm, String region) {
+		if (region != null) {
+			loadDEMs(dm, region);
+		}
+
+		MESH_MAX_POINTS = (1 << 26);
+		PreprocessNetwork.preprocess(dm);
+	}
+	
+	static void promSearch() {
 		final boolean up = true;
 		//boolean up = false;
 
 		DualTopologyNetwork dtn;
-		if (buildtn) {
-			MESH_MAX_POINTS = Long.parseLong(props.getProperty("memory")) / 8;
-			dtn = dm.buildAll();
-			dtn.up.cleanup();
-			dtn.down.cleanup();
-		} else {
-			MESH_MAX_POINTS = (1 << 26);
-			dtn = DualTopologyNetwork.load(dm);
-		}
-		
-		System.err.println(dtn.up.points.size() + " nodes in network (up), " + dtn.up.numEdges + " edges");
-		System.err.println(dtn.down.points.size() + " nodes in network (down), " + dtn.down.numEdges + " edges");
-
-		if (buildtn) {
-			return;
-		}
+		MESH_MAX_POINTS = (1 << 26);
+		dtn = DualTopologyNetwork.load(null);
 		
 		double PROM_CUTOFF = 15.;
 		double ANTI_PROM_CUTOFF = PROM_CUTOFF;
@@ -380,6 +397,35 @@ public class DEMManager {
 //			first = false;
 //		}
 //		System.out.println("]");
+
+	}
+	
+	public static void main(String[] args) {
+		
+		Logging.init();
+		initProps();
+		
+		DEMManager dm = new DEMManager();
+		PROJ = SRTMDEM.SRTMProjection(1.);
+		//PROJ = GridFloatDEM.NEDProjection();
+		dm.projs.add(PROJ);
+
+		String region = args[1];
+		if (args[0].equals("--build")) {
+			buildTopologyNetwork(dm, region);
+			preprocessNetwork(dm, null);
+		} else if (args[0].equals("--prepnet")) {
+			preprocessNetwork(dm, region);
+		} else if (args[0].equals("--search")) {
+			promSearch();
+		} else {
+			throw new RuntimeException("operation not specified");
+		}
+		
+//		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n42w073/floatn42w073_13.flt",
+//				10812, 10812, 40.9994444, -73.0005555, 9.259259e-5, 9.259259e-5, true));
+//		dm.DEMs.add(new GridFloatDEM("/mnt/ext/gis/tmp/ned/n45w072/floatn45w072_13.flt",
+//				10812, 10812, 43.9994444, -72.0005555, 9.259259e-5, 9.259259e-5, true));
 		
 		Logging.log("java out");
 	}

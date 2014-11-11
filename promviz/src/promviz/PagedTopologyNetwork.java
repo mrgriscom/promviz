@@ -29,6 +29,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 	long ctr = 0;
 	class PrefixInfo {
 		String path;
+		String elevPath;
 		boolean loaded;
 		List<Point> points;
 		long ctr;
@@ -46,12 +47,11 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		loadPrefixes();
 		Logging.log("prefixes inventoried (" + prefixes.size() + ")");
 
-		if (prefixes.size() > 0) {
+		if (prefixes.size() > 0 && dm != null) {
 			m = new PagedMesh(dm.partitionDEM(), dm.MESH_MAX_POINTS);
 			Logging.log("dem coverage paritioned");
+			this.dm = dm;			
 		}
-		
-		this.dm = dm;
 	}
 	
 	void loadPrefixes() {
@@ -67,6 +67,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			DEMManager.Prefix pf = new DEMManager.Prefix(PointIndex.make(Integer.parseInt(b[1]), Integer.parseInt(b[2]), Integer.parseInt(b[3])), Integer.parseInt(b[0]));
 			PrefixInfo pfi = new PrefixInfo();
 			pfi.path = DEMManager.props.getProperty("dir_net") + "/" + f.getName();
+			pfi.elevPath = PreprocessNetwork.prefixPath("elev", pf);
 			pfi.loaded = false;
 			prefixes.put(pf, pfi);
 		}
@@ -113,6 +114,18 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			throw new RuntimeException();
 		}
 
+		Map<Long, Float> elev = new HashMap<Long, Float>();
+		try {
+			DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(prefixes.get(prefix).elevPath)));
+			try {
+				while (true) {
+					elev.put(in.readLong(), in.readFloat());
+				}
+			} catch (EOFException eof) {}		
+		} catch (IOException ioe) {
+			throw new RuntimeException();
+		}
+				
 		Set<Point> newPoints = new HashSet<Point>();
 		for (long[] e : data) {
 			for (long ix : e) {
@@ -125,12 +138,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 				
 				Point p = points.get(ix);
 				if (p == null) {
-					p = m.get(ix);
-					if (p == null) {
-						m.loadPage(new DEMManager.Prefix(ix, DEMManager.GRID_TILE_SIZE));
-						p = m.get(ix);
-					}
-					p = new Point(p.ix, p.elev);
+					p = new Point(ix, elev.get(ix));
 					points.put(p.ix, p);
 					newPoints.add(p);
 				}

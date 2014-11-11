@@ -37,7 +37,7 @@ public class TopologyNetwork implements IMesh {
 	
 	class PendingMap extends DefaultMap<Point, Set<Long>> {
 		@Override
-		public Set<Long> defaultValue() {
+		public Set<Long> defaultValue(Point _) {
 			return new HashSet<Long>();
 		}
 	}
@@ -268,7 +268,7 @@ public class TopologyNetwork implements IMesh {
 	public Map<Set<Prefix>, Integer> tallyPending(Set<Prefix> allPrefixes) {
 		Map<Set<Prefix>, Integer> frontierTotals = new DefaultMap<Set<Prefix>, Integer>() {
 			@Override
-			public Integer defaultValue() {
+			public Integer defaultValue(Set<Prefix> _) {
 				return 0;
 			}
 		};
