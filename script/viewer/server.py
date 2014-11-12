@@ -10,10 +10,12 @@ from datetime import datetime, timedelta
 import sys
 import re
 import collections
+import math
 
 import os.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import settings
+import util
 
 def summit_feature(s, **props):
     f = {
@@ -116,9 +118,40 @@ class SummitsHandler(web.RequestHandler):
 
         self.render('map.html', mode='many', data=data)
 
+def _load_points():
+    i = 0
+    while True:
+        i += 1
+        path = os.path.join(settings.dir_out, '_index%d' % i)
+        if not os.path.exists(path):
+            break
+        with open(path) as f:
+            for p in json.load(f):
+                yield p
+
+def load_points(cull):
+    if cull > .999999:
+        index = list(_load_points())
+    else:
+        count = 0
+        for p in _load_points():
+            count += 1
+        retain = int(math.ceil(count * cull))
+
+        index = []
+        for chunk in util.chunker(_load_points(), 50000):
+            index.extend(chunk)
+            index.sort(key=lambda e: e['prom'], reverse=True)
+            index = index[:retain]
+
+    print 'loaded (%d)' % len(index)
+    return index
+
 if __name__ == "__main__":
 
     parser = OptionParser()
+    parser.add_option("-c", "--cull", dest="cull", type='int', default=100,
+                  help="only retain top N% of points")
     (options, args) = parser.parse_args()
 
     try:
@@ -133,9 +166,7 @@ if __name__ == "__main__":
     ], template_path='templates', debug=True)
     application.listen(port)
 
-    with open(os.path.join(settings.dir_out, '_index')) as f:
-        index = json.load(f)
-        print 'loaded (%d)' % len(index)
+    index = load_points(.01 * options.cull)
 
     try:
         IOLoop.instance().start()

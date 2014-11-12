@@ -1,4 +1,5 @@
 import collections
+import itertools
 
 def map_reduce(data, emitfunc=lambda rec: [(rec,)], reducefunc=lambda v: v):
     """perform a "map-reduce" on the data
@@ -19,3 +20,12 @@ def map_reduce(data, emitfunc=lambda rec: [(rec,)], reducefunc=lambda v: v):
             mapped[k].append(v)
     return dict((k, reducefunc(v)) for k, v in mapped.iteritems())
 
+def chunker(it, size):
+    while True:
+        slc = itertools.islice(it, size)
+        try:
+            first = slc.next()
+        except StopIteration:
+            break
+
+        yield itertools.chain([first], slc)

@@ -94,11 +94,11 @@ def set_children(points):
     for k, v in children.iteritems():
         index[k]['children'] = v
 
-def write_master(ix):
+def write_master(ix, i):
     ix.sort(key=lambda e: e['prom'], reverse=True)
     with open('/tmp/pvindex', 'w') as f:
         json.dump(ix, f)
-    os.popen('mv /tmp/pvindex %s' % os.path.join(settings.dir_out, '_index'))
+    os.popen('mv /tmp/pvindex %s' % os.path.join(settings.dir_out, '_index%d' % (i + 1)))
 
 def save_point(p):
     path = os.path.join(settings.dir_out, 'prom%s.json' % p[p['type']]['geo'])
@@ -115,13 +115,23 @@ if __name__ == "__main__":
 
     conn = None #psycopg2.connect('dbname=%s' % 'gazetteer')
 
-    index_data = []
     def core(p):
         _core = p[p['type']]
         _core['type'] = p['type']
         return _core
 
-    last_interim = None
+    index = {
+        'data': [],
+        'i': 0,
+        'last_interim': time.time(),
+    }
+    def flush():
+        print 'flushing... (%d)' % len(index['data'])
+        write_master(index['data'], index['i'])
+        index['i'] += 1
+        index['last_interim'] = time.time()
+        index['data'] = []
+
     INTERIM_INTERVAL = 300
     for p in calc_prom():
         try:
@@ -129,17 +139,15 @@ if __name__ == "__main__":
         except:
             sys.stderr.write('error on %s\n' % p)
 
-        index_data.append(core(p))
+        index['data'].append(core(p))
         add_name(p, conn)
 
         #set_children(points)
 
         save_point(p)
 
-        if last_interim is None or time.time() - last_interim > INTERIM_INTERVAL:
-            print 'writing interim master (%d)' % len(index_data)
-            write_master(index_data)
-            last_interim = time.time()
+        if time.time() - index['last_interim'] > INTERIM_INTERVAL:
+            flush()
 
-    write_master(index_data)
+    flush()
 

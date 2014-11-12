@@ -253,7 +253,7 @@ public class PreprocessNetwork {
 	}
 	
 	static void cacheElevation(final boolean up, Set<Prefix> buckets, DEMManager dm) {
-		PagedMesh m = new PagedMesh(dm.partitionDEM(), dm.MESH_MAX_POINTS);
+		PagedMesh m = new PagedMesh(dm.partitionDEM(), dm.MESH_MAX_POINTS); // can reuse this for up and down phases
 		Map<Prefix, Set<Prefix>> segmentMap = new DefaultMap<Prefix, Set<Prefix>>() {
 			public Set<Prefix> defaultValue(Prefix key) {
 				return new HashSet<Prefix>();
