@@ -94,11 +94,11 @@ def set_children(points):
     for k, v in children.iteritems():
         index[k]['children'] = v
 
-def write_master(ix, i):
+def write_master(ix, mode, i):
     ix.sort(key=lambda e: e['prom'], reverse=True)
     with open('/tmp/pvindex', 'w') as f:
         json.dump(ix, f)
-    os.popen('mv /tmp/pvindex %s' % os.path.join(settings.dir_out, '_index%d' % (i + 1)))
+    os.popen('mv /tmp/pvindex %s' % os.path.join(settings.dir_out, '_index_%s_%d' % (mode, i + 1)))
 
 def save_point(p):
     path = os.path.join(settings.dir_out, 'prom%s.json' % p[p['type']]['geo'])
@@ -115,6 +115,13 @@ if __name__ == "__main__":
 
     conn = None #psycopg2.connect('dbname=%s' % 'gazetteer')
 
+    if '--searchup' in sys.argv:
+        prom_mode = 'up'
+    elif '--searchdown' in sys.argv:
+        prom_mode = 'down'
+    else:
+        prom_mode = None
+
     def core(p):
         _core = p[p['type']]
         _core['type'] = p['type']
@@ -126,8 +133,11 @@ if __name__ == "__main__":
         'last_interim': time.time(),
     }
     def flush():
+        if not prom_mode:
+            return
+
         print 'flushing... (%d)' % len(index['data'])
-        write_master(index['data'], index['i'])
+        write_master(index['data'], prom_mode, index['i'])
         index['i'] += 1
         index['last_interim'] = time.time()
         index['data'] = []

@@ -105,11 +105,16 @@ class MapViewHandler(web.RequestHandler):
         self.render('map.html', mode='single', data=to_geojson(data))
 
 class SummitsHandler(web.RequestHandler):
+    def initialize(self, mode):
+        self.mode = mode
+
     def get(self, prefix):
         max_n = int(self.get_argument('max', 1000))
 
-        summits = filter(lambda e: e['geo'].startswith(prefix), index)
+        summits = filter(lambda e: e['geo'].startswith(prefix), {'up': index_up, 'down': index_down}[self.mode])
         summits = sorted(summits, key=lambda e: e['prom'], reverse=True)[:max_n]
+        if summits:
+            print 'threshold: %s' % summits[-1]['prom']
 
         data = {
             'type': 'FeatureCollection',
@@ -118,26 +123,26 @@ class SummitsHandler(web.RequestHandler):
 
         self.render('map.html', mode='many', data=data)
 
-def _load_points():
+def _load_points(mode):
     i = 0
     while True:
         i += 1
-        path = os.path.join(settings.dir_out, '_index%d' % i)
+        path = os.path.join(settings.dir_out, '_index_%s_%d' % (mode, i))
         if not os.path.exists(path):
             break
         with open(path) as f:
             for p in json.load(f):
                 yield p
 
-def load_points(maxnum):
+def load_points(mode, maxnum):
     if not maxnum:
-        index = list(_load_points())
+        index = list(_load_points(mode))
     else:
         maxnum *= 1000
         chunksize = max(.2 * maxnum, 50000)
 
         index = []
-        for chunk in util.chunker(_load_points(), chunksize):
+        for chunk in util.chunker(_load_points(mode), chunksize):
             index.extend(chunk)
             index.sort(key=lambda e: e['prom'], reverse=True)
             index = index[:maxnum]
@@ -159,12 +164,14 @@ if __name__ == "__main__":
 
     application = web.Application([
         (r'/view/(?P<tag>.*)', MapViewHandler),
-        (r'/summits/(?P<prefix>[0-9a-f]*)', SummitsHandler),
+        (r'/summits/(?P<prefix>[0-9a-f]*)', SummitsHandler, {'mode': 'up'}),
+        (r'/sinks/(?P<prefix>[0-9a-f]*)', SummitsHandler, {'mode': 'down'}),
         (r'/(.*)', web.StaticFileHandler, {'path': 'static'}),
     ], template_path='templates', debug=True)
     application.listen(port)
 
-    index = load_points(options.max)
+    index_up = load_points('up', options.max)
+    index_down = load_points('down', options.max)
 
     try:
         IOLoop.instance().start()
