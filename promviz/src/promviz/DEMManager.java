@@ -319,22 +319,19 @@ public class DEMManager {
 		}
 
 		MESH_MAX_POINTS = (1 << 26);
-		PreprocessNetwork.preprocess(dm);
+		PreprocessNetwork.preprocess(dm, true);
+		PreprocessNetwork.preprocess(dm, false);
 	}
 	
-	static void promSearch() {
-		final boolean up = true;
-		//boolean up = false;
-
+	static void promSearch(final boolean up, double cutoff) {
 		DualTopologyNetwork dtn;
 		MESH_MAX_POINTS = (1 << 26);
 		dtn = DualTopologyNetwork.load(null);
 		
-		double PROM_CUTOFF = 15.;
-		double ANTI_PROM_CUTOFF = PROM_CUTOFF;
+		//double ANTI_PROM_CUTOFF = PROM_CUTOFF;
 		
 		TopologyNetwork tn = (up ? dtn.up : dtn.down);
-		TopologyNetwork anti_tn = (!up ? dtn.up : dtn.down);
+		//TopologyNetwork anti_tn = (!up ? dtn.up : dtn.down);
 		
 //		Point highest = null;
 //		Comparator<Point> cmp = new Comparator<Point>() {
@@ -358,7 +355,7 @@ public class DEMManager {
 			}
 			
 			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
-			if (pi != null && pi.prominence() >= PROM_CUTOFF) {
+			if (pi != null && pi.prominence() >= cutoff) {
 				outputPromPoint(pi, up);
 			}
 		}
@@ -416,8 +413,10 @@ public class DEMManager {
 			preprocessNetwork(dm, null);
 		} else if (args[0].equals("--prepnet")) {
 			preprocessNetwork(dm, region);
-		} else if (args[0].equals("--search")) {
-			promSearch();
+		} else if (args[0].equals("--searchup") || args[0].equals("--searchdown")) {
+			boolean up = args[0].equals("--searchup");
+			double cutoff = Double.parseDouble(args[2]);
+			promSearch(up, cutoff);
 		} else {
 			throw new RuntimeException("operation not specified");
 		}

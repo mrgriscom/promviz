@@ -33,10 +33,11 @@ public class PreprocessNetwork {
 		public EdgeIterator(String path) {
 			try {
 				in = new DataInputStream(new BufferedInputStream(new FileInputStream(path)));
+				readNext();
 			} catch (FileNotFoundException e) {
-				throw new RuntimeException(e);
+				throw new RuntimeException();
+				//nextEdge = null;
 			}
-			readNext();
 		}
 				
 		public EdgeIterator(boolean up) {
@@ -288,7 +289,7 @@ public class PreprocessNetwork {
 
 				DataOutputStream f;
 				try {
-					f = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(prefixPath("elev", p), true)));
+					f = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(prefixPath("elev" + (up ? "up" : "down"), p), true)));
 					
 					for (long ix : ixs) {
 						if (grid.isParent(ix)) {
@@ -305,11 +306,9 @@ public class PreprocessNetwork {
 		}
 	}
 	
-	public static void preprocess(DEMManager dm) {
+	public static void preprocess(DEMManager dm, final boolean up) {
 		Logging.log("preprocessing network");
 		
-		final boolean up = true;
-        
         Map<Prefix, Long> tally = initialTally(new Iterable<long[]>() {
 			public Iterator<long[]> iterator() {
 				return new EdgeIterator(up);

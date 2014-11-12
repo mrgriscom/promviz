@@ -67,7 +67,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			DEMManager.Prefix pf = new DEMManager.Prefix(PointIndex.make(Integer.parseInt(b[1]), Integer.parseInt(b[2]), Integer.parseInt(b[3])), Integer.parseInt(b[0]));
 			PrefixInfo pfi = new PrefixInfo();
 			pfi.path = DEMManager.props.getProperty("dir_net") + "/" + f.getName();
-			pfi.elevPath = PreprocessNetwork.prefixPath("elev", pf);
+			pfi.elevPath = PreprocessNetwork.prefixPath("elev" + (this.up ? "up" : "down"), pf);
 			pfi.loaded = false;
 			prefixes.put(pf, pfi);
 		}
