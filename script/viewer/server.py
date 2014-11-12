@@ -129,20 +129,18 @@ def _load_points():
             for p in json.load(f):
                 yield p
 
-def load_points(cull):
-    if cull > .999999:
+def load_points(maxnum):
+    if not maxnum:
         index = list(_load_points())
     else:
-        count = 0
-        for p in _load_points():
-            count += 1
-        retain = int(math.ceil(count * cull))
+        maxnum *= 1000
+        chunksize = max(.2 * maxnum, 50000)
 
         index = []
-        for chunk in util.chunker(_load_points(), 50000):
+        for chunk in util.chunker(_load_points(), chunksize):
             index.extend(chunk)
             index.sort(key=lambda e: e['prom'], reverse=True)
-            index = index[:retain]
+            index = index[:maxnum]
 
     print 'loaded (%d)' % len(index)
     return index
@@ -150,8 +148,8 @@ def load_points(cull):
 if __name__ == "__main__":
 
     parser = OptionParser()
-    parser.add_option("-c", "--cull", dest="cull", type='int', default=100,
-                  help="only retain top N% of points")
+    parser.add_option("-m", "--max", dest="max", type='int',
+                  help="only load <max> thousand greatest points")
     (options, args) = parser.parse_args()
 
     try:
@@ -166,7 +164,7 @@ if __name__ == "__main__":
     ], template_path='templates', debug=True)
     application.listen(port)
 
-    index = load_points(.01 * options.cull)
+    index = load_points(options.max)
 
     try:
         IOLoop.instance().start()
