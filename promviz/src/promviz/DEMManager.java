@@ -3,6 +3,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -10,6 +11,7 @@ import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 
+import promviz.PromNetwork.PromInfo;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 import promviz.util.Util;
@@ -323,6 +325,10 @@ public class DEMManager {
 		PreprocessNetwork.preprocess(dm, false);
 	}
 	
+	public static interface OnProm {
+		void onprom(PromNetwork.PromInfo pi);
+	}
+	
 	static void promSearch(final boolean up, double cutoff) {
 		DualTopologyNetwork dtn;
 		MESH_MAX_POINTS = (1 << 26);
@@ -333,32 +339,44 @@ public class DEMManager {
 		TopologyNetwork tn = (up ? dtn.up : dtn.down);
 		//TopologyNetwork anti_tn = (!up ? dtn.up : dtn.down);
 		
-//		Point highest = null;
-//		Comparator<Point> cmp = new Comparator<Point>() {
-//			@Override
-//			public int compare(Point p0, Point p1) {
-//				return up ? ElevComparator.cmp(p0, p1) : ElevComparator.cmp(p1, p0);
-//			}
-//		};
-//		for (Point p : tn.allPoints()) {
-//			if (highest == null || cmp.compare(p, highest) > 0) {
-//				highest = p;
-//			}
-//		}
-//		Logging.log("highest: " + highest.elev);
-//		prominentPoints.put(highest, PromNetwork.prominence(tn, highest, up));
-//		PromNetwork.bigOlPromSearch(highest, tn, prominentPoints, PROM_CUTOFF);
+		boolean oldSchool = false;
 		
-		for (Point p : tn.allPoints()) {
-			if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
-				continue;
+		if (oldSchool) {
+			
+			for (Point p : tn.allPoints()) {
+				if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
+					continue;
+				}
+				
+				PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
+				if (pi != null && pi.prominence() >= cutoff) {
+					outputPromPoint(pi, up);
+				}
 			}
 			
-			PromNetwork.PromInfo pi = PromNetwork.prominence(tn, p, up);
-			if (pi != null && pi.prominence() >= cutoff) {
-				outputPromPoint(pi, up);
+		} else {
+
+			Point highest = null;
+			Comparator<Point> cmp = new Comparator<Point>() {
+				@Override
+				public int compare(Point p0, Point p1) {
+					return up ? ElevComparator.cmp(p0, p1) : ElevComparator.cmp(p1, p0);
+				}
+			};
+			for (Point p : tn.allPoints()) {
+				if (highest == null || cmp.compare(p, highest) > 0) {
+					highest = p;
+				}
 			}
+			Logging.log("highest: " + highest.elev);
+			PromNetwork.bigOlPromSearch(highest, tn, new OnProm() {
+				public void onprom(PromInfo pi) {
+					outputPromPoint(pi, up);
+				}
+			}, cutoff);
+
 		}
+		
 
 //		Map<Point, PromNetwork.PromInfo> saddleIndex = new HashMap<Point, PromNetwork.PromInfo>();
 //		for (Entry<Point, PromNetwork.PromInfo> e : prominentPoints.entrySet()) {

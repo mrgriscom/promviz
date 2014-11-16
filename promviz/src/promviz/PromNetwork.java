@@ -240,7 +240,7 @@ public class PromNetwork {
 				@Override
 				public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
 					return false;
-				}				
+				}
 			});
 //			saddle_pi.path.add(saddle);
 //			runoffs.add(saddle_pi.path);
@@ -248,6 +248,123 @@ public class PromNetwork {
 		return runoffs;
 	}
 
+	static class ThresholdEntry {
+		Point maxima;
+		Point threshold;
+		Point dir;
+		
+		public ThresholdEntry(Point maxima, Point threshold, Point dir) {
+			this.maxima = maxima;
+			this.threshold = threshold;
+			this.dir = dir;
+		}
+	}
+	
+	static class ThresholdTable {
+		Comparator<Point> cmp; // memory issue?
+		List<ThresholdEntry> entries;
+		
+		public ThresholdTable(Comparator<Point> cmp) {
+			this.cmp = cmp;
+			entries = new ArrayList<ThresholdEntry>();
+		}
+		
+		public boolean add(Point maxima, Point threshold, Point dir) {
+			// i think, based on how we traverse the tree, that the new saddle will always be lower than everything in the table
+			
+			int i;
+			for (i = 0; i < entries.size(); i++) {
+				ThresholdEntry e = entries.get(i);
+				if (cmp.compare(maxima, e.maxima) >= 0) {
+					if (cmp.compare(maxima, e.maxima) == 0 && cmp.compare(threshold, e.threshold) <= 0) {
+						return false;
+					}
+					
+					if (cmp.compare(threshold, e.threshold) >= 0) {
+						entries.remove(i);
+						i -= 1;
+					}
+				} else {
+					break;
+				}
+			}
+			if (i == entries.size() || cmp.compare(threshold, entries.get(i).threshold) > 0) {
+				entries.add(i, new ThresholdEntry(maxima, threshold, dir));
+				return true;
+			} else {
+				return false;
+			}
+		}
+		
+		public ThresholdEntry select(Point thresh) {
+			for (ThresholdEntry e : entries) {
+				if (cmp.compare(e.maxima, thresh) > 0) {
+					return e;
+				}
+			}
+			return null;
+		}
+	}
+	
+	static Point _next(Point cur, Front f, TopologyNetwork tree) {
+		return tree.points.get(f.backtrace.get(cur.ix));
+	}
+	
+	static void updateThresholds(Point p, Front f, TopologyNetwork tree, Map<Point, ThresholdTable> blah, Comparator<Point> cmp) {
+		Point saddle = null;
+		Point cur = p;
+		Point prev = null;
+		while (true) {
+			Point s = _next(cur, f, tree);
+			if (s == null) {
+				break;
+			}
+			if (saddle == null || cmp.compare(s, saddle) < 0) {
+				saddle = s;
+			}
+			prev = cur;
+			cur = _next(s, f, tree);
+			
+			if (!blah.containsKey(cur)) {
+				blah.put(cur, new ThresholdTable(cmp));
+			}
+			if (cmp.compare(cur, p) > 0) {
+				break;
+			}
+			boolean changed = blah.get(cur).add(p, saddle, prev);
+			if (!changed) {
+				break;
+			}
+		}
+	}
+	
+	static Point searchThreshold(Point p, Point saddle, Front f, TopologyNetwork tree, Map<Point, ThresholdTable> blah, Comparator<Point> cmp) {
+		ThresholdEntry bestBranch = null;		
+		Point cur = saddle;
+		while (true) {
+			cur = _next(cur, f, tree);
+			if (cmp.compare(cur, p) > 0) {
+				return cur;
+			}
+			
+			ThresholdEntry e = blah.get(cur).select(p);
+			if (e != null && (bestBranch == null || cmp.compare(e.threshold, bestBranch.threshold) > 0)) {
+				bestBranch = e;
+			}
+			
+			cur = _next(cur, f, tree);
+			if (bestBranch != null && cmp.compare(cur, bestBranch.threshold) < 0) {
+				break;
+			}
+		}
+
+		cur = bestBranch.dir;
+		while (cmp.compare(cur, p) < 0) {
+			cur = blah.get(cur).select(p).dir;
+		}
+		return cur;
+	}
+	
 	static Comparator<Point> _cmp(final boolean up) {
 		return new Comparator<Point>() {
 			@Override
@@ -319,7 +436,7 @@ public class PromNetwork {
 		boolean global_max;
 		boolean min_bound_only;
 		Comparator<Point> c;
-		List<Point> path;
+		List<Long> path;
 		
 		public PromInfo2(Point peak, Point saddle) {
 			this.p = peak;
@@ -341,29 +458,13 @@ public class PromNetwork {
 			}
 		}
 		
-		public void finalizeForward(Map<Point, Point> backtrace, Point horizon) {
-			this.path = new ArrayList<Point>();
-			Point cur = horizon;
-			while (true) {
-				this.path.add(cur);
-				if (cur.equals(this.saddle)) {
-					break;
-				}
-				cur = backtrace.get(cur);
-			}
+		public void finalizeForward(Map<Long, Long> backtrace, Point horizon) {
+			this.path = getAtoB(backtrace, horizon.ix, this.p.ix);
 		}
 
-		public void finalizeBackward(Map<Point, Point> backtrace, Point horizon) {
-			this.path = new ArrayList<Point>();
-			Point cur = this.p;
-			while (true) {
-				this.path.add(cur);
-				if (cur.equals(this.saddle)) {
-					break;
-				}
-				cur = backtrace.get(cur);
-			}
-			Collections.reverse(this.path);
+		public void finalizeBackward(Map<Long, Long> backtrace, Front f, TopologyNetwork tree, Map<Point, ThresholdTable> blah, Comparator<Point> cmp) {
+			Point thresh = searchThreshold(this.p, this.saddle, f, tree, blah, cmp);
+			this.path = getAtoB(backtrace, thresh.ix, this.p.ix);
 		}
 		
 		public PromInfo toNormal() {
@@ -371,18 +472,73 @@ public class PromNetwork {
 			pi.saddle = this.saddle;
 			pi.global_max = this.global_max;
 			pi.min_bound_only = this.min_bound_only;
-//			if (this.path != null) {
-//				pi.path = this.path;
-//			} else {
-//				pi.path = new ArrayList<Point>();
-//				pi.path.add(this.p);
-//				pi.path.add(this.saddle);
-//			}
+			if (this.path != null) {
+				pi.path = this.path;
+			} else {
+				pi.path = new ArrayList<Long>();
+				pi.path.add(this.p.ix);
+				pi.path.add(this.saddle.ix);
+			}
 			return pi;
 		}
 	}
 	
-	public static void bigOlPromSearch(Point root, TopologyNetwork tree, Map<Point, PromInfo> results, double cutoff) {
+	public static List<Long> getAtoB(Map<Long, Long> tree, long a, long b) {
+		List<Long> fromA = new ArrayList<Long>();
+		List<Long> fromB = new ArrayList<Long>();
+		Set<Long> inFromA = new HashSet<Long>();
+		Set<Long> inFromB = new HashSet<Long>();
+
+		long intersection;
+		long curA = a;
+		long curB = b;
+		while (true) {
+			if (curA == curB) {
+				intersection = curA;
+				break;
+			}
+			
+			if (curA != -1) {
+				fromA.add(curA);
+				inFromA.add(curA);
+				try {
+					curA = tree.get(curA);
+				} catch (NullPointerException npe) {
+					curA = -1;
+				}
+			}
+			if (curB != -1) {
+				fromB.add(curB);
+				inFromB.add(curB);
+				try {
+					curB = tree.get(curB);
+				} catch (NullPointerException npe) {
+					curB = -1;
+				}
+			}
+				
+			if (inFromA.contains(curB)) {
+				intersection = curB;
+				break;
+			} else if (inFromB.contains(curA)) {
+				intersection = curA;
+				break;
+			}
+		}
+
+		List<Long> path = new ArrayList<Long>();
+		int i = fromA.indexOf(intersection);
+		path.addAll(i != -1 ? fromA.subList(0, i) : fromA);
+		path.add(intersection);
+		List<Long> path2 = new ArrayList<Long>();
+		i = fromB.indexOf(intersection);
+		path2 = (i != -1 ? fromB.subList(0, i) : fromB);
+		Collections.reverse(path2);
+		path.addAll(path2);
+		return path;
+	}
+	
+	public static void bigOlPromSearch(Point root, TopologyNetwork tree, DEMManager.OnProm onprom, double cutoff) {
 		boolean up = true;
 		Comparator<Point> c = _cmp(up);
 		Criterion crit = new Criterion() {
@@ -396,6 +552,8 @@ public class PromNetwork {
 		Deque<Point> saddles = new ArrayDeque<Point>(); 
 		Front front = new Front(c, tree);
 		front.add(root, null);
+		
+		Map<Point, ThresholdTable> blah = new HashMap<Point, ThresholdTable>();
 	
 		// point is not part of network (ie too close to edge to have connecting saddle)
 		if (tree.adjacent(root) == null) {
@@ -429,9 +587,9 @@ public class PromNetwork {
 					deadEnd = false;
 				}
 			}
-			front.prune();
+			//front.prune();
 						
-			if (cur.classify(tree) != Point.CLASS_SUMMIT) {
+			if (cur.classify(tree) != Point.CLASS_SUMMIT) { // need to flip for down direction
 				if (deadEnd) {
 					// basin saddle
 					continue;
@@ -442,8 +600,8 @@ public class PromNetwork {
 					// path backtracks
 					PromInfo2 pi = new PromInfo2(peak, saddle);
 					if (pi.prominence() >= cutoff) {
-//						pi.finalizeBackward(front.backtrace, null);
-						results.put(peak, pi.toNormal());
+						pi.finalizeBackward(front.backtrace, front, tree, blah, c);
+						onprom.onprom(pi.toNormal());
 					}
 				}
 				saddles.addFirst(cur);
@@ -453,14 +611,16 @@ public class PromNetwork {
 					continue;
 				}
 				
+				updateThresholds(cur, front, tree, blah, c);
+				
 				while (peaks.peekFirst() != null && c.compare(cur, peaks.peekFirst()) > 0) {
 					Point saddle = saddles.removeFirst();
 					Point peak = peaks.removeFirst();
 					// path goes forward
 					PromInfo2 pi = new PromInfo2(peak, saddle);
 					if (pi.prominence() >= cutoff) {
-//						pi.finalizeForward(front.backtrace, cur);
-						results.put(peak, pi.toNormal());
+						pi.finalizeForward(front.backtrace, cur);
+						onprom.onprom(pi.toNormal());
 					}
 				}
 				peaks.addFirst(cur);
@@ -474,7 +634,7 @@ public class PromNetwork {
 					pi.min_bound_only = true;
 					pi.finalize(front, cur);
 					if (pi.prominence() >= cutoff) {
-						results.put(peak, pi);
+						onprom.onprom(pi);
 					}
 				}
 				// reached an edge
