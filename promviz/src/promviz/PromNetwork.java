@@ -261,11 +261,11 @@ public class PromNetwork {
 	}
 	
 	static class ThresholdTable {
-		Comparator<Point> cmp; // memory issue?
+		static Comparator<Point> cmp;
 		List<ThresholdEntry> entries;
 		
 		public ThresholdTable(Comparator<Point> cmp) {
-			this.cmp = cmp;
+			ThresholdTable.cmp = cmp;
 			entries = new ArrayList<ThresholdEntry>();
 		}
 		
@@ -630,11 +630,11 @@ public class PromNetwork {
 				while (!saddles.isEmpty()) {
 					Point peak = peaks.removeLast();
 					Point saddle = saddles.removeLast();
-					PromInfo pi = new PromInfo2(peak, saddle).toNormal();
+					PromInfo2 pi = new PromInfo2(peak, saddle);
 					pi.min_bound_only = true;
-					pi.finalize(front, cur);
 					if (pi.prominence() >= cutoff) {
-						onprom.onprom(pi);
+						pi.finalizeForward(front.backtrace, cur);
+						onprom.onprom(pi.toNormal());
 					}
 				}
 				// reached an edge
