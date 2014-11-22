@@ -74,8 +74,6 @@ public class PromNetwork {
 		Map<Long, Long> backtrace;
 		int pruneThreshold = 1;
 
-		Map<Point, ThresholdTable> routing;
-		
 		Map<Point, Point> forwardSaddles;
 		Map<Point, Point> backwardSaddles;
 		
@@ -93,8 +91,6 @@ public class PromNetwork {
 			set = new HashSet<Point>();
 			seen = new HashSet<Long>();
 			backtrace = new HashMap<Long, Long>();
-			
-			routing = new HashMap<Point, ThresholdTable>();
 			
 			forwardSaddles = new HashMap<Point, Point>();
 			backwardSaddles = new HashMap<Point, Point>();
@@ -254,69 +250,11 @@ public class PromNetwork {
 		
 		
 		Point _next(Point cur) {
-			return this.tree.points.get(this.backtrace.get(cur.ix));
+			return this.tree.get(this.backtrace.get(cur.ix));
 		}
 		
-//		public void updateThresholds(Point p) {
-//			Point saddle = null;
-//			Point cur = p;
-//			Point prev = null;
-//			while (true) {
-//				Point s = this._next(cur);
-//				if (s == null) {
-//					break;
-//				}
-//				if (saddle == null || this.c.compare(s, saddle) < 0) {
-//					saddle = s;
-//				}
-//				prev = cur;
-//				cur = this._next(s);
-//				
-//				if (!this.routing.containsKey(cur)) {
-//					this.routing.put(cur, new ThresholdTable(this.c));
-//				}
-//				if (this.c.compare(cur, p) > 0) {
-//					break;
-//				}
-//				boolean changed = this.routing.get(cur).add(p, saddle, prev);
-//				if (!changed) {
-//					break;
-//				}
-//			}
-//		}
-//		
-//		public Point searchThreshold(Point p, Point saddle) {
-//			ThresholdEntry bestBranch = null;
-//			Point cur = saddle;
-//			while (true) {
-//				cur = this._next(cur);
-//				if (this.c.compare(cur, p) > 0) {
-//					return cur;
-//				}
-//				
-//				ThresholdEntry e = this.routing.get(cur).select(p);
-//				if (e != null && (bestBranch == null || this.c.compare(e.threshold, bestBranch.threshold) > 0)) {
-//					bestBranch = e;
-//				}
-//				
-//				cur = this._next(cur);
-//				if (bestBranch != null && this.c.compare(cur, bestBranch.threshold) < 0) {
-//					break;
-//				}
-//			}
-//
-//			cur = bestBranch.dir;
-//			while (this.c.compare(cur, p) < 0) {
-//				cur = this.routing.get(cur).select(p).dir;
-//			}
-//			return cur;
-//		}
+		public Point searchThreshold(Point p, Point saddle, Map<Point, Point> pendingSaddles) {
 
-		public Point searchThreshold2(Point p, Point saddle, Map<Point, Point> pendingSaddles) {
-
-			double[] coords = PointIndex.toLatLon(p.ix);
-			boolean DEBUG = (GeoCode.print(GeoCode.fromCoord(coords[0], coords[1])).equals("088d82bb6417a64e"));
-			
 			/*
 			 * we have mapping saddle->peak: forwardSaddles, backwardSaddles
 			 * forwardSaddles is saddles fixed via finalizeForward, etc.
@@ -329,41 +267,26 @@ public class PromNetwork {
 			 * backwardSaddles means: peak is located in opposite direction to the backtrace
              */
 
-			if (DEBUG) System.err.println(">> " + p + " " + saddle);
-			
-			Point start = tree.get(backtrace.get(saddle.ix));
+			Point start = _next(saddle);
 			Point target = null;
 			int i = 0;
 			while (true) {
 				i += 1;
 				if (i > 100) {
-					// multiply-connected saddle???
-					coords = PointIndex.toLatLon(p.ix);
-					System.err.println("weirdness " + GeoCode.print(GeoCode.fromCoord(coords[0], coords[1])));
+					double[] coords = PointIndex.toLatLon(p.ix);
+					System.err.println("multiply-connected saddle??? " + GeoCode.print(GeoCode.fromCoord(coords[0], coords[1])));
 					return saddle;
 				}
-				
-				if (DEBUG) System.err.println(start + "/" + target);
-				
-				List<Long> path;
-				if (target == null) {
-					path = new ArrayList<Long>();
-					for (Long ix : this.trace(start)) {
-						path.add(ix);
-					}
-				} else {
-					path = getAtoB(start, target);
-				}
+
+				Iterable<Long> path = (target == null ? this.trace(start) : getAtoB(start, target));
 				
 				boolean isPeak = true;
 				long prevIx = -1;
 				Point lockout = null;
 				for (long ix : path) {
 					Point cur = this.tree.get(ix);
-					if (DEBUG) System.err.println("++" + cur + " " + isPeak);
 
 					if (lockout != null && this.c.compare(cur, lockout) < 0) {
-						if (DEBUG) System.err.println("lockout cleared");
 						lockout = null;
 					}
 					
@@ -374,38 +297,18 @@ public class PromNetwork {
 							}
 						} else {
 							Point pf = forwardSaddles.get(cur);
-							Point pb = backwardSaddles.get(cur);
+							Point pb = pendingSaddles.get(cur);
 							if (pb == null) {
-								pb = pendingSaddles.get(cur);
+								pb = backwardSaddles.get(cur);
 							}
 	
-							Point peakF, peakB;
 							boolean dirForward = (prevIx == this.backtrace.get(ix));
-							if (dirForward) {
-								peakF = pf;
-								peakB = pb;
-							} else {
-								peakF = pb;
-								peakB = pf;
-							}
-							
-							if (peakB != null) {
+							Point peakAway = (dirForward ? pf : pb);
+							Point peakToward = (dirForward ? pb : pf);
+							if (peakToward != null) {
 								lockout = cur;
-								if (DEBUG) System.err.println("lockout:" + peakB);
-							} else if (peakF != null && this.c.compare(peakF, p) > 0) {
-								if (DEBUG) System.err.println("new target " + peakF);
-								target = peakF;
-								for (long k : this.getAtoB(target, cur)) {
-									if (DEBUG) System.err.println("   * " + tree.get(k));
-								}
-								
-//								Set<Long> sidePath = new HashSet<Long>(this.getAtoB(target, cur));
-//								for (long ix2 : path) {
-//									if (sidePath.contains(ix2)) {
-//										start = tree.get(ix2);
-//										break;
-//									}
-//								}
+							} else if (peakAway != null && this.c.compare(peakAway, p) > 0) {
+								target = peakAway;
 								break;
 							}
 						}
@@ -415,15 +318,6 @@ public class PromNetwork {
 					prevIx = ix;
 				}
 			}
-	/*
-	 * 
-	 * 
-	 *     new target = saddles(cur)
-	 *     new start = branch point of path(old start->cur) and path(new target->cur)
-	 * 
-	 * 
-	 */
-			
 		}
 
 		public List<Long> getAtoB(Point pA, Point pB) {
@@ -550,64 +444,6 @@ public class PromNetwork {
 //		}
 //		return runoffs;
 //	}
-
-	static class ThresholdEntry {
-		Point maxima;
-		Point threshold;
-		Point dir;
-		
-		public ThresholdEntry(Point maxima, Point threshold, Point dir) {
-			this.maxima = maxima;
-			this.threshold = threshold;
-			this.dir = dir;
-		}
-	}
-	
-	static class ThresholdTable {
-		static Comparator<Point> cmp;
-		List<ThresholdEntry> entries;
-		
-		public ThresholdTable(Comparator<Point> cmp) {
-			ThresholdTable.cmp = cmp;
-			entries = new ArrayList<ThresholdEntry>();
-		}
-		
-		public boolean add(Point maxima, Point threshold, Point dir) {
-			// i think, based on how we traverse the tree, that the new saddle will always be lower than everything in the table
-			
-			int i;
-			for (i = 0; i < entries.size(); i++) {
-				ThresholdEntry e = entries.get(i);
-				if (cmp.compare(maxima, e.maxima) >= 0) {
-					if (cmp.compare(maxima, e.maxima) == 0 && cmp.compare(threshold, e.threshold) <= 0) {
-						return false;
-					}
-					
-					if (cmp.compare(threshold, e.threshold) >= 0) {
-						entries.remove(i);
-						i -= 1;
-					}
-				} else {
-					break;
-				}
-			}
-			if (i == entries.size() || cmp.compare(threshold, entries.get(i).threshold) > 0) {
-				entries.add(i, new ThresholdEntry(maxima, threshold, dir));
-				return true;
-			} else {
-				return false;
-			}
-		}
-		
-		public ThresholdEntry select(Point thresh) {
-			for (ThresholdEntry e : entries) {
-				if (cmp.compare(e.maxima, thresh) > 0) {
-					return e;
-				}
-			}
-			return null;
-		}
-	}
 		
 	static Comparator<Point> _cmp(final boolean up) {
 		return new Comparator<Point>() {
@@ -716,8 +552,17 @@ public class PromNetwork {
 			for (int i = 0; i < saddles.size(); i++) {
 				pendingSaddles.put(_saddles.get(i), _peaks.get(i));
 			}
-			
-			Point thresh = front.searchThreshold2(this.p, this.saddle, pendingSaddles);			
+
+//			for (Map.Entry<Point, Point> e : pendingSaddles.entrySet()) {
+//				if (front.backwardSaddles.get(e.getKey()) != e.getValue()) {
+//					throw new RuntimeException();
+//				}
+//				if (front.forwardSaddles.containsKey(e.getKey())) {
+//					throw new RuntimeException();
+//				}
+//			}
+				
+			Point thresh = front.searchThreshold(this.p, this.saddle, pendingSaddles);			
 			this.path = front.getAtoB(thresh, this.p);
 		}
 		
@@ -794,7 +639,6 @@ public class PromNetwork {
 				while (saddles.peekFirst() != null && c.compare(cur, saddles.peekFirst()) < 0) {
 					Point saddle = saddles.removeFirst();
 					Point peak = peaks.removeFirst();
-					// path backtracks
 					PromInfo2 pi = new PromInfo2(peak, saddle);
 					front.backwardSaddles.put(saddle, peak);
 					if (pi.prominence() >= cutoff) {
@@ -810,12 +654,9 @@ public class PromNetwork {
 					continue;
 				}
 				
-				//front.updateThresholds(cur);
-				
 				while (peaks.peekFirst() != null && c.compare(cur, peaks.peekFirst()) > 0) {
 					Point saddle = saddles.removeFirst();
 					Point peak = peaks.removeFirst();
-					// path goes forward
 					PromInfo2 pi = new PromInfo2(peak, saddle);
 					front.forwardSaddles.put(saddle, peak);
 					if (pi.prominence() >= cutoff) {
@@ -824,6 +665,7 @@ public class PromNetwork {
 					}
 				}
 				peaks.addFirst(cur);
+				//front.backwardSaddles.put(saddles.peekFirst(), cur);
 				
 				// front contains only saddles
 				front.prune();
