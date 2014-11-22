@@ -124,27 +124,27 @@ function loadData(map, data) {
                     if (props.type == 'child') {
                         html += '<div>#' + props.ix + '</div>';
                     }
-                    html += '<div>' + props.prom_ft.toFixed(1) + (props.min_bound ? '*' : '') + '</div><div>' + props.elev_ft.toFixed(1) + '</div>';
+                    html += '<div>' + dispdist(props, 'prom') + (props.min_bound ? '*' : '') + '</div><div>' + dispdist(props, 'elev') + '</div>';
                     if (self) {
                         html += '<hr><table style="font-size: 12px;">';
                         _.each(DATA.features, function(e) {
                             var p = e.properties;
                             if (p.type == 'child') {
-                                html += '<tr><td>' + p.ix + '</td><td><a target="_blank" href="/view/' + p.geo + '">' + (p.name || p.geo) + '</a></td><td>' + p.prom_ft.toFixed(1) + '</td></tr>';
+                                html += '<tr><td>' + p.ix + '</td><td><a target="_blank" href="/view/' + p.geo + '">' + (p.name || p.geo) + '</a></td><td>' + dispdist(p, 'prom') + '</td></tr>';
                             }
                         });
                         html += '</table>';
                     }
                     $div.html(html);
                 } else if (props.type == 'saddle') {
-                    $div.html('<div>' + (props.name || '') + '</div><div>' + props.elev_ft.toFixed(1) + '</div>');
+                    $div.html('<div>' + (props.name || '') + '</div><div>' + dispdist(props, 'elev') + '</div>');
                 } else {
                     return;
                 }
                 layer.bindPopup($div[0]);
             } else {
                 var $div = $('<div>');
-                $div.html('<div><a target="_blank" href="/view/' + props.geo + '">' + (props.name || props.geo) + '</a></div><div>' + props.prom_ft.toFixed(1) + (props.min_bound ? '*' : '') + '</div><div>' + props.elev_ft.toFixed(1) + '</div>');
+                $div.html('<div><a target="_blank" href="/view/' + props.geo + '">' + (props.name || props.geo) + '</a></div><div>' + dispdist(props, 'prom') + (props.min_bound ? '*' : '') + '</div><div>' + dispdist(props, 'elev') + '</div>');
                 layer.bindPopup($div[0]);
             }
         },
@@ -162,4 +162,10 @@ function loadData(map, data) {
 
 function round(x, digits) {
     return Math.round(x * Math.pow(10., digits)) * Math.pow(10., -digits);
+}
+
+function dispdist(obj, field) {
+    var m = obj[field + '_m'];
+    var ft = obj[field + '_ft'];
+    return ft.toFixed(1) + ' ft | ' + m.toFixed(1) + ' m';
 }

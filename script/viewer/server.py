@@ -27,6 +27,8 @@ def summit_feature(s, **props):
         'properties': {
             'type': s.get('type'),
             'name': s.get('name'),
+            'prom_m': s['prom'],
+            'elev_m': s['elev'],
             'prom_ft': s['prom'] / .3048,
             'elev_ft': s['elev'] / .3048,
             'min_bound': s.get('min_bound', False),
@@ -68,6 +70,7 @@ def to_geojson(k):
             _feature(k['saddle']['coords'],
                      type='saddle',
                      name=k['saddle'].get('name'),
+                     elev_m=k['saddle']['elev'],
                      elev_ft=k['saddle']['elev'] / .3048,
                      geo=k['saddle']['geo'],
                     ),
