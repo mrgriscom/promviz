@@ -253,14 +253,12 @@ public class PromNetwork {
 			return this.tree.get(this.backtrace.get(cur.ix));
 		}
 		
-		public Point searchThreshold(Point p, Point saddle, Map<Point, Point> pendingSaddles) {
+		public Point searchThreshold(Point p, Point saddle) {
 
 			/*
 			 * we have mapping saddle->peak: forwardSaddles, backwardSaddles
 			 * forwardSaddles is saddles fixed via finalizeForward, etc.
-			 * 
-			 * we also have the list of pending peaks/saddles which we include (saddle[i], peak[i+1])
-			 * in the backwardSaddles mapping
+			 * backwardSaddles includes all pending saddle/peak pairs
 			 * 
 			 * strict definition:
 			 * forwardSaddles means: given the saddle, the peak is located in the direction of the backtrace
@@ -269,15 +267,7 @@ public class PromNetwork {
 
 			Point start = _next(saddle);
 			Point target = null;
-			int i = 0;
-			while (true) {
-				i += 1;
-				if (i > 100) {
-					double[] coords = PointIndex.toLatLon(p.ix);
-					System.err.println("multiply-connected saddle??? " + GeoCode.print(GeoCode.fromCoord(coords[0], coords[1])));
-					return saddle;
-				}
-
+			for (int i = 0; i < 100; i++) { //while (true) {
 				Iterable<Long> path = (target == null ? this.trace(start) : getAtoB(start, target));
 				
 				boolean isPeak = true;
@@ -297,11 +287,7 @@ public class PromNetwork {
 							}
 						} else {
 							Point pf = forwardSaddles.get(cur);
-							Point pb = pendingSaddles.get(cur);
-							if (pb == null) {
-								pb = backwardSaddles.get(cur);
-							}
-	
+							Point pb = backwardSaddles.get(cur);
 							boolean dirForward = (prevIx == this.backtrace.get(ix));
 							Point peakAway = (dirForward ? pf : pb);
 							Point peakToward = (dirForward ? pb : pf);
@@ -318,6 +304,10 @@ public class PromNetwork {
 					prevIx = ix;
 				}
 			}
+			
+			double[] coords = PointIndex.toLatLon(p.ix);
+			System.err.println("multiply-connected saddle??? " + GeoCode.print(GeoCode.fromCoord(coords[0], coords[1])));
+			return saddle;
 		}
 
 		public List<Long> getAtoB(Point pA, Point pB) {
@@ -542,27 +532,8 @@ public class PromNetwork {
 			this.path = front.getAtoB(horizon, this.p);
 		}
 
-		public void finalizeBackward(Front front, Comparator<Point> cmp, Deque<Point> peaks, Deque<Point> saddles) {
-			if (peaks.size() != saddles.size() + 1) {
-				throw new RuntimeException();
-			}
-			Map<Point, Point> pendingSaddles = new HashMap<Point, Point>();
-			List<Point> _saddles = new ArrayList<Point>(saddles);
-			List<Point> _peaks = new ArrayList<Point>(peaks);
-			for (int i = 0; i < saddles.size(); i++) {
-				pendingSaddles.put(_saddles.get(i), _peaks.get(i));
-			}
-
-//			for (Map.Entry<Point, Point> e : pendingSaddles.entrySet()) {
-//				if (front.backwardSaddles.get(e.getKey()) != e.getValue()) {
-//					throw new RuntimeException();
-//				}
-//				if (front.forwardSaddles.containsKey(e.getKey())) {
-//					throw new RuntimeException();
-//				}
-//			}
-				
-			Point thresh = front.searchThreshold(this.p, this.saddle, pendingSaddles);			
+		public void finalizeBackward(Front front, Comparator<Point> cmp) {
+			Point thresh = front.searchThreshold(this.p, this.saddle);			
 			this.path = front.getAtoB(thresh, this.p);
 		}
 		
@@ -642,7 +613,7 @@ public class PromNetwork {
 					PromInfo2 pi = new PromInfo2(peak, saddle);
 					front.backwardSaddles.put(saddle, peak);
 					if (pi.prominence() >= cutoff) {
-						pi.finalizeBackward(front, c, peaks, saddles);
+						pi.finalizeBackward(front, c);
 						onprom.onprom(pi.toNormal());
 					}
 				}
@@ -659,13 +630,14 @@ public class PromNetwork {
 					Point peak = peaks.removeFirst();
 					PromInfo2 pi = new PromInfo2(peak, saddle);
 					front.forwardSaddles.put(saddle, peak);
+					front.backwardSaddles.remove(saddle); // remove pending entry, if any
 					if (pi.prominence() >= cutoff) {
 						pi.finalizeForward(front, cur);
 						onprom.onprom(pi.toNormal());
 					}
 				}
 				peaks.addFirst(cur);
-				//front.backwardSaddles.put(saddles.peekFirst(), cur);
+				front.backwardSaddles.put(saddles.peekFirst(), cur); // pending
 				
 				// front contains only saddles
 				front.prune();
