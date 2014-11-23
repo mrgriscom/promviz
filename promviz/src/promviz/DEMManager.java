@@ -50,7 +50,7 @@ public class DEMManager {
 				continue;
 			}
 			
-			List<DEMFile.Sample> newData = m.loadPage(nextPrefix);
+			Iterable<DEMFile.Sample> newData = m.loadPage(nextPrefix);
 			tn.buildPartial(m, yetToProcess.contains(nextPrefix) ? newData : null);
 			yetToProcess.remove(nextPrefix);
 			Logging.log(yetToProcess.size() + " ytp");
@@ -325,6 +325,62 @@ public class DEMManager {
 		PreprocessNetwork.preprocess(dm, false);
 	}
 	
+	static void verifyNetwork() {
+		DualTopologyNetwork dtn;
+		MESH_MAX_POINTS = (1 << 26);
+		dtn = DualTopologyNetwork.load(null);
+
+		_verifyNetwork(dtn.up);
+		_verifyNetwork(dtn.down);
+	}
+	
+	static void _verifyNetwork(TopologyNetwork tn) {
+		int peakClass = (tn.up ? Point.CLASS_SUMMIT : Point.CLASS_PIT);
+		int saddleClass = (tn.up ? Point.CLASS_PIT : Point.CLASS_SADDLE);
+		
+		for (Point p : tn.allPoints()) {
+			boolean refersToSelf = false;
+			for (long adj : p.adjIx()) {
+				if (adj == p.ix) {
+					refersToSelf = true;
+					break;
+				}
+			}
+			if (refersToSelf) {
+				Logging.log("verify: " + p + " refers to self");
+				continue;
+			}
+			
+			int pClass = p.classify(tn);
+			if (pClass != Point.CLASS_SUMMIT && pClass != Point.CLASS_PIT) {
+				Logging.log("verify: " + p + " unexpected class " + pClass);
+				continue;
+			}
+			boolean topologyViolation = false;
+			for (Point adj : p.adjacent(tn)) {
+				if (p == adj) {
+					continue;
+				}
+				
+				int adjClass = adj.classify(tn);
+				if (adjClass != Point.CLASS_SUMMIT && adjClass != Point.CLASS_PIT) {
+					Logging.log("verify: " + p + " adj " + adj + " unexpected class " + adjClass);
+					continue;
+				}
+				if (adjClass == pClass) {
+					topologyViolation = true;
+					break;
+				}
+			}
+			if (topologyViolation) {
+				Logging.log("verify: " + p + " adjacent to same type " + pClass);					
+				continue;
+			}
+			
+			// check pending too
+		}
+	}
+	
 	public static interface OnProm {
 		void onprom(PromNetwork.PromInfo pi);
 	}
@@ -339,6 +395,7 @@ public class DEMManager {
 		TopologyNetwork tn = (up ? dtn.up : dtn.down);
 		//TopologyNetwork anti_tn = (!up ? dtn.up : dtn.down);
 		
+		//boolean oldSchool = true;
 		boolean oldSchool = false;
 		
 		if (oldSchool) {
@@ -431,6 +488,8 @@ public class DEMManager {
 			preprocessNetwork(dm, null);
 		} else if (args[0].equals("--prepnet")) {
 			preprocessNetwork(dm, region);
+		} else if (args[0].equals("--verify")) {
+			verifyNetwork();
 		} else if (args[0].equals("--searchup") || args[0].equals("--searchdown")) {
 			boolean up = args[0].equals("--searchup");
 			double cutoff = Double.parseDouble(args[2]);

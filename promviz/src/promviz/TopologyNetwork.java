@@ -163,7 +163,7 @@ public class TopologyNetwork implements IMesh {
 		pending.get(saddle).add(term.ix);
 	}
 	
-	public void build(IMesh m, List<DEMFile.Sample> points) {
+	public void build(IMesh m, Iterable<DEMFile.Sample> points) {
 		long start = System.currentTimeMillis();
 		
 		for (DEMFile.Sample s : points) {
@@ -195,7 +195,7 @@ public class TopologyNetwork implements IMesh {
 		return result;
 	}
 	
-	public void buildPartial(PagedMesh m, List<DEMFile.Sample> newPage) {
+	public void buildPartial(PagedMesh m, Iterable<DEMFile.Sample> newPage) {
 		Map<Point, Set<Long>> oldPending = pending;
 		pending = new PendingMap();
 		for (Entry<Point, Set<Long>> e : oldPending.entrySet()) {
@@ -210,6 +210,7 @@ public class TopologyNetwork implements IMesh {
 				}
 			}
 		}
+		
 		Logging.log("# pending: " + oldPending.size() + " -> " + pending.size());
 		Set<Long> fringeNowProcessed = new HashSet<Long>();
 		for (long ix : unprocessedFringe) {

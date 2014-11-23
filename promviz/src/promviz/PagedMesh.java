@@ -1,15 +1,16 @@
 package promviz;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.Set;
 
+import promviz.DEMFile.Sample;
 import promviz.DEMManager.Prefix;
-import promviz.PagedTopologyNetwork.PrefixInfo;
 import promviz.util.Logging;
 
 public class PagedMesh implements IMesh {
@@ -54,6 +55,20 @@ public class PagedMesh implements IMesh {
 			int yo = _ix[2] - this.pbase[2];
 			this.data[(1<<DEMManager.GRID_TILE_SIZE) * yo + xo] = elev;
 		}
+				
+		public Iterable<DEMFile.Sample> samples() {
+			List<DEMFile.Sample> samples = new ArrayList<DEMFile.Sample>();
+			for (int x = 0; x < (1<<DEMManager.GRID_TILE_SIZE); x++) {
+				for (int y = 0; y < (1<<DEMManager.GRID_TILE_SIZE); y++) {
+					long ix = PointIndex.make(pbase[0], pbase[1] + x, pbase[2] + y);
+					float elev = get(ix);
+					if (!Float.isNaN(elev)) {
+						samples.add(new DEMFile.Sample(ix, elev));
+					}
+				}
+			}
+			return samples;
+		}
 	}
 	
 	public long curSize() {
@@ -76,23 +91,29 @@ public class PagedMesh implements IMesh {
 		return segments.containsKey(prefix);
 	}
 	
-	public List<DEMFile.Sample> loadPrefixData(Prefix prefix) {
+	public Iterable<DEMFile.Sample> loadPrefixData(Prefix prefix) {
 		Logging.log(String.format("loading segment %s...", prefix));
 		Segment seg = new Segment(prefix);
 		segments.put(prefix, seg);
-		List<DEMFile.Sample> newData = new ArrayList<DEMFile.Sample>();
-		for (DEMFile dem : coverage.get(prefix)) {
+
+		// protect against conflicting data in overlapping regions of DEM?
+		List<DEMFile> DEMs = new ArrayList<DEMFile>(coverage.get(prefix));
+		Collections.sort(DEMs, new Comparator<DEMFile>() {
+			public int compare(DEMFile a, DEMFile b) {
+				return a.path.compareTo(b.path);
+			}			
+		});
+		for (DEMFile dem : DEMs) {
 			for (DEMFile.Sample s : dem.samples(prefix)) {
 				seg.set(s.ix, s.elev);
-				newData.add(s);
 			}
 			Logging.log(String.format("  scanned DEM %s", dem.path));
 		}
 		Logging.log(String.format("loading complete"));
-		return newData;
+		return seg.samples();
 	}
 	
-	public List<DEMFile.Sample> loadPage(Prefix prefix) {
+	public Iterable<DEMFile.Sample> loadPage(Prefix prefix) {
 		if (isLoaded(prefix)) {
 			throw new RuntimeException("already loaded");
 		}
@@ -100,7 +121,7 @@ public class PagedMesh implements IMesh {
 		while (curSize() > maxPoints) {
 			removeOldestPage();
 		}
-		List<DEMFile.Sample> newData = loadPrefixData(prefix);
+		Iterable<DEMFile.Sample> newData = loadPrefixData(prefix);
 		Logging.log(String.format("%d total points in mesh", curSize()));
 		return newData;
 	}

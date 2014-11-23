@@ -104,7 +104,7 @@ public class Point implements Comparable<Point> {
 				}
 				
 				Point p = adjacent.get(i);
-				if (best == null || Math.abs(p.elev - this.elev) > Math.abs(best.elev - this.elev)) {
+				if (best == null || ElevComparator.cmp(p, best) == ElevComparator.cmp(best, this)) {
 					best = p;
 				}
 			}
@@ -120,7 +120,7 @@ public class Point implements Comparable<Point> {
 //		return String.format("<%f,%f %f %dadj>", coords[0], coords[1], this.elev, this._adjacent.length);
 		
 		double[] c = PointIndex.toLatLon(this.ix);
-		return String.format("%.5f %.5f (%.1f)", c[0], c[1], this.elev);
+		return String.format("%s %.5f %.5f (%.1f)", GeoCode.fromIndex(this.ix), c[0], c[1], this.elev);
 	}
 
 	@Override

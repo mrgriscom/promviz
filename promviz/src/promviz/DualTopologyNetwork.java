@@ -34,7 +34,7 @@ public class DualTopologyNetwork extends TopologyNetwork {
 		return dtn;
 	}
 	
-	public void buildPartial(PagedMesh m, List<DEMFile.Sample> newPage) {
+	public void buildPartial(PagedMesh m, Iterable<DEMFile.Sample> newPage) {
 		long start = System.currentTimeMillis();
 		
 		up.buildPartial(m, newPage);
