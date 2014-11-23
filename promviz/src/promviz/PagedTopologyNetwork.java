@@ -103,11 +103,24 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		Logging.log("loading network segment " + prefix);
 		
 		List<long[]> data = new ArrayList<long[]>();
+		Map<Long, Integer> saddleCount = new DefaultMap<Long, Integer>() {
+			public Integer defaultValue(Long key) {
+				return 0;
+			}
+		};
 		try {
 			DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(prefixes.get(prefix).path)));
 			try {
 				while (true) {
-					data.add(new long[] {in.readLong(), in.readLong()});
+					long[] edge = new long[] {in.readLong(), in.readLong()};
+					data.add(edge);
+					
+					if (prefix.isParent(edge[0])) {
+						saddleCount.get(edge[0]);
+						if (edge[1] != -1) {
+							saddleCount.put(edge[0], saddleCount.get(edge[0]) + 1);
+						}
+					}
 				}
 			} catch (EOFException eof) {}
 			in.close();
@@ -127,7 +140,19 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		} catch (IOException ioe) {
 			throw new RuntimeException();
 		}
-				
+		
+		Set<Long> multiSaddles = new HashSet<Long>();
+		Set<Long> loners = new HashSet<Long>();
+		for (Map.Entry<Long, Integer> e : saddleCount.entrySet()) {
+			long ix = e.getKey();
+			int count = e.getValue();
+			if (count == 0) {
+				loners.add(ix);
+			} else if (count > 2) {
+				multiSaddles.add(ix);
+			}
+		}
+		
 		Set<Point> newPoints = new HashSet<Point>();
 		for (long[] e : data) {
 			for (long ix : e) {
@@ -135,6 +160,9 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 					continue;
 				}
 				if (!prefix.isParent(ix)) {
+					continue;
+				}
+				if (loners.contains(ix)) {
 					continue;
 				}
 				
@@ -149,7 +177,9 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		
 		for (long[] edge : data) {
 			if (edge[1] == 0xFFFFFFFFFFFFFFFFL) {
-				pending.put(points.get(edge[0]), null);
+				if (!loners.contains(edge[0])) {
+					pending.put(points.get(edge[0]), null);
+				}
 			} else {
 				if (prefix.isParent(edge[0])) {
 					addDirectedEdge(points.get(edge[0]), edge[1]);
@@ -210,7 +240,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		}
 
 		public Point next() {
-			if (pointIterator == null || !pointIterator.hasNext()) {
+			while (pointIterator == null || !pointIterator.hasNext()) {
 				System.err.println(++c + " / " + prefixes.size());
 				pointIterator = loadSegment(prefixIterator.next()).iterator();
 			}

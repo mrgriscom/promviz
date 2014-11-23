@@ -43,6 +43,10 @@ public class Point implements Comparable<Point> {
 		boolean is_summit = true;
 		boolean is_pit = true;
 
+		if (this.adjIx().length == 0) {
+			return CLASS_OTHER;
+		}
+		
 		List<Point> adjacent = this.adjacent(m);
 		for (Point p : adjacent) {
 			if (p == null)  {

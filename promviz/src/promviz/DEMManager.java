@@ -353,6 +353,12 @@ public class DEMManager {
 			
 			int pClass = p.classify(tn);
 			if (pClass != Point.CLASS_SUMMIT && pClass != Point.CLASS_PIT) {
+				if (pClass == Point.CLASS_OTHER && tn.pending.containsKey(p)) {
+					// fringe saddle whose leads are all pending -- not connected to rest of network
+					// note: these are now filtered out by pagedtoponetwork.load()
+					continue;
+				}
+				
 				Logging.log("verify: " + p + " unexpected class " + pClass);
 				continue;
 			}
@@ -377,7 +383,19 @@ public class DEMManager {
 				continue;
 			}
 			
-			// check pending too
+			boolean isSaddle = (pClass == saddleClass);
+			boolean connectedness;
+			if (isSaddle) {
+				connectedness = true;//connectedness = (p.adjIx().length >= 2 || tn.pending.containsKey(p));
+			} else {
+				connectedness = (p.adjIx().length >= 1);
+			}
+			if (!connectedness) {
+				Logging.log("verify: " + p + " [" + pClass + "] insufficiently connected (" + p.adjIx().length + ")");					
+				continue;
+			}
+			
+			// check pending too?
 		}
 	}
 	
