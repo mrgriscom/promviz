@@ -159,11 +159,6 @@ public class GeoCode {
 		return String.format("%016x", ix);
 	}
 
-	public static String fromIndex(long ix) {
-		double[] c = PointIndex.toLatLon(ix);
-		return GeoCode.print(GeoCode.fromCoord(c[0], c[1]));
-	}
-	
 	static void testA(String s) {
 		long ix = Long.valueOf(s, 16);
 		double[] coord = GeoCode.toCoord(ix);

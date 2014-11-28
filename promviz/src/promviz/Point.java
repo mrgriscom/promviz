@@ -124,7 +124,7 @@ public class Point implements Comparable<Point> {
 //		return String.format("<%f,%f %f %dadj>", coords[0], coords[1], this.elev, this._adjacent.length);
 		
 		double[] c = PointIndex.toLatLon(this.ix);
-		return String.format("%s %.5f %.5f (%.1f)", GeoCode.fromIndex(this.ix), c[0], c[1], this.elev);
+		return String.format("%s %.5f %.5f (%.1f)", PointIndex.geocode(this.ix), c[0], c[1], this.elev);
 	}
 
 	@Override
