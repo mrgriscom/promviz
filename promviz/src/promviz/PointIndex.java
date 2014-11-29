@@ -1,7 +1,10 @@
 package promviz;
 
-public class PointIndex {
+import java.util.ArrayList;
+import java.util.List;
 
+public class PointIndex {
+	
 	static final int BITS_SEQ = 3;
 	static final int BITS_X = 24;
 	static final int BITS_Y = 24;
@@ -11,6 +14,22 @@ public class PointIndex {
 	static final int OFFSET_Y = OFFSET_SEQ + BITS_SEQ;
 	static final int OFFSET_X = OFFSET_Y + BITS_Y;
 	static final int OFFSET_PROJ = OFFSET_X + BITS_X;
+	
+	static int[] CMP_BITS = null;
+	static {
+		List<Integer> bits = new ArrayList<Integer>();
+		for (int i = 0; i < BITS_X; i++) {
+			bits.add(OFFSET_Y + i);
+			bits.add(OFFSET_X + i);
+		}
+		for (int i = 0; i < BITS_PROJ; i++) {
+			bits.add(OFFSET_PROJ + i);
+		}
+		CMP_BITS = new int[bits.size()];
+		for (int i = 0; i < bits.size(); i++) {
+			CMP_BITS[i] = bits.get(i);
+		}
+	}
 	
 	public static long make(int projId, int x, int y) {
 		return make(projId, x, y, 0);
@@ -37,6 +56,29 @@ public class PointIndex {
 		}
 		
 		return new int[] {projId, x, y, seq};
+	}
+
+	public static int compare(long a, long b) {
+		if (a == b) {
+			return 0;
+		}
+
+		// try to mask any ordering amongst indexes; we want to appear to
+		// break ties between points in a randomish manner. thus, compare
+		// starting with least-significant bits
+		for (int i = 0; i < CMP_BITS.length; i++) {
+			int bit = CMP_BITS[i];
+			int aBit = (int)((a >> bit) & 0x1);
+			int bBit = (int)((b >> bit) & 0x1);
+			if (aBit != bBit) {
+				return Integer.compare(aBit, bBit);
+			}
+		}
+		
+		// if (proj, x, y) are the same, compare straightforwardly based on sequence number
+		int[] pa = PointIndex.split(a);
+		int[] pb = PointIndex.split(b);
+		return Integer.compare(pa[3], pb[3]);
 	}
 	
 	public static double[] toLatLon(long ix) {
@@ -65,13 +107,25 @@ public class PointIndex {
 		}
 	}
 	
+	static void testB(int a, int b, int c, int d, int e, int f, int g, int h) {
+		long ix1 = make(a, b, c, d);
+		long ix2 = make(e, f, g, h);
+		System.out.println(String.format("%016x %016x %d", ix1, ix2, compare(ix1, ix2)));
+	}
+	
 	public static void main(String[] args) {
 		testA(0, 0, 0);
 		testA(1, 1, 1);
 		testA(2, -1, 1);
 		testA(3, 1, -1);
 		testA(4, -1, -1);
-		testA(65535, 8388000, -8388000);
+		testA(8191, 8388000, -8388000);
+		
+		testB(0, 1024, 0, 0, 0, 1024, 0, 0); // 0
+		testB(0, 1536, 0, 0, 0, 1025, 0, 0); // -1
+		testB(0, 1537, 0, 0, 0, 1025, 0, 0); // 1
+		testB(0, 1025, 1024, 0, 0, 1024, 1536, 0); // 1
+		testB(0, 1024, 1025, 0, 0, 1536, 1024, 0); // 1
 	}
 
 }
