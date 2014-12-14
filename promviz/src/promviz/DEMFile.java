@@ -89,12 +89,12 @@ public abstract class DEMFile {
 		Object f;
 		
 		Iterator<Long> coords;
-		DEMManager.Prefix prefix;
+		Prefix prefix;
 		
 		long _nextIx;
 		float _nextElev;
 
-		public SamplesIterator(DEMManager.Prefix prefix) {
+		public SamplesIterator(Prefix prefix) {
 			this.prefix = prefix;
 			try {
 				f = getReader(path);
@@ -138,7 +138,7 @@ public abstract class DEMFile {
 		}		
 	}
 
-	public Iterable<Sample> samples(final DEMManager.Prefix prefix) {
+	public Iterable<Sample> samples(final Prefix prefix) {
 		return new Iterable<Sample>() {
 			@Override
 			public Iterator<Sample> iterator() {

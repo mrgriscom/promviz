@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import promviz.DEMManager.Prefix;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 
@@ -35,15 +34,15 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		long ctr;
 	}
 	
-	Map<DEMManager.Prefix, PrefixInfo> prefixes;
+	Map<Prefix, PrefixInfo> prefixes;
 	PagedMesh m; // unused
 	
 	public PagedTopologyNetwork(boolean up, DEMManager dm) {
 		this.up = up;
 		points = new HashMap<Long, Point>((int)(MAX_POINTS / .75));
-		pending = new PendingMap();
+		pendingSaddles = new HashSet<Point>();
 
-		prefixes = new HashMap<DEMManager.Prefix, PrefixInfo>();
+		prefixes = new HashMap<Prefix, PrefixInfo>();
 		loadPrefixes();
 		Logging.log("prefixes inventoried (" + prefixes.size() + ")");
 
@@ -64,7 +63,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			}
 
 			String[] b = a[1].split(",");
-			DEMManager.Prefix pf = new DEMManager.Prefix(PointIndex.make(Integer.parseInt(b[1]), Integer.parseInt(b[2]), Integer.parseInt(b[3])), Integer.parseInt(b[0]));
+			Prefix pf = new Prefix(PointIndex.make(Integer.parseInt(b[1]), Integer.parseInt(b[2]), Integer.parseInt(b[3])), Integer.parseInt(b[0]));
 			PrefixInfo pfi = new PrefixInfo();
 			pfi.path = DEMManager.props.getProperty("dir_net") + "/" + f.getName();
 			pfi.elevPath = PreprocessNetwork.prefixPath("elev" + (this.up ? "up" : "down"), pf);
@@ -94,7 +93,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		loadSegment(matchPrefix(ix));
 	}
 	
-	List<Point> loadSegment(DEMManager.Prefix prefix) {
+	List<Point> loadSegment(Prefix prefix) {
 		PrefixInfo info = prefixes.get(prefix);
 		if (info.loaded) {
 			return info.points;
@@ -103,24 +102,12 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		Logging.log("loading network segment " + prefix);
 		
 		List<long[]> data = new ArrayList<long[]>();
-		Map<Long, Integer> saddleCount = new DefaultMap<Long, Integer>() {
-			public Integer defaultValue(Long key) {
-				return 0;
-			}
-		};
 		try {
 			DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(prefixes.get(prefix).path)));
 			try {
 				while (true) {
-					long[] edge = new long[] {in.readLong(), in.readLong()};
-					data.add(edge);
-					
-					if (prefix.isParent(edge[0])) {
-						saddleCount.get(edge[0]);
-						if (edge[1] != -1) {
-							saddleCount.put(edge[0], saddleCount.get(edge[0]) + 1);
-						}
-					}
+					data.add(new long[] {in.readLong(), in.readLong()});
+					int leadIx = in.readByte();
 				}
 			} catch (EOFException eof) {}
 			in.close();
@@ -141,18 +128,6 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			throw new RuntimeException();
 		}
 		
-		Set<Long> multiSaddles = new HashSet<Long>();
-		Set<Long> loners = new HashSet<Long>();
-		for (Map.Entry<Long, Integer> e : saddleCount.entrySet()) {
-			long ix = e.getKey();
-			int count = e.getValue();
-			if (count == 0) {
-				loners.add(ix);
-			} else if (count > 2) {
-				multiSaddles.add(ix);
-			}
-		}
-		
 		Set<Point> newPoints = new HashSet<Point>();
 		for (long[] e : data) {
 			for (long ix : e) {
@@ -162,10 +137,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 				if (!prefix.isParent(ix)) {
 					continue;
 				}
-				if (loners.contains(ix)) {
-					continue;
-				}
-				
+
 				Point p = points.get(ix);
 				if (p == null) {
 					p = new Point(ix, elev.get(ix));
@@ -177,9 +149,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		
 		for (long[] edge : data) {
 			if (edge[1] == 0xFFFFFFFFFFFFFFFFL) {
-				if (!loners.contains(edge[0])) {
-					pending.put(points.get(edge[0]), null);
-				}
+				pendingSaddles.add(points.get(edge[0]));
 			} else {
 				if (prefix.isParent(edge[0])) {
 					addDirectedEdge(points.get(edge[0]), edge[1]);
@@ -219,7 +189,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		PrefixInfo info = prefixes.get(prefix);
 		for (Point p : info.points) {
 			points.remove(p.ix);
-			pending.remove(p);
+			pendingSaddles.remove(p);
 		}
 		info.points = null;
 		info.loaded = false;
@@ -312,7 +282,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 	
 	Prefix matchPrefix(long ix) {
 		for (int res = 0; res <= 24; res++) {
-			Prefix pf = new DEMManager.Prefix(ix, res);
+			Prefix pf = new Prefix(ix, res);
 			if (prefixes.containsKey(pf)) {
 				return pf;
 			}

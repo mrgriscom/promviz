@@ -3,7 +3,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 
-
+/* extends BasePoint with the concept of being part of a network or mesh, i.e., being
+ * adjacent to other points
+ */
 public class Point extends BasePoint {
 
 	public static final int CLASS_OTHER = 0;
@@ -82,7 +84,32 @@ public class Point extends BasePoint {
 		return CLASS_OTHER;
 	}
 	
-	List<Point> leads(IMesh m, boolean up) {
+	static class Lead {
+		Point p0;
+		Point p;
+		int i;
+		
+		public Lead(Point p0, Point p, int i) {
+			this.p0 = p0;
+			this.p = p;
+			this.i = i;
+		}
+		
+		public boolean equals(Object o) {
+			if (o instanceof Lead) {
+				Lead l = (Lead)o;
+				return this.p0.equals(l.p0) && this.i == l.i;
+			} else {
+				return false;
+			}
+		}
+		
+		public int hashCode() {
+			return this.p0.hashCode() | Integer.valueOf(this.i).hashCode();
+		}
+	}
+	
+	List<Lead> leads(IMesh m, boolean up) {
 		List<Point> adjacent = this.adjacent(m);
 		int[] cohort = new int[adjacent.size()];
 		int current_cohort = 0;
@@ -94,12 +121,13 @@ public class Point extends BasePoint {
 			}
 			cohort[i] = current_cohort;
 		}
-		int num_cohorts = ((current_cohort + 1) / 2) * 2; // if cur_cohort is odd it means the 'seam' fell in the middle of one
+		int num_cohorts = ((current_cohort + 1) / 2) * 2; // if cur_cohort is odd it means the 'seam' (array wraparound) fell in the middle of one
+		boolean startsUp = (this.compareElev(adjacent.get(0)) < 0);
 		for (int i = 0; i < adjacent.size(); i++) {
-			cohort[i] = cohort[i] % num_cohorts;
+			cohort[i] = (cohort[i] + (startsUp ? 0 : 1)) % num_cohorts; // 'up' cohorts must be even-numbered
 		}
 		
-		List<Point> L = new ArrayList<Point>();
+		List<Lead> L = new ArrayList<Lead>();
 		for (int cur_cohort = 0; cur_cohort < num_cohorts; cur_cohort++) {
 			Point best = null;
 			for (int i = 0; i < adjacent.size(); i++) {
@@ -113,7 +141,7 @@ public class Point extends BasePoint {
 				}
 			}
 			if (this.compareElev(best) == (up ? -1 : 1)) {
-				L.add(best);
+				L.add(new Lead(this, best, cur_cohort));
 			}
 		}
 		return L;

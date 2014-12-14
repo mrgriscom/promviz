@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.Set;
 
 import promviz.DEMFile.Sample;
-import promviz.DEMManager.Prefix;
 import promviz.util.Logging;
 
 public class PagedMesh implements IMesh {
@@ -76,7 +75,7 @@ public class PagedMesh implements IMesh {
 	}
 	
 	public Point get(long ix) {
-		Segment seg = segments.get(new DEMManager.Prefix(ix, DEMManager.GRID_TILE_SIZE));
+		Segment seg = segments.get(new Prefix(ix, DEMManager.GRID_TILE_SIZE));
 		if (seg != null) {
 			seg.ctr = ctr++;
 			float elev = seg.get(ix);

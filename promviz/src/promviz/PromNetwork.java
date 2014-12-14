@@ -464,7 +464,7 @@ public class PromNetwork {
 				break;
 			}
 
-			if (tree.pending.containsKey(cur)) {
+			if (tree.pendingSaddles.contains(cur)) {
 				// reached an edge
 				pi.min_bound_only = true;
 			}
@@ -620,7 +620,7 @@ public class PromNetwork {
 				System.err.println(sb.toString());
 			}
 			
-			if (tree.pending.containsKey(cur)) {
+			if (tree.pendingSaddles.contains(cur)) {
 				while (!saddles.isEmpty()) {
 					Point peak = peaks.removeLast();
 					Point saddle = saddles.removeLast();

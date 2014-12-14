@@ -4,6 +4,7 @@ import java.util.Comparator;
 
 import promviz.util.ReverseComparator;
 
+/* basic representation of a point/elevation sample in isolation */
 public class BasePoint {
 	
 	long ix;      // a PointIndex

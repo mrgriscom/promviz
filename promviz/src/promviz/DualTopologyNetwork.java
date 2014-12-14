@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import promviz.DEMManager.Prefix;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 

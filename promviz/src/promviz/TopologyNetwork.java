@@ -11,14 +11,15 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-import promviz.DEMManager.Prefix;
+import promviz.Point.Lead;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 
 public class TopologyNetwork implements IMesh {
 
 	Map<Long, Point> points;
-	Map<Point, Set<Long>> pending;
+	Set<Lead> pendingLeads;
+	Set<Point> pendingSaddles;
 	Set<Long> unprocessedFringe;
 	boolean up;
 	
@@ -41,7 +42,8 @@ public class TopologyNetwork implements IMesh {
 	public TopologyNetwork(boolean up, DEMManager dm) {
 		this.up = up;
 		points = new HashMap<Long, Point>();
-		pending = new PendingMap();
+		pendingLeads = new HashSet<Lead>();
+		pendingSaddles = new HashSet<Point>();
 		unprocessedFringe = new HashSet<Long>();
 		
 		this.dm = dm;
@@ -105,7 +107,11 @@ public class TopologyNetwork implements IMesh {
 		return match;
 	}
 	
-	void addEdge(Point a, Point b) {
+	void addEdge(Lead lead) {
+		Point a = lead.p0;
+		Point b = lead.p;
+		int i = lead.i;
+		
 		if (f == null) {
 			addDirectedEdge(a, b);
 			addDirectedEdge(b, a);
@@ -114,6 +120,7 @@ public class TopologyNetwork implements IMesh {
 			if (f != null) {
 				f.writeLong(a.ix);
 				f.writeLong(b.ix);
+				f.writeByte(i);
 			}
 			numEdges++;
 		} catch (IOException ioe) {
@@ -126,18 +133,25 @@ public class TopologyNetwork implements IMesh {
 	}
 	
 	void cleanup() {
+		for (Lead lead : pendingLeads) {
+			writePendingLead(lead);
+		}
 		try {
-			for (Point p : pending.keySet()) {
-				f.writeLong(p.ix);
-				f.writeLong(0xFFFFFFFFFFFFFFFFL);
-			}
 			f.close();
 		} catch (IOException ioe) {
 			throw new RuntimeException();
 		}
 	}
 	
-	
+	void writePendingLead(Lead lead) {
+		try {
+			f.writeLong(lead.p0.ix);
+			f.writeLong(0xFFFFFFFFFFFFFFFFL);
+			f.writeByte(lead.i);
+		} catch (IOException ioe) {
+			throw new RuntimeException();
+		}
+	}
 	
 	void addDirectedEdge(Point from, Point to) {
 		Point p = getPoint(from);
@@ -158,9 +172,10 @@ public class TopologyNetwork implements IMesh {
 		}
 	}
 
-	void addPending(Point saddle, Point term) {
-		saddle = getPoint(saddle);
-		pending.get(saddle).add(term.ix);
+	void addPending(Lead lead) {
+		lead.p0 = getPoint(lead.p0); // cargo culting?
+		pendingLeads.add(lead);
+		pendingSaddles.add(lead.p0);
 	}
 	
 	public void build(IMesh m, Iterable<DEMFile.Sample> points) {
@@ -180,38 +195,38 @@ public class TopologyNetwork implements IMesh {
 	}
 
 	void processSaddle(IMesh m, Point p) {
-		for (Point lead : p.leads(m, up)) {
-			processLead(m, p, lead);
+		for (Lead lead : p.leads(m, up)) {
+			processLead(m, lead);
 		}
 	}
 	
-	ChaseResult processLead(IMesh m, Point p, Point lead) {
+	ChaseResult processLead(IMesh m, Lead lead) {
 		ChaseResult result = chase(m, lead, up);
+		lead = result.lead;
 		if (!result.indeterminate) {
-			addEdge(p, result.p);
+			addEdge(lead);
 		} else {
-			addPending(p, result.p);
+			addPending(lead);
 		}
 		return result;
 	}
 	
 	public void buildPartial(PagedMesh m, Iterable<DEMFile.Sample> newPage) {
-		Map<Point, Set<Long>> oldPending = pending;
-		pending = new PendingMap();
-		for (Entry<Point, Set<Long>> e : oldPending.entrySet()) {
-			Point saddle = e.getKey();
-			for (long ix : e.getValue()) {
-				Point lead = m.get(ix);
-				if (lead == null) {
-					// point not loaded -- effectively indeterminate
-					pending.get(saddle).add(ix); // replicate entry in new map
-				} else {
-					processLead(m, saddle, lead);
-				}
+		Set<Lead> oldPending = pendingLeads;
+		pendingLeads = new HashSet<Lead>();
+		pendingSaddles = new HashSet<Point>();
+		for (Lead lead : oldPending) {
+			Point saddle = lead.p0;
+			Point head = m.get(lead.p.ix);
+			if (head == null) {
+				// point not loaded -- effectively indeterminate
+				addPending(lead); // replicate entry in new map
+			} else {
+				processLead(m, lead);
 			}
 		}
 		
-		Logging.log("# pending: " + oldPending.size() + " -> " + pending.size());
+		Logging.log("# pending: " + oldPending.size() + " -> " + pendingLeads.size());
 		Set<Long> fringeNowProcessed = new HashSet<Long>();
 		for (long ix : unprocessedFringe) {
 			// TODO don't reprocess points that were also pending leads?
@@ -238,7 +253,7 @@ public class TopologyNetwork implements IMesh {
 	void trimNetwork() {
 		List<Point> toRemove = new ArrayList<Point>();
 		for (Point p : points.values()) {
-			if (!pending.containsKey(p)) {
+			if (!pendingSaddles.contains(p)) {
 				toRemove.add(p);
 			}
 		}
@@ -272,23 +287,14 @@ public class TopologyNetwork implements IMesh {
 	}
 	
 	public void tallyPending(Set<Prefix> allPrefixes, Map<Set<Prefix>, Integer> frontierTotals) {
-		for (Entry<Point, Set<Long>> e : pending.entrySet()) {
-			Set<Long> terms = e.getValue();
-			List<Long> edgePend = new ArrayList<Long>();	
-			for (long term : terms) {
-				boolean interior = tallyAdjacency(term, allPrefixes, frontierTotals);
-				if (interior) {
-					pendInterior.add(term);
-				} else {
-					edgePend.add(term);
-					
-					try {
-						f.writeLong(e.getKey().ix);
-						f.writeLong(0xFFFFFFFFFFFFFFFFL);
-					} catch (IOException ioe) { }
-				}
+		for (Lead lead : pendingLeads) {
+			long term = lead.p.ix;
+			boolean interior = tallyAdjacency(term, allPrefixes, frontierTotals);
+			if (interior) {
+				pendInterior.add(term);
+			} else {
+				writePendingLead(lead);
 			}
-			terms.removeAll(edgePend);
 		}
 		
 		List<Long> edgeFringe = new ArrayList<Long>();
@@ -304,11 +310,10 @@ public class TopologyNetwork implements IMesh {
 
 		// trim pendInterior to only what is still relevant
 		Set<Long> newPendInterior = new HashSet<Long>();
-		for (Set<Long> terms : pending.values()) {
-			for (long term : terms) {
-				if (pendInterior.contains(term)) {
-					newPendInterior.add(term);
-				}
+		for (Lead lead : pendingLeads) {
+			long term = lead.p.ix;
+			if (pendInterior.contains(term)) {
+				newPendInterior.add(term);
 			}
 		}
 		for (long fringe : unprocessedFringe) {
@@ -351,24 +356,25 @@ public class TopologyNetwork implements IMesh {
 	}
 	
 	class ChaseResult {
-		Point p;
+		Lead lead;
 		boolean indeterminate;
 		
-		public ChaseResult(Point p, boolean indeterminate) {
-			this.p = p;
+		public ChaseResult(Lead lead, Point term, boolean indeterminate) {
+			this.lead = new Lead(lead.p0, term, lead.i);
 			this.indeterminate = indeterminate;
 		}
 	}
 	
-	ChaseResult chase(IMesh m, Point p, boolean up) {
+	ChaseResult chase(IMesh m, Lead lead, boolean up) {
+		Point p = lead.p;
 		while (p.classify(m) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
 			if (p.classify(m) == Point.CLASS_INDETERMINATE) {
-				return new ChaseResult(p, true);
+				return new ChaseResult(lead, p, true);
 			}
 		
-			p = p.leads(m, up).get(0);
+			p = p.leads(m, up).get(0).p;
 		}
-		return new ChaseResult(p, false);
+		return new ChaseResult(lead, p, false);
 	}
 		
 	Set<Point> adjacent(Point p) {
