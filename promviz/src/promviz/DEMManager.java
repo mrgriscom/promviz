@@ -1,5 +1,6 @@
 package promviz;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
@@ -19,7 +20,7 @@ import promviz.util.Util;
 import com.google.gson.Gson;
 
 
-public class DEMManager {	
+public class DEMManager {
 
 	static final int GRID_TILE_SIZE = 11;
 	static long MESH_MAX_POINTS;
@@ -244,6 +245,11 @@ public class DEMManager {
 			loadDEMs(dm, region);
 		}
 
+		File folder = new File(DEMManager.props.getProperty("dir_net"));
+		if (folder.listFiles().length != 0) {
+			throw new RuntimeException("/net not empty!");
+		}
+		
 		MESH_MAX_POINTS = (1 << 26);
 		PreprocessNetwork.preprocess(dm, true);
 		PreprocessNetwork.preprocess(dm, false);
@@ -308,7 +314,11 @@ public class DEMManager {
 				continue;
 			}
 
-			/*
+			/* enforce saddle connects to exactly two (pending counts as 1)
+			 * peaks at least one -- caught by OTHER check above
+			 */
+			
+			/* OLD
 			 * these tests are redundant-- a point with 0 connections will be flagged as class OTHER above;
 			 * peaks only need one or more connections; saddles in theory need two, but both leads may lead
 			 * to the same point (thus making it an irrelevant basin saddle), but nevertheless only having

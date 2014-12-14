@@ -6,13 +6,16 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -92,7 +95,15 @@ public class PreprocessNetwork {
 
 		public void remove() {
 			throw new UnsupportedOperationException();			
-		}		
+		}
+		
+		public Iterable<Edge> toIter() {
+			return new Iterable<Edge>() {
+				public Iterator<Edge> iterator() {
+					return EdgeIterator.this;
+				}
+			};
+		}
 	}
 
 	static Map<Prefix, Long> initialTally(Iterable<Edge> edges) {
@@ -292,11 +303,7 @@ public class PreprocessNetwork {
 			m.loadPage(grid);
 			for (final Prefix p : pfs) {
 				Set<Long> ixs = new HashSet<Long>();
-				for (Edge edge : new Iterable<Edge>() {
-					public Iterator<Edge> iterator() {
-						return new EdgeIterator(up, p);
-					}
-				}) {
+				for (Edge edge : new EdgeIterator(up, p).toIter()) {
 					ixs.add(edge.a);
 					if (!edge.pending() && p.isParent(edge.b)) {
 						ixs.add(edge.b);
@@ -322,114 +329,64 @@ public class PreprocessNetwork {
 		}
 	}
 	
-//	public static void postprocessBucket(final Prefix p) {
-//		Set<Long> ixs = new HashSet<Long>();
-//		for (long[] edge : new Iterable<long[]>() {
-//			public Iterator<long[]> iterator() {
-//				return new EdgeIterator(up, p);
-//			}
-//		}) {
-//			ixs.add(edge[0]);
-//			if (edge[1] != -1 && p.isParent(edge[1])) {
-//				ixs.add(edge[1]);
-//			}
-//		}
-//		
-//		long[] edge = new long[] {in.readLong(), in.readLong()};
-//		data.add(edge);
-//		
-//		if (prefix.isParent(edge[0])) {
-//			saddleCount.get(edge[0]);
-//			if (edge[1] != -1) {
-//				saddleCount.put(edge[0], saddleCount.get(edge[0]) + 1);
-//			}
-//		}
-//	}
-//} catch (EOFException eof) {}
-//in.close();
-//} catch (IOException ioe) {
-//throw new RuntimeException();
-//}
-//
-//Map<Long, Float> elev = new HashMap<Long, Float>();
-//try {
-//DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(prefixes.get(prefix).elevPath)));
-//try {
-//	while (true) {
-//		elev.put(in.readLong(), in.readFloat());
-//	}
-//} catch (EOFException eof) {}
-//in.close();
-//} catch (IOException ioe) {
-//throw new RuntimeException();
-//}
-//
-//Set<Long> multiSaddles = new HashSet<Long>();
-//Set<Long> loners = new HashSet<Long>();
-//for (Map.Entry<Long, Integer> e : saddleCount.entrySet()) {
-//long ix = e.getKey();
-//int count = e.getValue();
-//if (count == 0) {
-//	loners.add(ix);
-//} else if (count > 2) {
-//	multiSaddles.add(ix);
-//}
-//}
-//
-//Set<Point> newPoints = new HashSet<Point>();
-//for (long[] e : data) {
-//for (long ix : e) {
-//	if (ix == 0xFFFFFFFFFFFFFFFFL) {
-//		continue;
-//	}
-//	if (!prefix.isParent(ix)) {
-//		continue;
-//	}
-//	if (loners.contains(ix)) {
-//		continue;
-//	}
-//	
-//	Point p = points.get(ix);
-//	if (p == null) {
-//		p = new Point(ix, elev.get(ix));
-//		points.put(p.ix, p);
-//		newPoints.add(p);
-//	}
-//}
-//}
-//
-//for (long[] edge : data) {
-//if (edge[1] == 0xFFFFFFFFFFFFFFFFL) {
-//	if (!loners.contains(edge[0])) {
-//		pending.put(points.get(edge[0]), null);
-//	}
-//} else {
-//	if (prefix.isParent(edge[0])) {
-//		addDirectedEdge(points.get(edge[0]), edge[1]);
-//	}
-//	if (prefix.isParent(edge[1])) {
-//		addDirectedEdge(points.get(edge[1]), edge[0]);
-//	}
-//}
-//
-//		
-//	}
+	public static void postprocessBucket(final Prefix p, boolean up) {
+		Map<Long, List<Long>> connections = new DefaultMap<Long, List<Long>>() {
+			public List<Long> defaultValue(Long key) {
+				return new ArrayList<Long>();
+			}
+		};
+		Set<Long> pending = new HashSet<Long>();
+		
+		for (Edge edge : new EdgeIterator(up, p).toIter()) {
+			if (!p.isParent(edge.a)) {
+				continue;
+			}
+			if (edge.pending()) {
+				pending.add(edge.a);
+			} else {
+				connections.get(edge.a).add(edge.b);				
+			}
+		}
+		for (Long pend : pending) {
+			connections.get(pend).add(-1L);
+		}
+
+		for (Map.Entry<Long, List<Long>> e : connections.entrySet()) {
+			long saddleIx = e.getKey();
+			List<Long> peaks = e.getValue();
+			Set<Long> uniqPeaks = new HashSet<Long>(peaks);
+			
+			if (uniqPeaks.size() == 1 && uniqPeaks.iterator().next() == -1) {
+				// loner saddle: all leads go off edge; does not connect to rest of network
+				System.err.println("XXLONER " + new BasePoint(saddleIx, 0));
+				// remove all edges (saddleIx, -1)
+				// no impact on other tiles
+				continue;
+			}
+			if (peaks.size() > 2) {
+				// multi-saddle: has more than two leads
+				System.err.println("XXMULTI-SADDLE " + new BasePoint(saddleIx, 0) + " " + peaks.size() + " " + uniqPeaks.size());
+				continue;
+			}
+			if (uniqPeaks.size() < 2) {
+				// ring: both saddle's leads go to same point
+				System.err.println("XXRING " + GeoCode.print(saddleIx));
+				continue;
+			}
+		}
+	}
 	
 	public static void preprocess(DEMManager dm, final boolean up) {
 		Logging.log("preprocessing network");
 		
-        Map<Prefix, Long> tally = initialTally(new Iterable<Edge>() {
-			public Iterator<Edge> iterator() {
-				return new EdgeIterator(up);
-			}
-	    });
+        Map<Prefix, Long> tally = initialTally(new EdgeIterator(up).toIter());
 	    Set<Prefix> buckets = consolidateTally(tally);
 	    Logging.log(buckets.size() + " buckets");
 	    partition(up, buckets);
 	    
-//	    for (Prefix p : buckets) {
-//	    	postprocessBucket(p);
-//	    }
+	    for (Prefix p : buckets) {
+	    	postprocessBucket(p, up);
+	    }
 	    
 	    cacheElevation(up, buckets, dm);
 	}	
