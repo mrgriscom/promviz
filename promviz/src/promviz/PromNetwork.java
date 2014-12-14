@@ -11,9 +11,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.TreeSet;
 
 import promviz.util.Logging;
+import promviz.util.ReverseComparator;
 
 import com.google.common.collect.Lists;
 
@@ -24,10 +24,10 @@ public class PromNetwork {
 		Point saddle;
 		boolean global_max;
 		boolean min_bound_only;
-		Comparator<Point> c;
+		Comparator<BasePoint> c;
 		List<Long> path;
 		
-		public PromInfo(Point p, Comparator<Point> c) {
+		public PromInfo(Point p, Comparator<BasePoint> c) {
 			this.p = p;
 			this.c = c;
 		}
@@ -68,7 +68,7 @@ public class PromNetwork {
 	}
 	
 	static class Front {
-		PriorityQueue<Point> queue;
+		PriorityQueue<BasePoint> queue;
 		Set<Point> set;
 		Set<Long> seen;
 		Map<Long, Long> backtrace;
@@ -78,16 +78,12 @@ public class PromNetwork {
 		Map<Point, Point> backwardSaddles;
 		
 		TopologyNetwork tree;
-		Comparator<Point> c;
+		Comparator<BasePoint> c;
 
-		public Front(final Comparator<Point> c, TopologyNetwork tree) {
+		public Front(final Comparator<BasePoint> c, TopologyNetwork tree) {
 			this.tree = tree;
 			this.c = c;
-			queue = new PriorityQueue<Point>(10, new Comparator<Point>() {
-				public int compare(Point p1, Point p2) {
-					return -c.compare(p1, p2);
-				}				
-			});
+			queue = new PriorityQueue<BasePoint>(10, new ReverseComparator<BasePoint>(c));
 			set = new HashSet<Point>();
 			seen = new HashSet<Long>();
 			backtrace = new HashMap<Long, Long>();
@@ -112,7 +108,7 @@ public class PromNetwork {
 		}
 		
 		public Point next() {
-			Point p = queue.poll();
+			Point p = (Point)queue.poll();
 			if (p != null) {
 				set.remove(p);
 				seen.add(p.ix);
@@ -200,7 +196,7 @@ public class PromNetwork {
 			// prune routing to match backtrace
 			// trim threshold entries
 			
-			Logging.log("pruned " + set.size());
+			//Logging.log("pruned " + set.size() + " " + backtrace.size());
 		}
 		
 		class TraceIterator implements Iterator<Long> {
@@ -236,8 +232,8 @@ public class PromNetwork {
 		
 		public Set<Long> adjacent() {
 			Set<Long> frontAdj = new HashSet<Long>();
-			for (Point f : queue) {
-				for (Point adj : tree.adjacent(f)) {
+			for (BasePoint f : queue) {
+				for (Point adj : tree.adjacent((Point)f)) {
 					frontAdj.add(adj.ix);
 				}
 			}
@@ -282,6 +278,9 @@ public class PromNetwork {
 					
 					if (lockout == null) {
 						if (isPeak) {
+//							if (this.c.compare(cur, start) > 0) { // is this legit?
+//								start = cur;
+//							}
 							if (this.c.compare(cur, p) > 0) {
 								return cur;
 							}
@@ -291,7 +290,7 @@ public class PromNetwork {
 							boolean dirForward = (prevIx == this.backtrace.get(ix));
 							Point peakAway = (dirForward ? pf : pb);
 							Point peakToward = (dirForward ? pb : pf);
-							if (peakToward != null) {
+							if (peakToward != null) { // really only matters if peakToward is higher than p, but it works just the same regardless (in theory)
 								lockout = cur;
 							} else if (peakAway != null && this.c.compare(peakAway, p) > 0) {
 								target = peakAway;
@@ -373,29 +372,29 @@ public class PromNetwork {
 	
 
 	static interface Criterion {
-		boolean condition(Comparator<Point> cmp, Point p, Point cur);
+		boolean condition(Comparator<BasePoint> cmp, BasePoint p, BasePoint cur);
 	}
 	
 	public static PromInfo prominence(TopologyNetwork tree, Point p, final boolean up) {
 		return _prominence(tree, p, up, new Criterion() {
 			@Override
-			public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
+			public boolean condition(Comparator<BasePoint> cmp, BasePoint p, BasePoint cur) {
 				return cmp.compare(cur, p) > 0;
 			}			
 		});
 	}
 
-	public static PromInfo parent(TopologyNetwork tree, Point p,
-				final boolean up, final Map<Point, PromNetwork.PromInfo> prominentPoints) {
-		final double pProm = prominentPoints.get(p).prominence();
-		return _prominence(tree, p, up, new Criterion() {
-			@Override
-			public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
-				double curProm = (prominentPoints.containsKey(cur) ? prominentPoints.get(cur).prominence() : 0);				
-				return cmp.compare(cur, p) > 0 && curProm > pProm; // not sure the elev comparison is even necessary
-			}
-		});
-	}
+//	public static PromInfo parent(TopologyNetwork tree, Point p,
+//				final boolean up, final Map<Point, PromNetwork.PromInfo> prominentPoints) {
+//		final double pProm = prominentPoints.get(p).prominence();
+//		return _prominence(tree, p, up, new Criterion() {
+//			@Override
+//			public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
+//				double curProm = (prominentPoints.containsKey(cur) ? prominentPoints.get(cur).prominence() : 0);				
+//				return cmp.compare(cur, p) > 0 && curProm > pProm; // not sure the elev comparison is even necessary
+//			}
+//		});
+//	}
 	
 //	public static List<Point> domainSaddles(TopologyNetwork tree, Point p, Map<Point, PromNetwork.PromInfo> saddleIndex, float threshold) {
 //		List<Point> saddles = new ArrayList<Point>();
@@ -435,39 +434,29 @@ public class PromNetwork {
 //		return runoffs;
 //	}
 		
-	static Comparator<Point> _cmp(final boolean up) {
-		return new Comparator<Point>() {
-			@Override
-			public int compare(Point p0, Point p1) {
-				return up ? ElevComparator.cmp(p0, p1) : ElevComparator.cmp(p1, p0);
-			}
-		};
-	}
-
 	public static PromInfo _prominence(TopologyNetwork tree, Point p, boolean up, Criterion crit) {
 		if (up != tree.up) {
 			throw new IllegalArgumentException("incompatible topology tree");
 		}
 		
-		Comparator<Point> c = _cmp(up);
+		Comparator<BasePoint> c = BasePoint.cmpElev(up);
 		
 		PromInfo pi = new PromInfo(p, c);
 		Front front = new Front(c, tree);
 		front.add(p, null);
 
 		// point is not part of network (ie too close to edge to have connecting saddle)
-		if (tree.adjacent(p) == null) {
-			return null;
-		}
+//		if (tree.adjacent(p) == null) {
+//			return null;
+//		}
 
 		Point cur = null;
-		outer:
 		while (true) {
 			cur = front.next();
 			if (cur == null) {
 				// we've searched the whole world
 				pi.global_max = true;
-				Logging.log("global max? " + p.ix + " " + PointIndex.geocode(p.ix));
+				Logging.log("global max? " + p);
 				break;
 			}
 			pi.add(cur);
@@ -478,22 +467,12 @@ public class PromNetwork {
 			if (tree.pending.containsKey(cur)) {
 				// reached an edge
 				pi.min_bound_only = true;
-				break outer;				
 			}
 			for (Point adj : tree.adjacent(cur)) {
-				if (adj == cur) { // FIXME
-					//System.err.println("neighbor with self [" + cur.ix + "]... wtf???");
-					continue;
-				}
-				
 				front.add(adj, cur);
 			}
 			
 			front.prune();
-			
-//			if (Math.random() < .0001) {
-//				System.err.println(front.size() + " " + front.seen.size() + " " + front.backtrace.size());
-//			}
 		}
 		
 		pi.finalize(front, cur);
@@ -505,7 +484,7 @@ public class PromNetwork {
 		Point saddle;
 		boolean global_max;
 		boolean min_bound_only;
-		Comparator<Point> c;
+		Comparator<BasePoint> c;
 		List<Long> path;
 		
 		public PromInfo2(Point peak, Point saddle) {
@@ -513,7 +492,7 @@ public class PromNetwork {
 			this.saddle = saddle;
 		}
 		
-		public PromInfo2(Point p, Comparator<Point> c) {
+		public PromInfo2(Point p, Comparator<BasePoint> c) {
 			this.p = p;
 			this.c = c;
 		}
@@ -532,7 +511,7 @@ public class PromNetwork {
 			this.path = front.getAtoB(horizon, this.p);
 		}
 
-		public void finalizeBackward(Front front, Comparator<Point> cmp) {
+		public void finalizeBackward(Front front) {
 			Point thresh = front.searchThreshold(this.p, this.saddle);			
 			this.path = front.getAtoB(thresh, this.p);
 		}
@@ -555,7 +534,7 @@ public class PromNetwork {
 		
 	public static void bigOlPromSearch(Point root, TopologyNetwork tree, DEMManager.OnProm onprom, double cutoff) {
 		boolean up = true;
-		Comparator<Point> c = _cmp(up);
+		Comparator<BasePoint> c = BasePoint.cmpElev(up);
 //		Criterion crit = new Criterion() {
 //			@Override
 //			public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
@@ -568,11 +547,6 @@ public class PromNetwork {
 		Front front = new Front(c, tree);
 		front.add(root, null);
 		
-		// point is not part of network (ie too close to edge to have connecting saddle)
-		if (tree.adjacent(root) == null) {
-			return;
-		}
-	
 		Point cur = null;
 		while (true) {
 			cur = front.next();
@@ -585,17 +559,6 @@ public class PromNetwork {
 			
 			boolean deadEnd = true;
 			for (Point adj : tree.adjacent(cur)) {
-				if (adj == cur) { // FIXME
-					//System.err.println("neighbor with self [" + cur.ix + "]... wtf???");
-					continue;
-				}
-				// weird temporary workaround for saddles pointing to saddles
-				if ((cur.classify(tree) == Point.CLASS_SUMMIT) == (adj.classify(tree) == Point.CLASS_SUMMIT)) {
-					// note this also handles the self-referential case above
-//					System.err.println("weird topology");
-					continue;
-				}
-				
 				if (front.add(adj, cur)) {
 					deadEnd = false;
 				}
@@ -613,7 +576,7 @@ public class PromNetwork {
 					PromInfo2 pi = new PromInfo2(peak, saddle);
 					front.backwardSaddles.put(saddle, peak);
 					if (pi.prominence() >= cutoff) {
-						pi.finalizeBackward(front, c);
+						pi.finalizeBackward(front);
 						onprom.onprom(pi.toNormal());
 					}
 				}
@@ -621,7 +584,7 @@ public class PromNetwork {
 			} else {
 				// peak
 				if (peaks.size() == saddles.size() + 1) {
-//					System.err.println("ignoring forked saddle");
+					//System.err.println("ignoring forked saddle");
 					continue;
 				}
 				

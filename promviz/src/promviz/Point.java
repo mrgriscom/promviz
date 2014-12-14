@@ -4,7 +4,7 @@ import java.util.List;
 
 
 
-public class Point implements Comparable<Point> {
+public class Point extends BasePoint {
 
 	public static final int CLASS_OTHER = 0;
 	public static final int CLASS_SUMMIT = 1;
@@ -12,9 +12,6 @@ public class Point implements Comparable<Point> {
 	public static final int CLASS_SADDLE = 3;
 	public static final int CLASS_INDETERMINATE = 4;
 	
-	long ix;
-	float elev; // meters
-
 	/* list of point geocodes adjacent to this point, listed in a clockwise direction
 	 * if any two consecutive points are NOT adjacent to each other (i.e., the
 	 * three points do not form a Tri), this list will have one or more nulls
@@ -22,9 +19,12 @@ public class Point implements Comparable<Point> {
 	 */
 	long[] _adjacent = new long[0];
 
-	public Point(long ix, double elev) {
-		this.ix = ix;
-		this.elev = (float)elev;
+	public Point(long ix, float elev) {
+		super(ix, elev);
+	}
+	
+	public Point(long ix, float elev, int isodist) {
+		super(ix, elev, isodist);
 	}
 	
 	public long[] adjIx() {
@@ -44,7 +44,7 @@ public class Point implements Comparable<Point> {
 		boolean is_pit = true;
 
 		if (this.adjIx().length == 0) {
-			return CLASS_OTHER;
+			return CLASS_OTHER; // or indet?
 		}
 		
 		List<Point> adjacent = this.adjacent(m);
@@ -53,9 +53,9 @@ public class Point implements Comparable<Point> {
 				return CLASS_INDETERMINATE;
 			}
 			
-			if (ElevComparator.cmp(p, this) == 1) {
+			if (this.compareElev(p) == -1) {
 				is_summit = false;
-			} else if (ElevComparator.cmp(p, this) == -1) {
+			} else if (this.compareElev(p) == 1) {
 				is_pit = false;
 			}
 		}
@@ -71,7 +71,7 @@ public class Point implements Comparable<Point> {
 			Point p0 = adjacent.get(i);
 			Point p1 = adjacent.get((i + 1) % adjacent.size());
 			
-			if (ElevComparator.cmp(p0, this) != ElevComparator.cmp(p1, this)) {
+			if (this.compareElev(p0) != this.compareElev(p1)) {
 				transitions++;
 			}
 		}
@@ -89,7 +89,7 @@ public class Point implements Comparable<Point> {
 		for (int i = 0; i < adjacent.size(); i++) {
 			Point p = adjacent.get(i);
 			Point p_prev = (i > 0 ? adjacent.get(i - 1) : null);
-			if (p_prev != null && ElevComparator.cmp(p, this) != ElevComparator.cmp(p_prev, this)) {
+			if (p_prev != null && this.compareElev(p) != this.compareElev(p_prev)) {
 				current_cohort++;
 			}
 			cohort[i] = current_cohort;
@@ -108,41 +108,15 @@ public class Point implements Comparable<Point> {
 				}
 				
 				Point p = adjacent.get(i);
-				if (best == null || ElevComparator.cmp(p, best) == ElevComparator.cmp(best, this)) {
+				if (best == null || best.compareElev(p) == this.compareElev(best)) {
 					best = p;
 				}
 			}
-			if (ElevComparator.cmp(best, this) == (up ? 1 : -1)) {
+			if (this.compareElev(best) == (up ? -1 : 1)) {
 				L.add(best);
 			}
 		}
 		return L;
 	}
 	
-	public String toString() {
-//		double[] coords = this.coords();
-//		return String.format("<%f,%f %f %dadj>", coords[0], coords[1], this.elev, this._adjacent.length);
-		
-		double[] c = PointIndex.toLatLon(this.ix);
-		return String.format("%s %.5f %.5f (%.1f)", PointIndex.geocode(this.ix), c[0], c[1], this.elev);
-	}
-
-	@Override
-	public boolean equals(Object o) {
-		if (o instanceof Point) {
-			return this.ix == ((Point)o).ix;
-		} else {
-			return false;
-		}
-	}
-	
-	@Override
-	public int hashCode() {
-		return Long.valueOf(this.ix).hashCode();
-	}
-	
-	@Override
-	public int compareTo(Point p) {
-		return Long.valueOf(this.ix).compareTo(p.ix);
-	}
 }

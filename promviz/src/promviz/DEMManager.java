@@ -356,6 +356,7 @@ public class DEMManager {
 				if (pClass == Point.CLASS_OTHER && tn.pending.containsKey(p)) {
 					// fringe saddle whose leads are all pending -- not connected to rest of network
 					// note: these are now filtered out by pagedtoponetwork.load()
+					Logging.log("verify: fringe saddle (ok, but should have been pruned)");
 					continue;
 				}
 				
@@ -438,12 +439,7 @@ public class DEMManager {
 		} else {
 
 			Point highest = null;
-			Comparator<Point> cmp = new Comparator<Point>() {
-				@Override
-				public int compare(Point p0, Point p1) {
-					return up ? ElevComparator.cmp(p0, p1) : ElevComparator.cmp(p1, p0);
-				}
-			};
+			Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
 			for (Point p : tn.allPoints()) {
 				if (highest == null || cmp.compare(p, highest) > 0) {
 					highest = p;
