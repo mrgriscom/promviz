@@ -314,28 +314,20 @@ public class DEMManager {
 				continue;
 			}
 
-			/* enforce saddle connects to exactly two (pending counts as 1)
-			 * peaks at least one -- caught by OTHER check above
-			 */
-			
-			/* OLD
-			 * these tests are redundant-- a point with 0 connections will be flagged as class OTHER above;
-			 * peaks only need one or more connections; saddles in theory need two, but both leads may lead
-			 * to the same point (thus making it an irrelevant basin saddle), but nevertheless only having
-			 * one unique connection
-			 */
-//			boolean isSaddle = (pClass == saddleClass);
-//			boolean connectedness;
-//			if (isSaddle) {
-//				connectedness = (p.adjIx().length >= 2 || tn.pending.containsKey(p));
-//			} else {
-//				connectedness = (p.adjIx().length >= 1);
-//			}
-//			if (!connectedness) {
-//				Logging.log("verify: " + p + " [" + pClass + "] insufficiently connected (" + p.adjIx().length + ")");					
-//				continue;
-//			}
-			
+			boolean isSaddle = (pClass == saddleClass);
+			boolean connected;
+			if (isSaddle) {
+				int numAdj = (p.adjIx().length + (tn.pendingSaddles.contains(p) ? 1 : 0));
+				connected = (numAdj == 2);
+			} else {
+				// redundant, since if this were false, point would have been flagged above
+				connected = (p.adjIx().length >= 1);
+			}
+			if (!connected) {
+				Logging.log("verify: " + p + " [" + pClass + "] insufficiently connected (" + p.adjIx().length + ")");					
+				continue;
+			}
+
 			// check pending too?
 		}
 	}
