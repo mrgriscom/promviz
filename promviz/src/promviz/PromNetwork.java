@@ -554,10 +554,11 @@ public class PromNetwork {
 				// we've searched the whole world
 				//pi.global_max = true;
 				//break;
-				return;
+				break;
 			}
 			
-			boolean deadEnd = true;
+			boolean reachedEdge = tree.pendingSaddles.contains(cur);
+			boolean deadEnd = !reachedEdge;
 			for (Point adj : tree.adjacent(cur)) {
 				if (front.add(adj, cur)) {
 					deadEnd = false;
@@ -606,6 +607,20 @@ public class PromNetwork {
 				front.prune();
 			}
 
+			if (reachedEdge) {
+				while (!saddles.isEmpty()) {
+					Point peak = peaks.removeLast();
+					Point saddle = saddles.removeLast();
+					PromInfo2 pi = new PromInfo2(peak, saddle);
+					pi.min_bound_only = true;
+					if (pi.prominence() >= cutoff) {
+						pi.finalizeForward(front, cur);
+						onprom.onprom(pi.toNormal());
+					}
+				}
+				break; // TODO: restart search from smaller islands and agglomerate?
+			}
+			
 			if (Math.random() < 1e-3) {
 				StringBuilder sb = new StringBuilder();
 				Point[] _p = peaks.toArray(new Point[0]);
@@ -618,20 +633,6 @@ public class PromNetwork {
 					}
 				}
 				System.err.println(sb.toString());
-			}
-			
-			if (tree.pendingSaddles.contains(cur)) {
-				while (!saddles.isEmpty()) {
-					Point peak = peaks.removeLast();
-					Point saddle = saddles.removeLast();
-					PromInfo2 pi = new PromInfo2(peak, saddle);
-					pi.min_bound_only = true;
-					if (pi.prominence() >= cutoff) {
-						pi.finalizeForward(front, cur);
-						onprom.onprom(pi.toNormal());
-					}
-				}
-				return; // TODO: restart search from smaller islands and agglomerate?
 			}
 			
 		}		

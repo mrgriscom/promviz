@@ -110,6 +110,10 @@ public class PointIndex {
 	}
 	
 	public static String print(long ix) {
+		if (ix == -1) {
+			return "---";
+		}
+		
 		int[] c = split(ix);
 		return String.format("%d/%d,%d:%d", c[0], c[1], c[2], c[3]);
 	}

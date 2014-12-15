@@ -71,6 +71,10 @@ public class PreprocessNetwork {
 		public int hashCode() {
 			return Long.valueOf(this.a).hashCode() | Long.valueOf(this.b).hashCode();
 		}
+		
+		public String toString() {
+			return String.format("%s => %s (%d)", PointIndex.print(a), PointIndex.print(b), i);
+		}
 	}
 	
 	static class EdgeIterator implements Iterator<Edge> {
@@ -292,7 +296,7 @@ public class PreprocessNetwork {
 
 					public void remove() {
 						throw new UnsupportedOperationException();
-					}					
+					}				
 				};
 			}
 		};
