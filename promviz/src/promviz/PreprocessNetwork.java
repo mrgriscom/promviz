@@ -6,12 +6,14 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -21,6 +23,7 @@ import java.util.Set;
 
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
+import promviz.util.Util;
 
 public class PreprocessNetwork {
 	
@@ -38,8 +41,35 @@ public class PreprocessNetwork {
 			this.i = i;
 		}
 		
+		public Edge(long a, long b) {
+			this(a, b, -1);
+		}
+		
 		public boolean pending() {
 			return b == -1;
+		}
+
+		void write(DataOutputStream out) {
+			try {
+				out.writeLong(this.a);
+				out.writeLong(this.b);
+				out.writeByte(this.i);
+			} catch (IOException ioe) {
+				throw new RuntimeException(ioe);
+			}
+		}
+		
+		public boolean equals(Object o) {
+			if (o instanceof Edge) {
+				Edge e = (Edge)o;
+				return this.a == e.a && this.b == e.b;
+			} else {
+				return false;
+			}
+		}
+		
+		public int hashCode() {
+			return Long.valueOf(this.a).hashCode() | Long.valueOf(this.b).hashCode();
 		}
 	}
 	
@@ -186,17 +216,6 @@ public class PreprocessNetwork {
 		return null;
 	}
 
-	static void writeEdge(Map<Prefix, DataOutputStream> f, Prefix p, Edge edge) {
-		DataOutputStream out = f.get(p);
-		try {
-			out.writeLong(edge.a);
-			out.writeLong(edge.b);
-			out.writeByte(edge.i);
-		} catch (IOException ioe) {
-			throw new RuntimeException(ioe);
-		}
-	}	
-	
 	static String segmentPath(boolean up, Prefix p) {
 		return prefixPath(up ? "up" : "down", p);
 	}
@@ -220,9 +239,9 @@ public class PreprocessNetwork {
 			Prefix bucket1 = matchPrefix(e.a, buckets);
 			Prefix bucket2 = (e.pending() ? null : matchPrefix(e.b, buckets));
 			
-			writeEdge(f, bucket1, e);
+			e.write(f.get(bucket1));
 			if (bucket2 != null && !bucket2.equals(bucket1)) {
-				writeEdge(f, bucket2, e);
+				e.write(f.get(bucket2));
 			}
 		}
 		
@@ -329,51 +348,177 @@ public class PreprocessNetwork {
 		}
 	}
 	
-	public static void postprocessBucket(final Prefix p, boolean up) {
-		Map<Long, List<Long>> connections = new DefaultMap<Long, List<Long>>() {
-			public List<Long> defaultValue(Long key) {
-				return new ArrayList<Long>();
+	public static void postprocessTopology(boolean up, Set<Prefix> buckets) {
+		Map<Prefix, List<Edge>> postToAdd = new DefaultMap<Prefix, List<Edge>>() {
+			public List<Edge> defaultValue(Prefix key) {
+				return new ArrayList<Edge>();
+			}			
+		};
+		Map<Prefix, Set<Edge>> postToRemove = new DefaultMap<Prefix, Set<Edge>>() {
+			public Set<Edge> defaultValue(Prefix key) {
+				return new HashSet<Edge>();
 			}
 		};
-		Set<Long> pending = new HashSet<Long>();
+		
+		Logging.log("correcting topology");
+		
+		int i = 0;
+	    for (Prefix p : buckets) {
+	    	postprocessBucket(buckets, p, up, postToAdd, postToRemove);
+	    	if (++i % 1000 == 0) {
+	    		Logging.log(i + " buckets");
+	    	}
+	    }
+
+	    // careful-- this is memory-unbounded
+	    i = 0;
+	    for (Prefix p : buckets) {
+			filterBucket(buckets, p, up, postToAdd.get(p), postToRemove.get(p), null, null);
+	    	if (++i % 1000 == 0) {
+	    		Logging.log(i + " buckets");
+	    	}
+	    }
+	}
+	
+	public static void postprocessBucket(Set<Prefix> buckets, final Prefix p, boolean up,
+				Map<Prefix, List<Edge>> postToAdd,
+				Map<Prefix, Set<Edge>> postToRemove) {
+		Map<Long, List<Edge>> bySaddle = new DefaultMap<Long, List<Edge>>() {
+			public List<Edge> defaultValue(Long key) {
+				return new ArrayList<Edge>();
+			}
+		};
+		Map<Long, Edge> pending = new HashMap<Long, Edge>();
 		
 		for (Edge edge : new EdgeIterator(up, p).toIter()) {
 			if (!p.isParent(edge.a)) {
 				continue;
 			}
 			if (edge.pending()) {
-				pending.add(edge.a);
+				pending.put(edge.a, edge);
 			} else {
-				connections.get(edge.a).add(edge.b);				
+				bySaddle.get(edge.a).add(edge);
 			}
 		}
-		for (Long pend : pending) {
-			connections.get(pend).add(-1L);
+		for (Map.Entry<Long, Edge> e : pending.entrySet()) {
+			bySaddle.get(e.getKey()).add(e.getValue());
 		}
 
-		for (Map.Entry<Long, List<Long>> e : connections.entrySet()) {
+		Set<Edge> toRemove = new HashSet<Edge>();
+		List<Edge> toAdd = new ArrayList<Edge>();
+		
+		for (Map.Entry<Long, List<Edge>> e : bySaddle.entrySet()) {
 			long saddleIx = e.getKey();
-			List<Long> peaks = e.getValue();
-			Set<Long> uniqPeaks = new HashSet<Long>(peaks);
+			List<Edge> edges = e.getValue();
+			Set<Long> uniqPeaks = new HashSet<Long>();
+			for (Edge _e : edges) {
+				uniqPeaks.add(_e.b);
+			}
 			
-			if (uniqPeaks.size() == 1 && uniqPeaks.iterator().next() == -1) {
+			if (uniqPeaks.size() == 1 && edges.get(0).pending()) {
 				// loner saddle: all leads go off edge; does not connect to rest of network
-				System.err.println("XXLONER " + new BasePoint(saddleIx, 0));
-				// remove all edges (saddleIx, -1)
-				// no impact on other tiles
-				continue;
-			}
-			if (peaks.size() > 2) {
+
+				toRemove.add(new Edge(saddleIx, -1L));
+			} else if (edges.size() > 2) {
 				// multi-saddle: has more than two leads
-				System.err.println("XXMULTI-SADDLE " + new BasePoint(saddleIx, 0) + " " + peaks.size() + " " + uniqPeaks.size());
-				continue;
-			}
-			if (uniqPeaks.size() < 2) {
+
+				Collections.sort(edges, new Comparator<Edge>() {
+					public int compare(Edge e, Edge f) {
+						return Integer.compare(e.i, f.i);
+					}					
+				});
+
+				long vPeak = PointIndex.clone(saddleIx, 1);
+				for (int i = 0; i < edges.size(); i++) {
+					Edge edge = edges.get(i);
+					toRemove.add(new Edge(saddleIx, edge.b));
+					long vSaddle = PointIndex.clone(saddleIx, -i);
+					
+					if (up) {
+						toAdd.add(new Edge(vSaddle, edge.b, edge.i));
+						toAdd.add(new Edge(vSaddle, vPeak));
+					} else {
+						Edge prev_edge = edges.get(Util.mod(i - 1, edges.size()));
+						if (edge.b != prev_edge.b) {
+							toAdd.add(new Edge(vSaddle, edge.b, edge.i));
+							toAdd.add(new Edge(vSaddle, prev_edge.b, prev_edge.i));
+						} else {
+							// would create a ring
+							deRing(false, toAdd, vSaddle, edge, prev_edge);
+						}
+					}
+				}
+			} else if (uniqPeaks.size() < 2) {
 				// ring: both saddle's leads go to same point
-				System.err.println("XXRING " + GeoCode.print(saddleIx));
-				continue;
+
+				long peak = deRing(up, toAdd, saddleIx, edges.get(0), edges.get(1));
+				toRemove.add(new Edge(saddleIx, peak));
 			}
 		}
+		
+		filterBucket(buckets, p, up, toAdd, toRemove, postToAdd, postToRemove);
+	}
+	
+	static void filterBucket(Set<Prefix> buckets, Prefix p, boolean up, List<Edge> toAdd, Set<Edge> toRemove,
+			Map<Prefix, List<Edge>> postToAdd,
+			Map<Prefix, Set<Edge>> postToRemove) {
+		if (toAdd.size() == 0 && toRemove.size() == 0) {
+			return;
+		}
+		
+		List<Edge> edges = new ArrayList<Edge>();
+		for (Edge e : new EdgeIterator(up, p).toIter()) {
+			if (!toRemove.contains(e)) {
+				edges.add(e);
+			}
+		}
+		edges.addAll(toAdd);
+
+		try {
+			DataOutputStream out = new DataOutputStream(new FileOutputStream(segmentPath(up, p), false));
+			for (Edge e : edges) {
+				e.write(out);
+			}
+			out.close();			
+		} catch (IOException ioe) {
+			throw new RuntimeException(ioe);
+		}
+		
+		saveForLater(buckets, p, toAdd, postToAdd);
+		saveForLater(buckets, p, toRemove, postToRemove);
+	}
+
+	static void saveForLater(Set<Prefix> buckets, Prefix p, Collection<Edge> c, Map<Prefix, ? extends Collection<Edge>> later) {
+		if (later == null) {
+			return;
+		}
+		
+		for (Edge e : c) {
+			Prefix other = null;
+			if (!p.isParent(e.a)) {
+				other = matchPrefix(e.a, buckets);
+			} else if (!e.pending() && !p.isParent(e.b)) {
+				other = matchPrefix(e.b, buckets);
+			}
+			if (other != null) {
+				later.get(other).add(e);
+			}
+		}
+	}
+	
+	static long deRing(boolean up, List<Edge> toAdd, long saddle, Edge edge1, Edge edge2) {
+		if (edge1.b != edge2.b) {
+			throw new IllegalArgumentException();
+		}
+		
+		long dst = edge1.b;
+		long altDst = PointIndex.clone(dst, up ? 1 : -1);
+		long altSaddle = PointIndex.clone(dst, up ? -1 : 1);
+		toAdd.add(new Edge(saddle, dst, edge1.i));
+		toAdd.add(new Edge(saddle, altDst, edge2.i));
+		toAdd.add(new Edge(altSaddle, dst));
+		toAdd.add(new Edge(altSaddle, altDst));
+		return dst;
 	}
 	
 	public static void preprocess(DEMManager dm, final boolean up) {
@@ -383,11 +528,7 @@ public class PreprocessNetwork {
 	    Set<Prefix> buckets = consolidateTally(tally);
 	    Logging.log(buckets.size() + " buckets");
 	    partition(up, buckets);
-	    
-	    for (Prefix p : buckets) {
-	    	postprocessBucket(p, up);
-	    }
-	    
+	    postprocessTopology(up, buckets);
 	    cacheElevation(up, buckets, dm);
 	}	
 }

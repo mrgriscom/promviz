@@ -5,9 +5,9 @@ import java.util.List;
 
 public class PointIndex {
 	
-	static final int BITS_SEQ = 3;
-	static final int BITS_X = 24;
-	static final int BITS_Y = 24;
+	static final int BITS_SEQ = 3; // signed
+	static final int BITS_X = 24;  // signed
+	static final int BITS_Y = 24;  // signed
 	static final int BITS_PROJ = 64 - BITS_X - BITS_Y - BITS_SEQ;
 
 	static final int OFFSET_SEQ = 0;
@@ -54,10 +54,21 @@ public class PointIndex {
 		if (y >= 1 << (BITS_Y - 1)) {
 			y -= (1 << BITS_Y);
 		}
+		if (seq >= 1 << (BITS_SEQ - 1)) {
+			seq -= (1 << BITS_SEQ);
+		}
 		
 		return new int[] {projId, x, y, seq};
 	}
 
+	public static long clone(long ix, int seq) {
+		if (seq < (-1 << (BITS_SEQ - 1)) || seq >= (1 << (BITS_SEQ - 1))) {
+			throw new IllegalArgumentException();
+		}
+		int[] k = split(ix);
+		return make(k[0], k[1], k[2], seq);
+	}
+	
 	public static int compare(long a, long b) {
 		if (a == b) {
 			return 0;
@@ -96,6 +107,11 @@ public class PointIndex {
 	public static String geocode(long ix) {
 		double[] ll = PointIndex.toLatLon(ix);
 		return GeoCode.print(GeoCode.fromCoord(ll[0], ll[1]));
+	}
+	
+	public static String print(long ix) {
+		int[] c = split(ix);
+		return String.format("%d/%d,%d:%d", c[0], c[1], c[2], c[3]);
 	}
 	
 	static void testA(int proj, int x, int y) {
