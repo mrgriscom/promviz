@@ -263,7 +263,7 @@ public class PromNetwork {
 
 			Point start = _next(saddle);
 			Point target = null;
-			for (int i = 0; i < 100; i++) { //while (true) {
+			for (int i = 0; i < 1000; i++) {
 				Iterable<Long> path = (target == null ? this.trace(start) : getAtoB(start, target));
 				
 				boolean isPeak = true;
@@ -278,9 +278,9 @@ public class PromNetwork {
 					
 					if (lockout == null) {
 						if (isPeak) {
-//							if (this.c.compare(cur, start) > 0) { // is this legit?
-//								start = cur;
-//							}
+							if (this.c.compare(cur, start) > 0) {
+								start = cur;
+							}
 							if (this.c.compare(cur, p) > 0) {
 								return cur;
 							}
@@ -290,7 +290,9 @@ public class PromNetwork {
 							boolean dirForward = (prevIx == this.backtrace.get(ix));
 							Point peakAway = (dirForward ? pf : pb);
 							Point peakToward = (dirForward ? pb : pf);
-							if (peakToward != null) { // really only matters if peakToward is higher than p, but it works just the same regardless (in theory)
+							if (peakToward != null) {
+								// you'd think this only matters if peakToward is higher than p, and you'd
+								// be right, IF we weren't also advancing 'start' above
 								lockout = cur;
 							} else if (peakAway != null && this.c.compare(peakAway, p) > 0) {
 								target = peakAway;
@@ -303,10 +305,9 @@ public class PromNetwork {
 					prevIx = ix;
 				}
 			}
-			
-			double[] coords = PointIndex.toLatLon(p.ix);
-			System.err.println("multiply-connected saddle??? " + GeoCode.print(GeoCode.fromCoord(coords[0], coords[1])));
-			return saddle;
+			throw new RuntimeException("infinite loop failsafe exceeded");
+//			System.err.println("infinite loop failsafe exceeded " + p);
+//			return saddle;
 		}
 
 		public List<Long> getAtoB(Point pA, Point pB) {
