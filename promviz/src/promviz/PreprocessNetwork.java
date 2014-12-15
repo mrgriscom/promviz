@@ -429,15 +429,17 @@ public class PreprocessNetwork {
 				Collections.sort(edges, new Comparator<Edge>() {
 					public int compare(Edge e, Edge f) {
 						return Integer.compare(e.i, f.i);
-					}					
+					}
 				});
 
 				long vPeak = PointIndex.clone(saddleIx, 1);
 				for (int i = 0; i < edges.size(); i++) {
 					Edge edge = edges.get(i);
 					toRemove.add(new Edge(saddleIx, edge.b));
-					long vSaddle = PointIndex.clone(saddleIx, -i);
+					long vSaddle = PointIndex.clone(saddleIx, -i); // would be nice to randomize the saddle ordering
 					
+					// the disambiguation pattern is not symmetrical between the 'up' and 'down' networks;
+					// this is the cost of making them consistent with each other
 					if (up) {
 						toAdd.add(new Edge(vSaddle, edge.b, edge.i));
 						toAdd.add(new Edge(vSaddle, vPeak));

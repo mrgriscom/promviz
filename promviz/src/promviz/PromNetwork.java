@@ -467,6 +467,7 @@ public class PromNetwork {
 			if (tree.pendingSaddles.contains(cur)) {
 				// reached an edge
 				pi.min_bound_only = true;
+				break;
 			}
 			for (Point adj : tree.adjacent(cur)) {
 				front.add(adj, cur);

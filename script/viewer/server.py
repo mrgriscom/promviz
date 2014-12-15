@@ -158,12 +158,16 @@ if __name__ == "__main__":
     parser = OptionParser()
     parser.add_option("-m", "--max", dest="max", type='int',
                   help="only load <max> thousand greatest points")
+    parser.add_option("-d", "--dir", dest="dir", help="load from directory")
     (options, args) = parser.parse_args()
 
     try:
         port = int(args[0])
     except IndexError:
         port = 8000
+
+    if options.dir:
+        settings.dir_out = options.dir
 
     application = web.Application([
         (r'/view/(?P<tag>.*)', MapViewHandler),
