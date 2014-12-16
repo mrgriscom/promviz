@@ -34,6 +34,14 @@ for k in points():
     with open(fref) as f:
         ref = json.load(f)
 
+    #psimp = []
+    #for p in ref['threshold_path']:
+    #    prev = psimp[-1] if psimp else None
+    #    dup = all(abs(a-b)<1e-6 for a, b in zip(p, prev)) if prev else False
+    #    if not dup:
+    #        psimp.append(p)
+    #ref['threshold_path'] = psimp
+
     if cur != ref:
         diffs = True
         print cur['peak']['prom'], 'mismatch', k

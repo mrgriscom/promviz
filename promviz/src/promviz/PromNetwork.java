@@ -254,7 +254,7 @@ public class PromNetwork {
 			/*
 			 * we have mapping saddle->peak: forwardSaddles, backwardSaddles
 			 * forwardSaddles is saddles fixed via finalizeForward, etc.
-			 * backwardSaddles includes all pending saddle/peak pairs
+			 * backwardSaddles also includes all pending saddle/peak pairs
 			 * 
 			 * strict definition:
 			 * forwardSaddles means: given the saddle, the peak is located in the direction of the backtrace
@@ -585,12 +585,6 @@ public class PromNetwork {
 				}
 				saddles.addFirst(cur);
 			} else {
-				// peak
-				if (peaks.size() == saddles.size() + 1) {
-					//System.err.println("ignoring forked saddle");
-					continue;
-				}
-				
 				while (peaks.peekFirst() != null && c.compare(cur, peaks.peekFirst()) > 0) {
 					Point saddle = saddles.removeFirst();
 					Point peak = peaks.removeFirst();
@@ -623,6 +617,7 @@ public class PromNetwork {
 				break; // TODO: restart search from smaller islands and agglomerate?
 			}
 			
+			// debug output
 			if (Math.random() < 1e-3) {
 				StringBuilder sb = new StringBuilder();
 				Point[] _p = peaks.toArray(new Point[0]);
