@@ -133,25 +133,11 @@ public class PromNetwork {
 		}
 		
 		public void prune(Collection<Point> pendingPeaks, Collection<Point> pendingSaddles) {
+			// when called, front must contain only saddles
+
 			// TODO: could this be made to work generationally (i.e., only deal with the
 			// portion of the front that has changed since the last prune)
 			
-			// front must contain only saddles when called
-			/*
-			 * need to trim:
-			 * 
-			 * seen x
-			 * backtrace
-			 * saddlemap(s)
-			 * 
-			 * backtrace - prune by identifying all "key points" (front + any target points used in searchThreshold())
-			 *   and including backtraces thereof
-			 * saddlemap(s) - limit to nodes in backtrace (further limit interior low prominences that can no longer be reached??)
-			 * 
-			 * 
-			 * 
-			 */
-
 			long startAt = System.currentTimeMillis();
 			if (seen.size() <= pruneThreshold) {
 				return;
@@ -161,7 +147,7 @@ public class PromNetwork {
 			pruneThreshold = Math.max(pruneThreshold, 2 * seen.size());
 			
 			final Set<Long> backtraceKeep = new HashSet<Long>();
-			final OnMarkPoint marker = new OnMarkPoint() {
+			OnMarkPoint marker = new OnMarkPoint() {
 				public void markPoint(Point p) {
 					for (Long t : trace(p)) {
 						boolean newItem = backtraceKeep.add(t);
@@ -172,47 +158,14 @@ public class PromNetwork {
 				}
 			};
 
-			// debug
-			final Set<Long> markedOptimized = new HashSet<Long>();
-			final Set<Long> markedUnoptimized = new HashSet<Long>();			
-
 			for (Point p : Iterables.concat(set, pendingPeaks)) {
 				marker.markPoint(p);
 			}
 			Set<Point> bookkeeping = new HashSet<Point>();
 			for (Point p : Iterables.concat(set, pendingSaddles)) {
 				Point start = _next(p); // p is a saddle
-				//bulkSearchThreshold(start, null, null, marker, bookkeeping);
-				bulkSearchThreshold(start, null, null, new OnMarkPoint() {
-					public void markPoint(Point p) {
-						marker.markPoint(p);
-						markedOptimized.add(p.ix);
-					}
-				}, bookkeeping);
+				bulkSearchThreshold(start, null, null, marker, bookkeeping);
 			}
-			System.err.println("bk:"+bookkeeping.size());
-			
-			// validation check (debug)
-//			for (Point p : Iterables.concat(set, pendingSaddles)) {
-//				Point start = _next(p); // p is a saddle
-//				bulkSearchThreshold(start, null, null, new OnMarkPoint() {
-//					public void markPoint(Point p) {
-//						markedUnoptimized.add(p.ix);
-//					}
-//				}, null);
-//			}
-//			System.err.println(markedOptimized.size() + " " + markedUnoptimized.size());
-//			boolean matches = true;
-//			for (long l : markedUnoptimized) {
-//				if (!markedOptimized.contains(l)) {
-//					matches = false;
-//					System.err.println(PointIndex.print(l));
-//				}
-//			}
-//			if (!matches) {
-//				throw new RuntimeException("caught it");				
-//			}
-			
 			
 			Iterator<Long> iter = backtrace.keySet().iterator();
 			while (iter.hasNext()) {
