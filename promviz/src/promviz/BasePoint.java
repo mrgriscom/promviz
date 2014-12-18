@@ -58,7 +58,7 @@ public class BasePoint {
 	
 	public String toString() {
 		double[] c = PointIndex.toLatLon(this.ix);
-		return String.format("%s %.5f %.5f (%.1f)", PointIndex.geocode(this.ix), c[0], c[1], this.elev);
+		return String.format("%s %016x %s %.5f %.5f (%.1f)", PointIndex.geocode(this.ix), this.ix, PointIndex.print(this.ix), c[0], c[1], this.elev);
 	}
 
 	@Override

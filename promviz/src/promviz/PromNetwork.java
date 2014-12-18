@@ -1,6 +1,7 @@
 package promviz;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
@@ -15,6 +16,7 @@ import java.util.Set;
 import promviz.util.Logging;
 import promviz.util.ReverseComparator;
 
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
 public class PromNetwork {
@@ -68,8 +70,8 @@ public class PromNetwork {
 	}
 	
 	static class Front {
-		PriorityQueue<BasePoint> queue;
-		Set<Point> set;
+		PriorityQueue<BasePoint> queue; // the search front, akin to an expanding contour
+		Set<Point> set; // set of all points in 'queue'
 		Set<Long> seen;
 		Map<Long, Long> backtrace;
 		int pruneThreshold = 1;
@@ -116,87 +118,112 @@ public class PromNetwork {
 			return p;
 		}
 
-		void treeDFS(Map<Long, Set<Long>> tree, Long cur, List<Long> flat) {
-			flat.add(cur);
-			Set<Long> children = tree.get(cur);
-			if (children != null) {
-				for (Long child : children) {
-					treeDFS(tree, child, flat);
-				}
-			}
+//		void treeDFS(Map<Long, Set<Long>> tree, Long cur, List<Long> flat) {
+//			flat.add(cur);
+//			Set<Long> children = tree.get(cur);
+//			if (children != null) {
+//				for (Long child : children) {
+//					treeDFS(tree, child, flat);
+//				}
+//			}
+//		}
+		
+		static interface OnMarkPoint {
+			void markPoint(Point p);
 		}
 		
-		public void prune() {
-			// TODO optimize this to work generationally
+		public void prune(Collection<Point> pendingPeaks, Collection<Point> pendingSaddles) {
+			// TODO: could this be made to work generationally (i.e., only deal with the
+			// portion of the front that has changed since the last prune)
 			
+			// front must contain only saddles when called
+			/*
+			 * need to trim:
+			 * 
+			 * seen x
+			 * backtrace
+			 * saddlemap(s)
+			 * 
+			 * backtrace - prune by identifying all "key points" (front + any target points used in searchThreshold())
+			 *   and including backtraces thereof
+			 * saddlemap(s) - limit to nodes in backtrace (further limit interior low prominences that can no longer be reached??)
+			 * 
+			 * 
+			 * 
+			 */
+
+			long startAt = System.currentTimeMillis();
 			if (seen.size() <= pruneThreshold) {
 				return;
 			}
-
+			
 			seen.retainAll(this.adjacent());
 			pruneThreshold = Math.max(pruneThreshold, 2 * seen.size());
 			
-//			Set<Long> backtraceKeep = new HashSet<Long>();
-//			for (Point p : set) {
-//				for (Long t : trace(p)) {
-//					boolean newItem = backtraceKeep.add(t);
-//					if (!newItem) {
-//						break;
+			final Set<Long> backtraceKeep = new HashSet<Long>();
+			final OnMarkPoint marker = new OnMarkPoint() {
+				public void markPoint(Point p) {
+					for (Long t : trace(p)) {
+						boolean newItem = backtraceKeep.add(t);
+						if (!newItem) {
+							break;
+						}
+					}
+				}
+			};
+
+			// debug
+			final Set<Long> markedOptimized = new HashSet<Long>();
+			final Set<Long> markedUnoptimized = new HashSet<Long>();			
+
+			for (Point p : Iterables.concat(set, pendingPeaks)) {
+				marker.markPoint(p);
+			}
+			Set<Point> bookkeeping = new HashSet<Point>();
+			for (Point p : Iterables.concat(set, pendingSaddles)) {
+				Point start = _next(p); // p is a saddle
+				//bulkSearchThreshold(start, null, null, marker, bookkeeping);
+				bulkSearchThreshold(start, null, null, new OnMarkPoint() {
+					public void markPoint(Point p) {
+						marker.markPoint(p);
+						markedOptimized.add(p.ix);
+					}
+				}, bookkeeping);
+			}
+			System.err.println("bk:"+bookkeeping.size());
+			
+			// validation check (debug)
+//			for (Point p : Iterables.concat(set, pendingSaddles)) {
+//				Point start = _next(p); // p is a saddle
+//				bulkSearchThreshold(start, null, null, new OnMarkPoint() {
+//					public void markPoint(Point p) {
+//						markedUnoptimized.add(p.ix);
 //					}
+//				}, null);
+//			}
+//			System.err.println(markedOptimized.size() + " " + markedUnoptimized.size());
+//			boolean matches = true;
+//			for (long l : markedUnoptimized) {
+//				if (!markedOptimized.contains(l)) {
+//					matches = false;
+//					System.err.println(PointIndex.print(l));
 //				}
 //			}
-//			// this will include all pending saddles
-//
-//			Map<Long, Set<Long>> tree = new HashMap<Long, Set<Long>>();
-//			Long root = -1L;
-//			for (long child : backtraceKeep) {
-//				long parent;
-//				if (backtrace.containsKey(child)) {
-//					parent = backtrace.get(child);
-//				} else {
-//					root = child;
-//					continue;
-//				}
-//				if (!tree.containsKey(parent)) {
-//					tree.put(parent, new TreeSet<Long>());
-//				}
-//				tree.get(parent).add(child);
-//			}			
-//			List<Long> backtraceFlat = new ArrayList<Long>();
-//			treeDFS(tree, root, backtraceFlat);
-//			// should this include only saddles?
-//			
-//			/*
-//			 * iterate over backtraceflat in reverse order
-//			 * 
-//			 * start at saddle, set as lower bound. upper bound is global max
-//			 * go to peak, adjust lower bound, if has routing table entry, merge with current
-//			 * go to next saddle and store. if already, merge
-//			 * if saddle lower than any pending, search those branches and add to bt//
-//
-//			 * 
-//			 * 
-//			 * 
-//			 * 
-//			 */
-//			
-//			// determine next-highest points still reachable
-//			// add them to backtracekeep
-//			
-//			// this will include all pending peaks
-//			
-//			Iterator<Long> iter = backtrace.keySet().iterator();
-//			while (iter.hasNext()) {
-//				long p = iter.next();
-//				if (!backtraceKeep.contains(p)) {
-//			        //iter.remove();
-//			    }
+//			if (!matches) {
+//				throw new RuntimeException("caught it");				
 //			}
 			
-			// prune routing to match backtrace
-			// trim threshold entries
 			
-			//Logging.log("pruned " + set.size() + " " + backtrace.size());
+			Iterator<Long> iter = backtrace.keySet().iterator();
+			while (iter.hasNext()) {
+				long p = iter.next();
+				if (!backtraceKeep.contains(p)) {
+			        iter.remove();
+			    }
+			}
+			
+			double runTime = (System.currentTimeMillis() - startAt) / 1000.;
+			Logging.log(String.format("pruned [%.2fs] %d %d", runTime, set.size(), backtrace.size()));
 		}
 		
 		class TraceIterator implements Iterator<Long> {
@@ -244,13 +271,11 @@ public class PromNetwork {
 			return set.size();
 		}
 		
-		
 		Point _next(Point cur) {
 			return this.tree.get(this.backtrace.get(cur.ix));
 		}
 		
 		public Point searchThreshold(Point p, Point saddle) {
-
 			/*
 			 * we have mapping saddle->peak: forwardSaddles, backwardSaddles
 			 * forwardSaddles is saddles fixed via finalizeForward, etc.
@@ -265,6 +290,7 @@ public class PromNetwork {
 			Point target = null;
 			for (int i = 0; i < 1000; i++) {
 				Iterable<Long> path = (target == null ? this.trace(start) : getAtoB(start, target));
+				start = null;
 				
 				boolean isPeak = true;
 				long prevIx = -1;
@@ -275,14 +301,13 @@ public class PromNetwork {
 					if (lockout != null && this.c.compare(cur, lockout) < 0) {
 						lockout = null;
 					}
-					
 					if (lockout == null) {
 						if (isPeak) {
-							if (this.c.compare(cur, start) > 0) {
+							if (start == null || this.c.compare(cur, start) > 0) {
 								start = cur;
-							}
-							if (this.c.compare(cur, p) > 0) {
-								return cur;
+								if (this.c.compare(start, p) > 0) {
+									return start;
+								}
 							}
 						} else {
 							Point pf = forwardSaddles.get(cur);
@@ -293,6 +318,8 @@ public class PromNetwork {
 							if (peakToward != null) {
 								// you'd think this only matters if peakToward is higher than p, and you'd
 								// be right, IF we weren't also advancing 'start' above
+								// but a more aggressive lockout actually means less processing anyway
+								// i think ignoring if lower than 'start' is ok
 								lockout = cur;
 							} else if (peakAway != null && this.c.compare(peakAway, p) > 0) {
 								target = peakAway;
@@ -300,7 +327,7 @@ public class PromNetwork {
 							}
 						}
 					}
-						
+
 					isPeak = !isPeak;
 					prevIx = ix;
 				}
@@ -310,11 +337,72 @@ public class PromNetwork {
 //			return saddle;
 		}
 
+		public void bulkSearchThreshold(Point start, Point target, Point minThresh, OnMarkPoint markPoint, Set<Point> bookkeeping) {
+			boolean withBailout = (bookkeeping != null);
+			
+			Iterable<Long> path;
+			if (target == null) {
+				path = this.trace(start);
+			} else {
+				path = getAtoB(start, target);
+				markPoint.markPoint(target);
+			}
+			start = null;
+						
+			boolean isPeak = true;
+			long prevIx = -1;
+			Point lockout = null;
+			for (long ix : path) {
+				Point cur = this.tree.get(ix);
+				boolean bailoutCandidate = false;
+				
+				if (lockout != null && this.c.compare(cur, lockout) < 0) {
+					lockout = null;
+				}
+				if (lockout == null) {
+					if (isPeak) {
+						if (start == null || this.c.compare(cur, start) > 0) {
+							start = cur;
+							if (minThresh == null || this.c.compare(start, minThresh) > 0) {
+								minThresh = start;
+								bailoutCandidate = true;
+							}
+						}
+					} else {
+						Point pf = forwardSaddles.get(cur);
+						Point pb = backwardSaddles.get(cur);
+						boolean dirForward = (prevIx == this.backtrace.get(ix));
+						Point peakAway = (dirForward ? pf : pb);
+						Point peakToward = (dirForward ? pb : pf);
+						if (peakToward != null) {
+							lockout = cur;
+						} else if (peakAway != null && this.c.compare(peakAway, minThresh) > 0) {
+							Point newTarget = peakAway;
+							bulkSearchThreshold(start, newTarget, minThresh, markPoint, bookkeeping);
+							minThresh = newTarget;
+							bailoutCandidate = true;
+						}
+					}
+				}
+				if (bailoutCandidate && withBailout) {
+					if (bookkeeping.contains(cur)) {
+						return;
+					} else {
+						bookkeeping.add(cur);
+					}
+				}
+				
+				isPeak = !isPeak;
+				prevIx = ix;
+			}
+			// reached target
+		}
+		
 		public List<Long> getAtoB(Point pA, Point pB) {
 			Map<Long, Long> tree = this.backtrace;
 			long a = pA.ix;
 			long b = pB.ix;
-			
+
 			List<Long> fromA = new ArrayList<Long>();
 			List<Long> fromB = new ArrayList<Long>();
 			Set<Long> inFromA = new HashSet<Long>();
@@ -474,7 +562,7 @@ public class PromNetwork {
 				front.add(adj, cur);
 			}
 			
-			front.prune();
+			front.prune(null, null);
 		}
 		
 		pi.finalize(front, cur);
@@ -534,8 +622,7 @@ public class PromNetwork {
 		}
 	}
 		
-	public static void bigOlPromSearch(Point root, TopologyNetwork tree, DEMManager.OnProm onprom, double cutoff) {
-		boolean up = true;
+	public static void bigOlPromSearch(boolean up, Point root, TopologyNetwork tree, DEMManager.OnProm onprom, double cutoff) {
 		Comparator<BasePoint> c = BasePoint.cmpElev(up);
 //		Criterion crit = new Criterion() {
 //			@Override
@@ -567,7 +654,7 @@ public class PromNetwork {
 				}
 			}
 						
-			if (cur.classify(tree) != Point.CLASS_SUMMIT) { // need to flip for down direction
+			if (cur.classify(tree) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
 				// saddle
 				if (deadEnd) {
 					// basin saddle
@@ -600,7 +687,7 @@ public class PromNetwork {
 				front.backwardSaddles.put(saddles.peekFirst(), cur); // pending
 				
 				// front contains only saddles
-				front.prune();
+				front.prune(peaks, saddles);
 			}
 
 			if (reachedEdge) {

@@ -372,7 +372,7 @@ public class DEMManager {
 				}
 			}
 			Logging.log("highest: " + highest.elev);
-			PromNetwork.bigOlPromSearch(highest, tn, new OnProm() {
+			PromNetwork.bigOlPromSearch(up, highest, tn, new OnProm() {
 				public void onprom(PromInfo pi) {
 					outputPromPoint(pi, up);
 				}
