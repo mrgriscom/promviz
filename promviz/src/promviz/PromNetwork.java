@@ -74,7 +74,8 @@ public class PromNetwork {
 		Set<Point> set; // set of all points in 'queue'
 		Set<Long> seen;
 		Map<Long, Long> backtrace;
-		int pruneThreshold = 1;
+		int pruneThreshold = 1; // this could start out much larger (memory-dependent) to avoid
+		                        // unnecessary pruning in the early stages
 
 		Map<Point, Point> forwardSaddles;
 		Map<Point, Point> backwardSaddles;
@@ -162,21 +163,35 @@ public class PromNetwork {
 				marker.markPoint(p);
 			}
 			Set<Point> bookkeeping = new HashSet<Point>();
+			Set<Point> significantSaddles = new HashSet<Point>(pendingSaddles);
 			for (Point p : Iterables.concat(set, pendingSaddles)) {
-				Point start = _next(p); // p is a saddle
-				bulkSearchThreshold(start, null, null, marker, bookkeeping);
+				bulkSearchThresholdStart(p, marker, bookkeeping, significantSaddles);
 			}
 			
-			Iterator<Long> iter = backtrace.keySet().iterator();
-			while (iter.hasNext()) {
-				long p = iter.next();
+			Iterator<Long> iterBT = backtrace.keySet().iterator();
+			while (iterBT.hasNext()) {
+				long p = iterBT.next();
 				if (!backtraceKeep.contains(p)) {
-			        iter.remove();
+			        iterBT.remove();
 			    }
 			}
-			
+			Iterator<Point> iterFS = forwardSaddles.keySet().iterator();
+			while (iterFS.hasNext()) {
+				Point p = iterFS.next();
+				if (!significantSaddles.contains(p)) {
+			        iterFS.remove();
+			    }
+			}
+			Iterator<Point> iterBS = backwardSaddles.keySet().iterator();
+			while (iterBS.hasNext()) {
+				Point p = iterBS.next();
+				if (!significantSaddles.contains(p)) {
+			        iterBS.remove();
+			    }
+			}
+						
 			double runTime = (System.currentTimeMillis() - startAt) / 1000.;
-			Logging.log(String.format("pruned [%.2fs] %d %d", runTime, set.size(), backtrace.size()));
+			Logging.log(String.format("pruned [%.2fs] %d %d %d %d", runTime, set.size(), backtrace.size(), forwardSaddles.size(), backwardSaddles.size()));
 		}
 		
 		class TraceIterator implements Iterator<Long> {
@@ -268,11 +283,7 @@ public class PromNetwork {
 							boolean dirForward = (prevIx == this.backtrace.get(ix));
 							Point peakAway = (dirForward ? pf : pb);
 							Point peakToward = (dirForward ? pb : pf);
-							if (peakToward != null) {
-								// you'd think this only matters if peakToward is higher than p, and you'd
-								// be right, IF we weren't also advancing 'start' above
-								// but a more aggressive lockout actually means less processing anyway
-								// i think ignoring if lower than 'start' is ok
+							if (peakToward != null && this.c.compare(peakToward, start) > 0) {
 								lockout = cur;
 							} else if (peakAway != null && this.c.compare(peakAway, p) > 0) {
 								target = peakAway;
@@ -290,7 +301,13 @@ public class PromNetwork {
 //			return saddle;
 		}
 
-		public void bulkSearchThreshold(Point start, Point target, Point minThresh, OnMarkPoint markPoint, Set<Point> bookkeeping) {
+		public void bulkSearchThresholdStart(Point saddle, OnMarkPoint markPoint, Set<Point> bookkeeping, Set<Point> significantSaddles) {
+			bulkSearchThreshold(_next(saddle), null, null, markPoint, bookkeeping, significantSaddles);
+		}
+		
+		public void bulkSearchThreshold(Point start, Point target, Point minThresh, OnMarkPoint markPoint, Set<Point> bookkeeping, Set<Point> significantSaddles) {
+			// minThresh is the equivalent of 'p' in non-bulk mode
+			
 			boolean withBailout = (bookkeeping != null);
 			
 			Iterable<Long> path;
@@ -328,10 +345,16 @@ public class PromNetwork {
 						Point peakAway = (dirForward ? pf : pb);
 						Point peakToward = (dirForward ? pb : pf);
 						if (peakToward != null) {
+							// i don't think we can filter based on 'start' like in non-bulk mode because
+							// different paths might have differing 'start's at any given time even though
+							// they ultimately find the same peaks. if the processing order changed things
+							// would break? unfortunately that means every 'toward' saddle is significant
+							significantSaddles.add(cur);
 							lockout = cur;
 						} else if (peakAway != null && this.c.compare(peakAway, minThresh) > 0) {
+							significantSaddles.add(cur);
 							Point newTarget = peakAway;
-							bulkSearchThreshold(start, newTarget, minThresh, markPoint, bookkeeping);
+							bulkSearchThreshold(start, newTarget, minThresh, markPoint, bookkeeping, significantSaddles);
 							minThresh = newTarget;
 							bailoutCandidate = true;
 						}
