@@ -336,7 +336,7 @@ public class DEMManager {
 		void onprom(PromNetwork.PromInfo pi);
 	}
 	
-	static void promSearch(final boolean up, double cutoff) {
+	static void promSearch(final boolean up, double cutoff, DEMManager dm, String region) {
 		DualTopologyNetwork dtn;
 		MESH_MAX_POINTS = (1 << 26);
 		dtn = DualTopologyNetwork.load(null);
@@ -363,15 +363,21 @@ public class DEMManager {
 			}
 			
 		} else {
-
+			
+			loadDEMs(dm, region);
 			Point highest = null;
 			Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
-			for (Point p : tn.allPoints()) {
-				if (highest == null || cmp.compare(p, highest) > 0) {
-					highest = p;
+			for (DEMFile dem : dm.DEMs) {
+				Logging.log("searching " + dem);
+				for (DEMFile.Sample s : dem.samples(null)) {
+					Point p = new GridPoint(s);
+					if (highest == null || cmp.compare(p, highest) > 0) {
+						highest = p;
+					}					
 				}
 			}
 			Logging.log("highest: " + highest.elev);
+
 			PromNetwork.bigOlPromSearch(up, highest, tn, new OnProm() {
 				public void onprom(PromInfo pi) {
 					outputPromPoint(pi, up);
@@ -439,7 +445,7 @@ public class DEMManager {
 		} else if (args[0].equals("--searchup") || args[0].equals("--searchdown")) {
 			boolean up = args[0].equals("--searchup");
 			double cutoff = Double.parseDouble(args[2]);
-			promSearch(up, cutoff);
+			promSearch(up, cutoff, dm, region);
 		} else {
 			throw new RuntimeException("operation not specified");
 		}

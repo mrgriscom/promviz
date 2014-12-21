@@ -599,6 +599,7 @@ public class PromNetwork {
 	}
 		
 	public static void bigOlPromSearch(boolean up, Point root, TopologyNetwork tree, DEMManager.OnProm onprom, double cutoff) {
+		root = tree.getPoint(root);
 		Comparator<BasePoint> c = BasePoint.cmpElev(up);
 //		Criterion crit = new Criterion() {
 //			@Override

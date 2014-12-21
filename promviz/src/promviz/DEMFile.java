@@ -115,7 +115,7 @@ public abstract class DEMFile {
 					throw new RuntimeException("error reading DEM");
 				}
 
-				if (prefix.isParent(ix)) {
+				if (prefix == null || prefix.isParent(ix)) {
 					_nextIx = ix;
 					_nextElev = elev;
 					return true;

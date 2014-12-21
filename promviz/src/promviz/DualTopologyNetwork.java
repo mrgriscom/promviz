@@ -36,6 +36,7 @@ public class DualTopologyNetwork extends TopologyNetwork {
 	public void buildPartial(PagedMesh m, Iterable<DEMFile.Sample> newPage) {
 		long start = System.currentTimeMillis();
 		
+		// seems a bit questionable to use an iterable twice like this...
 		up.buildPartial(m, newPage);
 		down.buildPartial(m, newPage);
 

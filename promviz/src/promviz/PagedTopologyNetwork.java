@@ -99,7 +99,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			return info.points;
 		}
 
-		Logging.log("loading network segment " + prefix);
+		Logging.log("pagedtn: loading network segment " + prefix);
 		
 		List<long[]> data = new ArrayList<long[]>();
 		try {
@@ -160,7 +160,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			}
 		}
 
-		Logging.log(newPoints.size() + " points loaded, " + points.size() + " total in network");
+		Logging.log("pagedtn: " + newPoints.size() + " points loaded, " + points.size() + " total in network");
 		while (points.size() > MAX_POINTS) {
 			ejectSegment();
 		}
@@ -182,7 +182,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			}
 		}
 		removeSegment(toEject.getKey());
-		Logging.log("removed " + toEject.getKey() + "; " + points.size() + " points");
+		Logging.log("pagedtn: removed " + toEject.getKey() + "; " + points.size() + " points");
 	}
 	
 	void removeSegment(Prefix prefix) {
