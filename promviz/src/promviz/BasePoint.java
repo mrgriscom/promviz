@@ -31,6 +31,10 @@ public class BasePoint {
 		this.isodist = isodist;
 	}
 	
+	public BasePoint(BasePoint p) {
+		this(p.ix, p.elev, p.isodist);
+	}
+	
 	public static int compareElev(BasePoint a, BasePoint b) {
 		if (a.elev != b.elev) {
 			return Float.compare(a.elev, b.elev);
