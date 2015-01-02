@@ -15,6 +15,7 @@ import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 
+import promviz.PreprocessNetwork.EdgeIterator;
 import promviz.PromNetwork.PromInfo;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
@@ -415,7 +416,7 @@ public class DEMManager {
 				throw new RuntimeException();
 			}
 			
-			processMST(up);
+			processMST(dm, up, null);
 		}
 		
 //		Map<Point, PromNetwork.PromInfo> saddleIndex = new HashMap<Point, PromNetwork.PromInfo>();
@@ -455,12 +456,24 @@ public class DEMManager {
 
 	}
 
-	static void processMST(boolean up) {
+	static void processMST(DEMManager dm, boolean up, String region) {
+		if (region != null) {
+			loadDEMs(dm, region);
+		}
+		
 		File folder = new File(DEMManager.props.getProperty("dir_mst"));
 		if (folder.listFiles().length != 0) {
 			throw new RuntimeException("/mst not empty!");
 		}
-		PreprocessNetwork.processMST(up);
+		PreprocessNetwork.processMST(dm, up);
+		
+//		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new PreprocessNetwork.Meta[] {new PreprocessNetwork.PromMeta()});
+//		for (Point p : tn.allPoints()) {
+//			PreprocessNetwork.PromMeta m = (PreprocessNetwork.PromMeta)tn.getMeta(p, "prom");
+//			if (m != null) {
+//				System.err.println(p + " :: " + m.prom);
+//			}
+//		}
 	}
 	
 	public static void main(String[] args) {
@@ -487,7 +500,7 @@ public class DEMManager {
 			promSearch(up, cutoff, dm, region);
 		} else if (args[0].equals("--mstup") || args[0].equals("--mstdown")) {
 			boolean up = args[0].equals("--mstup");
-			processMST(up);
+			processMST(dm, up, region);
 		} else {
 			throw new RuntimeException("operation not specified");
 		}

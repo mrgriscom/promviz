@@ -32,19 +32,22 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		String elevPath;
 		boolean loaded;
 		List<Point> points;
+		Map<String, Map<Point, PreprocessNetwork.Meta>> metadata;
 		long ctr;
 	}
 	
 	Map<Prefix, PrefixInfo> prefixes;
+	PreprocessNetwork.Meta[] metadata;
 	PagedMesh m; // unused
 	
-	public PagedTopologyNetwork(boolean up, DEMManager dm) {
+	public PagedTopologyNetwork(int phase, boolean up, DEMManager dm, PreprocessNetwork.Meta[] metadata) {
 		this.up = up;
 		points = new HashMap<Long, Point>((int)(MAX_POINTS / .75));
 		pendingSaddles = new HashSet<Point>();
-
+		this.metadata = metadata;
+		
 		prefixes = new HashMap<Prefix, PrefixInfo>();
-		loadPrefixes();
+		loadPrefixes(phase);
 		Logging.log("prefixes inventoried (" + prefixes.size() + ")");
 
 		if (prefixes.size() > 0 && dm != null) {
@@ -54,8 +57,9 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		}
 	}
 	
-	void loadPrefixes() {
-		File folder = new File(DEMManager.props.getProperty("dir_net"));
+	void loadPrefixes(int phase) {
+		String dir = DEMManager.props.getProperty(phase == EdgeIterator.PHASE_RAW ? "dir_net" : "dir_mst");
+		File folder = new File(dir);
 		File[] listOfFiles = folder.listFiles();
 		for (File f : listOfFiles) {
 			String[] a = f.getName().split("-", 2);
@@ -66,8 +70,8 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			String[] b = a[1].split(",");
 			Prefix pf = new Prefix(PointIndex.make(Integer.parseInt(b[1]), Integer.parseInt(b[2]), Integer.parseInt(b[3])), Integer.parseInt(b[0]));
 			PrefixInfo pfi = new PrefixInfo();
-			pfi.path = DEMManager.props.getProperty("dir_net") + "/" + f.getName();
-			pfi.elevPath = PreprocessNetwork.prefixPath(this.up, "elev", pf, EdgeIterator.PHASE_RAW);
+			pfi.path = dir + "/" + f.getName();
+			pfi.elevPath = PreprocessNetwork.prefixPath(this.up, "elev", pf, phase);			
 			pfi.loaded = false;
 			prefixes.put(pf, pfi);
 		}
@@ -87,6 +91,12 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		return points.get(ix);
 	}
 
+	@Override
+	public PreprocessNetwork.Meta getMeta(Point p, String type) {
+		p = get(p.ix);
+		return prefixes.get(matchPrefix(p.ix)).metadata.get(type).get(p);
+	}
+	
 	void loadSegmentFor(long ix) {
 		if (matchPrefix(ix) == null) {
 			System.err.println(ix);
@@ -113,7 +123,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			} catch (EOFException eof) {}
 			in.close();
 		} catch (IOException ioe) {
-			throw new RuntimeException();
+			throw new RuntimeException(ioe);
 		}
 
 		Map<Long, Float> elev = new HashMap<Long, Float>();
@@ -126,7 +136,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			} catch (EOFException eof) {}
 			in.close();
 		} catch (IOException ioe) {
-			throw new RuntimeException();
+			throw new RuntimeException(ioe);
 		}
 		
 		Set<Point> newPoints = new HashSet<Point>();
@@ -161,6 +171,15 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			}
 		}
 
+		info.metadata = new HashMap<String, Map<Point, PreprocessNetwork.Meta>>();
+		for (PreprocessNetwork.Meta m : this.metadata) {
+			Map<Point, PreprocessNetwork.Meta> map = new HashMap<Point, PreprocessNetwork.Meta>();
+			for (PreprocessNetwork.Meta rec : m.iterator(this.up, prefix).toIter()) {
+				map.put(points.get(rec.ix), rec);
+			}
+			info.metadata.put(m.getName(), map);
+		}
+		
 		Logging.log("pagedtn: " + newPoints.size() + " points loaded, " + points.size() + " total in network");
 		while (points.size() > MAX_POINTS) {
 			ejectSegment();
@@ -193,6 +212,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			pendingSaddles.remove(p);
 		}
 		info.points = null;
+		info.metadata = null;
 		info.loaded = false;
 	}
 	
@@ -243,7 +263,6 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			public Iterator<Point> iterator() {
 				return new PointsIterator(pfs);
 			}
-			
 		};
 	}
 	

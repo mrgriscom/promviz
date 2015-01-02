@@ -558,7 +558,7 @@ public class PreprocessNetwork {
 	}
 	
 	
-	public static void processMST(final boolean up) {
+	public static void processMST(DEMManager dm, final boolean up) {
 		Logging.log("processing MST");
 		int phase = EdgeIterator.PHASE_MST;
 		
@@ -567,6 +567,7 @@ public class PreprocessNetwork {
 	    Logging.log(buckets.size() + " buckets");
 	    partition(phase, up, buckets);
 	    partitionMeta(up, buckets, new PromMeta());
+	    cacheElevation(phase, up, buckets, dm);
 	}
 	
 	static class Meta {
@@ -618,8 +619,8 @@ public class PreprocessNetwork {
 					in = new DataInputStream(new BufferedInputStream(new FileInputStream(path)));
 					readNext();
 				} catch (FileNotFoundException e) {
-					throw new RuntimeException();
-					//nextEdge = null;
+					//throw new RuntimeException();
+					nextMeta = null;
 				}
 			}
 			

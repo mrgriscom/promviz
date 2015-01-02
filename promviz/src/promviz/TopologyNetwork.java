@@ -385,4 +385,8 @@ public class TopologyNetwork implements IMesh {
 		}
 		return adj;
 	}
+	
+	public PreprocessNetwork.Meta getMeta(Point p, String type) {
+		throw new RuntimeException("not implemented");
+	}
 }

@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import promviz.PreprocessNetwork.EdgeIterator;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 
@@ -28,8 +29,8 @@ public class DualTopologyNetwork extends TopologyNetwork {
 	
 	public static DualTopologyNetwork load(DEMManager dm) {
 		DualTopologyNetwork dtn = new DualTopologyNetwork();
-		dtn.up = new PagedTopologyNetwork(true, dm);
-		dtn.down = new PagedTopologyNetwork(false, dm);
+		dtn.up = new PagedTopologyNetwork(EdgeIterator.PHASE_RAW, true, dm, null);
+		dtn.down = new PagedTopologyNetwork(EdgeIterator.PHASE_RAW, false, dm, null);
 		return dtn;
 	}
 	
