@@ -1,4 +1,8 @@
 package promviz;
+import java.io.BufferedOutputStream;
+import java.io.DataOutputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -13,6 +17,7 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 
+import promviz.Point.Lead;
 import promviz.util.Logging;
 import promviz.util.ReverseComparator;
 
@@ -36,13 +41,14 @@ public class PromNetwork {
 		boolean min_bound_only;
 		Comparator<BasePoint> c;
 		List<Long> path;
+		boolean forward;
 		
 		public PromInfo(Point p, Comparator<BasePoint> c) {
 			this.p = p;
 			this.c = c;
 		}
 		
-		public double prominence() {
+		public float prominence() {
 			return Math.abs(p.elev - saddle.elev);
 		}
 		
@@ -85,6 +91,11 @@ public class PromNetwork {
 		int pruneThreshold = 1; // this could start out much larger (memory-dependent) to avoid
 		                        // unnecessary pruning in the early stages
 
+		/* some of these could store BasePoints instead of Points, since we don't need the adjacency info
+		 * and it just takes up memory. would need to ensure that the same BasePoint object is used across
+		 * all data structures, though
+		 */
+		
 		Map<Point, Point> forwardSaddles;
 		Map<Point, Point> backwardSaddles;
 		
@@ -546,6 +557,7 @@ public class PromNetwork {
 		boolean min_bound_only;
 		Comparator<BasePoint> c;
 		List<Long> path;
+		boolean forwardSaddle;
 		
 		public PromInfo2(Point peak, Point saddle) {
 			this.p = peak;
@@ -569,11 +581,13 @@ public class PromNetwork {
 		
 		public void finalizeForward(Front front, Point horizon) {
 			this.path = fmtPath(front.getAtoB(horizon, this.p));
+			forwardSaddle = true;
 		}
 
 		public void finalizeBackward(Front front) {
 			Point thresh = front.searchThreshold(this.p, this.saddle);			
 			this.path = fmtPath(front.getAtoB(thresh, this.p));
+			forwardSaddle = false;
 		}
 		
 		public PromInfo toNormal() {
@@ -581,6 +595,7 @@ public class PromNetwork {
 			pi.saddle = this.saddle;
 			pi.global_max = this.global_max;
 			pi.min_bound_only = this.min_bound_only;
+			pi.forward = this.forwardSaddle;
 			if (this.path != null) {
 				pi.path = this.path;
 			} else {
@@ -591,16 +606,50 @@ public class PromNetwork {
 			return pi;
 		}
 	}
+	
+	static interface OnMSTEdge {
+		void addEdge(Point p, Point parent, boolean isSaddle);
+		void addPending(Point p);
+		void finalize();
+	}
+	
+	static class MSTWriter implements OnMSTEdge {
+		DataOutputStream out;
 		
-	public static void bigOlPromSearch(boolean up, Point root, TopologyNetwork tree, DEMManager.OnProm onprom, double cutoff) {
+		public MSTWriter(boolean up) {
+			try {
+				out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(DEMManager.props.getProperty("dir_mstdump") + "/" + (up ? "up" : "down"))));
+			} catch (IOException ioe) {
+				throw new RuntimeException();
+			}		
+		}
+		
+		public void addEdge(Point p, Point parent, boolean isSaddle) {
+			PreprocessNetwork.Edge e;
+			if (isSaddle) {
+				e = new PreprocessNetwork.Edge(p.ix, parent.ix, 0);
+			} else {
+				e = new PreprocessNetwork.Edge(parent.ix, p.ix, 1);
+			}
+			e.write(out);
+		}
+
+		public void addPending(Point p) {
+			new PreprocessNetwork.Edge(p.ix, -1, 1).write(out);
+		}
+		
+		public void finalize() {
+			try {
+				out.close();
+			} catch (IOException ioe) {
+				throw new RuntimeException();
+			}
+		}
+	}
+		
+	public static void bigOlPromSearch(boolean up, Point root, TopologyNetwork tree, DEMManager.OnProm onprom, OnMSTEdge onedge, double cutoff) {
 		root = tree.getPoint(root);
 		Comparator<BasePoint> c = BasePoint.cmpElev(up);
-//		Criterion crit = new Criterion() {
-//			@Override
-//			public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
-//				return cmp.compare(cur, p) > 0;
-//			}			
-//		};
 		
 		Deque<Point> peaks = new ArrayDeque<Point>(); 
 		Deque<Point> saddles = new ArrayDeque<Point>(); 
@@ -616,17 +665,18 @@ public class PromNetwork {
 				//break;
 				break;
 			}
+			boolean isSaddle = (cur.classify(tree) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT));
 			
 			boolean reachedEdge = tree.pendingSaddles.contains(cur);
 			boolean deadEnd = !reachedEdge;
 			for (Point adj : tree.adjacent(cur)) {
 				if (front.add(adj, cur)) {
 					deadEnd = false;
+					onedge.addEdge(adj, cur, isSaddle);
 				}
 			}
 						
-			if (cur.classify(tree) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
-				// saddle
+			if (isSaddle) {
 				if (deadEnd) {
 					// basin saddle
 					continue;
@@ -672,6 +722,7 @@ public class PromNetwork {
 						onprom.onprom(pi.toNormal());
 					}
 				}
+				onedge.addPending(cur);
 				break; // TODO: restart search from smaller islands and agglomerate?
 			}
 			
@@ -687,10 +738,10 @@ public class PromNetwork {
 						sb.append(_s[six].elev + " ");
 					}
 				}
-				System.err.println(sb.toString());
+				Logging.log(sb.toString());
 			}
-			
 		}		
 		
+		onedge.finalize();
 	}
 }

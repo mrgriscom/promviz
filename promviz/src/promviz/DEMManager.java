@@ -1,6 +1,9 @@
 package promviz;
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
@@ -378,15 +381,43 @@ public class DEMManager {
 			}
 			Logging.log("highest: " + highest.elev);
 
+			
+			final DataOutputStream promOut;
+			final DataOutputStream saddlesOut;
+			try {
+				promOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(DEMManager.props.getProperty("dir_mstdump") + "/prom-" + (up ? "up" : "down"))));
+				saddlesOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(DEMManager.props.getProperty("dir_mstdump") + "/saddle-" + (up ? "up" : "down"))));
+			} catch (IOException ioe) {
+				throw new RuntimeException();
+			}
 			PromNetwork.bigOlPromSearch(up, highest, tn, new OnProm() {
 				public void onprom(PromInfo pi) {
 					outputPromPoint(pi, up);
+					
+					try {
+						promOut.writeLong(pi.p.ix);
+						promOut.writeFloat(pi.prominence());
+						promOut.writeLong(pi.saddle.ix);
+						promOut.writeFloat(pi.prominence());
+						
+						saddlesOut.writeLong(pi.saddle.ix);
+						saddlesOut.writeLong(pi.p.ix);
+						saddlesOut.writeBoolean(pi.forward);
+					} catch (IOException ioe) {
+						throw new RuntimeException();
+					}
 				}
-			}, cutoff);
-
+			}, new PromNetwork.MSTWriter(up), cutoff);
+			try {
+				promOut.close();
+				saddlesOut.close();
+			} catch (IOException ioe) {
+				throw new RuntimeException();
+			}
+			
+			processMST(up);
 		}
 		
-
 //		Map<Point, PromNetwork.PromInfo> saddleIndex = new HashMap<Point, PromNetwork.PromInfo>();
 //		for (Entry<Point, PromNetwork.PromInfo> e : prominentPoints.entrySet()) {
 //			// TODO i think we need to refine the tiebreaker logic here
@@ -423,6 +454,14 @@ public class DEMManager {
 //		System.out.println("]");
 
 	}
+
+	static void processMST(boolean up) {
+		File folder = new File(DEMManager.props.getProperty("dir_mst"));
+		if (folder.listFiles().length != 0) {
+			throw new RuntimeException("/mst not empty!");
+		}
+		PreprocessNetwork.processMST(up);
+	}
 	
 	public static void main(String[] args) {
 		
@@ -446,6 +485,9 @@ public class DEMManager {
 			boolean up = args[0].equals("--searchup");
 			double cutoff = Double.parseDouble(args[2]);
 			promSearch(up, cutoff, dm, region);
+		} else if (args[0].equals("--mstup") || args[0].equals("--mstdown")) {
+			boolean up = args[0].equals("--mstup");
+			processMST(up);
 		} else {
 			throw new RuntimeException("operation not specified");
 		}

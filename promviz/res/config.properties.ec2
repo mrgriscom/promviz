@@ -1,7 +1,9 @@
 dir_dem=/mnt/ssd/promviz/dem
 dir_net=/mnt/ssd/promviz/net
+dir_mst=/mnt/ssd/promviz/mst
 dir_out=/mnt/ssd/promviz/out
-dir_netdump=/mnt/ssd/promviz/dump
+dir_netdump=/mnt/ssd/promviz/netdump
+dir_mstdump=/mnt/ssd/promviz/mstdump
 s3_server=http://s3.amazonaws.com/dem3
 memory=25769803776
 #memory=12884901888

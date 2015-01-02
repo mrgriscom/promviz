@@ -108,7 +108,7 @@ def save_point(p):
 
 if __name__ == "__main__":
 
-    for d in (settings.dir_dem, settings.dir_net, settings.dir_out, settings.dir_netdump):
+    for d in [getattr(settings, k) for k in dir(settings) if k.startswith('dir_')]:
         os.popen('mkdir -p "%s"' % d)
 
     os.popen('python demregion.py "%s" > /dev/null' % sys.argv[2])

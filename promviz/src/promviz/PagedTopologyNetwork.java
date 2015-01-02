@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import promviz.PreprocessNetwork.EdgeIterator;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 
@@ -66,7 +67,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			Prefix pf = new Prefix(PointIndex.make(Integer.parseInt(b[1]), Integer.parseInt(b[2]), Integer.parseInt(b[3])), Integer.parseInt(b[0]));
 			PrefixInfo pfi = new PrefixInfo();
 			pfi.path = DEMManager.props.getProperty("dir_net") + "/" + f.getName();
-			pfi.elevPath = PreprocessNetwork.prefixPath("elev" + (this.up ? "up" : "down"), pf);
+			pfi.elevPath = PreprocessNetwork.prefixPath(this.up, "elev", pf, EdgeIterator.PHASE_RAW);
 			pfi.loaded = false;
 			prefixes.put(pf, pfi);
 		}
