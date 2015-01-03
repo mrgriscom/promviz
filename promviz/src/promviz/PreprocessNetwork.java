@@ -10,10 +10,12 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -558,7 +560,7 @@ public class PreprocessNetwork {
 	}
 	
 	
-	public static void processMST(DEMManager dm, final boolean up) {
+	public static void processMST(DEMManager dm, final boolean up, Point highest) {
 		Logging.log("processing MST");
 		int phase = EdgeIterator.PHASE_MST;
 		
@@ -568,6 +570,45 @@ public class PreprocessNetwork {
 	    partition(phase, up, buckets);
 	    partitionMeta(up, buckets, new PromMeta());
 	    cacheElevation(phase, up, buckets, dm);
+	    
+	    //trimMST(highest, up);
+
+	    partitionMeta(up, buckets, new SaddleMeta());
+	}
+	
+	public static void trimMST(Point highest, boolean up) {
+		Logging.log("trimming MST");
+		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new Meta[] {new PromMeta()});
+		System.err.println(tn.get(highest.ix));
+
+		Deque<Point> q = new ArrayDeque<Point>();
+		Set<Point> seen = new HashSet<Point>();
+		q.add(highest);
+		
+		while (!q.isEmpty()) {
+			Point cur = q.removeFirst();
+			seen.add(cur);
+			for (Point adj : tn.adjacent(cur)) {
+				if (!seen.contains(adj)) {
+					q.addLast(adj);
+				}
+			}
+			
+			PromMeta m = (PromMeta)tn.getMeta(cur, "prom");
+			if (m != null) {
+				System.err.println("ppt! " + cur + " # " + m.prom);
+			}
+		}
+		
+		/*
+		 * from a prom pt, explore all branches until termed at other prom pts
+		 * add term pts to queue
+		 * consolidate branches and write out to stream
+		 * 
+		 * 
+		 * special handling for pend
+		 * 
+		 */
 	}
 	
 	static class Meta {

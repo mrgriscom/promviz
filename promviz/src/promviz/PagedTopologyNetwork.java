@@ -44,7 +44,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		this.up = up;
 		points = new HashMap<Long, Point>((int)(MAX_POINTS / .75));
 		pendingSaddles = new HashSet<Point>();
-		this.metadata = metadata;
+		this.metadata = (metadata != null ? metadata : new PreprocessNetwork.Meta[0]);
 		
 		prefixes = new HashMap<Prefix, PrefixInfo>();
 		loadPrefixes(phase);
@@ -92,7 +92,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 	}
 
 	@Override
-	public PreprocessNetwork.Meta getMeta(Point p, String type) {
+	public PreprocessNetwork.Meta getMeta(BasePoint p, String type) {
 		p = get(p.ix);
 		return prefixes.get(matchPrefix(p.ix)).metadata.get(type).get(p);
 	}

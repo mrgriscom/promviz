@@ -6,8 +6,10 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +18,9 @@ import java.util.Properties;
 import java.util.Set;
 
 import promviz.PreprocessNetwork.EdgeIterator;
+import promviz.PreprocessNetwork.Meta;
+import promviz.PreprocessNetwork.PromMeta;
+import promviz.PreprocessNetwork.SaddleMeta;
 import promviz.PromNetwork.PromInfo;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
@@ -340,6 +345,24 @@ public class DEMManager {
 		void onprom(PromNetwork.PromInfo pi);
 	}
 	
+	static Point getHighest(DEMManager dm, boolean up) {
+		Point highest = null;
+		Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
+		for (DEMFile dem : dm.DEMs) {
+			Logging.log("searching " + dem);
+			for (DEMFile.Sample s : dem.samples(null)) {
+				Point p = new GridPoint(s);
+				if (highest == null || cmp.compare(p, highest) > 0) {
+					highest = p;
+				}					
+			}
+		}
+		Logging.log("highest: " + highest.elev);
+		return highest;
+	}
+	
+	static boolean oldSchool = true;
+	//static boolean oldSchool = false;
 	static void promSearch(final boolean up, double cutoff, DEMManager dm, String region) {
 		DualTopologyNetwork dtn;
 		MESH_MAX_POINTS = (1 << 26);
@@ -349,10 +372,7 @@ public class DEMManager {
 		
 		TopologyNetwork tn = (up ? dtn.up : dtn.down);
 		//TopologyNetwork anti_tn = (!up ? dtn.up : dtn.down);
-		
-		//boolean oldSchool = true;
-		boolean oldSchool = false;
-		
+				
 		if (oldSchool) {
 			
 			for (Point p : tn.allPoints()) {
@@ -369,19 +389,7 @@ public class DEMManager {
 		} else {
 			
 			loadDEMs(dm, region);
-			Point highest = null;
-			Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
-			for (DEMFile dem : dm.DEMs) {
-				Logging.log("searching " + dem);
-				for (DEMFile.Sample s : dem.samples(null)) {
-					Point p = new GridPoint(s);
-					if (highest == null || cmp.compare(p, highest) > 0) {
-						highest = p;
-					}					
-				}
-			}
-			Logging.log("highest: " + highest.elev);
-
+			Point highest = getHighest(dm, up);
 			
 			final DataOutputStream promOut;
 			final DataOutputStream saddlesOut;
@@ -395,6 +403,9 @@ public class DEMManager {
 				public void onprom(PromInfo pi) {
 					outputPromPoint(pi, up);
 					
+					// note: if we ever have varying cutoffs this will take extra care
+					// to make sure we always capture the parent/next highest peaks for
+					// peaks right on the edge of the lower-cutoff region
 					try {
 						promOut.writeLong(pi.p.ix);
 						promOut.writeFloat(pi.prominence());
@@ -416,7 +427,8 @@ public class DEMManager {
 				throw new RuntimeException();
 			}
 			
-			processMST(dm, up, null);
+			processMST(highest, dm, up, null);
+			promPass2(highest, dm, up, null);
 		}
 		
 //		Map<Point, PromNetwork.PromInfo> saddleIndex = new HashMap<Point, PromNetwork.PromInfo>();
@@ -456,24 +468,52 @@ public class DEMManager {
 
 	}
 
-	static void processMST(DEMManager dm, boolean up, String region) {
+	static void processMST(Point highest, DEMManager dm, boolean up, String region) {
 		if (region != null) {
 			loadDEMs(dm, region);
+		}
+		if (highest == null) {
+			highest = getHighest(dm, up);
 		}
 		
 		File folder = new File(DEMManager.props.getProperty("dir_mst"));
 		if (folder.listFiles().length != 0) {
 			throw new RuntimeException("/mst not empty!");
 		}
-		PreprocessNetwork.processMST(dm, up);
+		PreprocessNetwork.processMST(dm, up, highest);
+	}
+	
+	static void promPass2(Point highest, DEMManager dm, boolean up, String region) {
+		MESH_MAX_POINTS = (1 << 26);
+		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new Meta[] {new PromMeta(), new SaddleMeta()});
 		
-//		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new PreprocessNetwork.Meta[] {new PreprocessNetwork.PromMeta()});
-//		for (Point p : tn.allPoints()) {
-//			PreprocessNetwork.PromMeta m = (PreprocessNetwork.PromMeta)tn.getMeta(p, "prom");
-//			if (m != null) {
-//				System.err.println(p + " :: " + m.prom);
-//			}
-//		}
+		if (oldSchool) {
+
+			for (Point p : tn.allPoints()) {
+				if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT) || tn.getMeta(p, "prom") == null) {
+					continue;
+				}
+
+				// we know where the saddle is; would could start the search from there
+				// also, using the MST requires less bookkeeping than this search function provides
+				PromNetwork.PromInfo pi = PromNetwork.parent(tn, p, up);
+				if (pi != null) {
+					outputPromParentage(pi, up);
+				}
+				
+				PromNetwork.domainSaddles();
+			}
+			
+		} else {
+			if (region != null) {
+				loadDEMs(dm, region);
+			}
+			if (highest == null) {
+				highest = getHighest(dm, up);
+			}
+
+			
+		}
 	}
 	
 	public static void main(String[] args) {
@@ -500,7 +540,10 @@ public class DEMManager {
 			promSearch(up, cutoff, dm, region);
 		} else if (args[0].equals("--mstup") || args[0].equals("--mstdown")) {
 			boolean up = args[0].equals("--mstup");
-			processMST(dm, up, region);
+			processMST(null, dm, up, region);
+		} else if (args[0].equals("--searchup2") || args[0].equals("--searchdown2")) {
+			boolean up = args[0].equals("--searchup2");
+			promPass2(null, dm, up, region);
 		} else {
 			throw new RuntimeException("operation not specified");
 		}
@@ -535,6 +578,17 @@ public class DEMManager {
 				up, pi.p, pi, parentage, domainSaddles
 			)));
 	}
+	
+	static void outputPromParentage(PromNetwork.PromInfo pi, boolean up) {
+		Gson ser = new Gson();
+		
+		if (pi.min_bound_only || pi.path.isEmpty()) {
+			return;
+		}
+		
+		System.out.println(ser.toJson(new ParentData(up, pi.p, pi)));
+	}
+
 	
 	static class PromPoint {
 		double coords[];
@@ -597,6 +651,29 @@ public class DEMManager {
 			if (!parentage.min_bound_only && !parentage.path.isEmpty()) {
 				this.parent = new PromPoint(parentage.path.get(0));
 			}
+		}
+	}
+	
+	static class ParentData {
+		boolean up;
+		PromPoint summit;
+		PromPoint parent;
+		List<double[]> parent_path;
+		String addendum = "parent";
+		
+		public ParentData(boolean up, Point p, PromNetwork.PromInfo parentage) {
+			if (parentage.min_bound_only) {
+				throw new IllegalArgumentException();
+			}
+			
+			this.up = up;
+			this.summit = new PromPoint(p.ix);
+
+			this.parent_path = new ArrayList<double[]>();
+			for (long k : parentage.path) {
+				this.parent_path.add(PointIndex.toLatLon(k));
+			}
+			this.parent = new PromPoint(parentage.path.get(0));
 		}
 	}
 	

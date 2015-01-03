@@ -46,6 +46,9 @@ def get_name(conn, pos, type, res=40030000./360/3600):
     return results[0]['name'] if results else None
     
 def process_point(p):
+    if p.get('addendum'):
+        return process_addendum(p), True
+
     type = 'peak' if p['up'] else 'pit'
     out = {
         'type': type,
@@ -74,6 +77,21 @@ def process_point(p):
             'geo': p['parent']['geo'],
         }
     
+    return out, False
+
+def process_addendum(p):
+    out = load_point(p)
+    if not out:
+        return None
+
+    if p['addendum'] == 'parent':
+        out.update({
+            'parent_path': p['parent_path'],
+            'parent': {
+                'geo': p['parent']['geo'],
+            },
+        })
+
     return out
 
 def add_name(p, conn):
@@ -101,10 +119,20 @@ def write_master(ix, mode, i):
     os.popen('mv /tmp/pvindex %s' % os.path.join(settings.dir_out, '_index_%s_%d' % (mode, i + 1)))
 
 def save_point(p):
+    if not p:
+        return
+
     path = os.path.join(settings.dir_out, 'prom%s.json' % p[p['type']]['geo'])
     with open(path, 'w') as f:
         content = json.dumps(p, indent=2)
         f.write(content)
+
+def load_point(p):
+    path = os.path.join(settings.dir_out, 'prom%s.json' % p['summit']['geo'])
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
 
 if __name__ == "__main__":
 
@@ -145,12 +173,13 @@ if __name__ == "__main__":
     INTERIM_INTERVAL = 300
     for p in calc_prom():
         try:
-            p = process_point(p)
+            p, addendum = process_point(p)
         except:
             sys.stderr.write('error on %s\n' % p)
 
-        index['data'].append(core(p))
-        add_name(p, conn)
+        if not addendum:
+            index['data'].append(core(p))
+            add_name(p, conn)
 
         #set_children(points)
 
