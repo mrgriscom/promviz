@@ -18,6 +18,7 @@ import java.util.PriorityQueue;
 import java.util.Set;
 
 import promviz.PreprocessNetwork.PromMeta;
+import promviz.PreprocessNetwork.SaddleMeta;
 import promviz.util.Logging;
 import promviz.util.ReverseComparator;
 
@@ -471,30 +472,50 @@ public class PromNetwork {
 		});
 	}
 	
-//	public static List<Point> domainSaddles(TopologyNetwork tree, Point p) {
-//		float threshold = ((PromMeta)tree.getMeta(p, "prom")).prom;
-//		List<Point> saddles = new ArrayList<Point>();
-//		
-//		Deque<Point> queue = new ArrayDeque<Point>();
-//		Set<Point> seen = new HashSet<Point>();
-//		queue.add(p);
-//		
-//		while (!queue.isEmpty()) {
-//			Point cur = queue.removeFirst();
-//			seen.add(cur);
-//			
-//			
-//			
-//		}
-//		
-//		
-//		//queue
-//		
-//		
-//		
-//		saddleSearch(saddles, tree, threshold, p, null);
-//		return saddles;
-//	}
+	public static List<Point> domainSaddles(TopologyNetwork tree, Point p) {
+		float threshold = ((PromMeta)tree.getMeta(p, "prom")).prom;
+		List<Point> saddles = new ArrayList<Point>();
+		
+		Deque<Point> queue = new ArrayDeque<Point>();
+		Set<Point> seen = new HashSet<Point>();
+		int pruneThresh = 1;
+		
+		queue.add(p);
+		while (!queue.isEmpty()) {
+			Point cur = queue.removeFirst();
+			seen.add(cur);
+
+			SaddleMeta sm = (SaddleMeta)tree.getMeta(cur, "saddle");
+			if (sm != null) {
+				float prom = ((PromMeta)tree.getMeta(cur, "prom")).prom;
+				if (prom >= threshold) {
+					if (sm.peakIx != p.ix) {
+						saddles.add(cur);
+					}
+					continue;
+				}
+			}
+			
+			for (Point adj : tree.adjacent(cur)) {
+				if (!seen.contains(adj)) {
+					queue.addLast(adj);
+				}
+			}
+
+			if (seen.size() > pruneThresh) {
+				Set<Point> frontAdj = new HashSet<Point>();
+				for (Point f : queue) {
+					for (Point adj : tree.adjacent(f)) {
+						frontAdj.add(adj);
+					}
+				}
+				seen.retainAll(frontAdj);
+				pruneThresh = Math.max(pruneThresh, 2 * seen.size());
+			}
+		}
+
+		return saddles;
+	}
 	
 	static void saddleSearch(List<Point> saddles, Map<Point, PromNetwork.PromInfo> saddleIndex, TopologyNetwork tree, float threshold, Point p, Point parent) {
 		for (Point adj : tree.adjacent(p)) {

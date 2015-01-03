@@ -23,7 +23,7 @@ def calc_prom():
         try:
             yield json.loads(ln)
         except:
-            print 'invalid json'
+            print 'invalid json [%s]' % ln
 
 def get_name(conn, pos, type, res=40030000./360/3600):
     return None
@@ -90,6 +90,10 @@ def process_addendum(p):
             'parent': {
                 'geo': p['parent']['geo'],
             },
+        })
+    if p['addendum'] == 'subsaddles':
+        out.update({
+            'subsaddles': p['subsaddles'],
         })
 
     return out

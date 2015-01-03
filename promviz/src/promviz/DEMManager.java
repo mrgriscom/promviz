@@ -501,7 +501,10 @@ public class DEMManager {
 					outputPromParentage(pi, up);
 				}
 				
-				PromNetwork.domainSaddles();
+				List<Point> secondarySaddles = PromNetwork.domainSaddles(tn, p);
+				if (!secondarySaddles.isEmpty()) {
+					outputSubsaddles(p, secondarySaddles, up);
+				}
 			}
 			
 		} else {
@@ -589,6 +592,10 @@ public class DEMManager {
 		System.out.println(ser.toJson(new ParentData(up, pi.p, pi)));
 	}
 
+	static void outputSubsaddles(Point p, List<Point> subsaddles, boolean up) {
+		Gson ser = new Gson();
+		System.out.println(ser.toJson(new SubsaddleData(up, p, subsaddles)));
+	}
 	
 	static class PromPoint {
 		double coords[];
@@ -677,4 +684,20 @@ public class DEMManager {
 		}
 	}
 	
+	static class SubsaddleData {
+		boolean up;
+		PromPoint summit;
+		List<double[]> subsaddles;
+		String addendum = "subsaddles";
+		
+		public SubsaddleData(boolean up, Point p, List<Point> saddles) {
+			this.up = up;
+			this.summit = new PromPoint(p.ix);
+
+			this.subsaddles = new ArrayList<double[]>();
+			for (Point ss : saddles) {
+				this.subsaddles.add(PointIndex.toLatLon(ss.ix));
+			}
+		}
+	}
 }

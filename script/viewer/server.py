@@ -78,6 +78,8 @@ def to_geojson(k):
             _feature(k['parent_path'], type='toparent'),
         ]
     }
+    data['features'].extend(_feature(ss, type='subsaddle') for ss in k.get('subsaddles', []))
+
     if k.get('threshold'):
         data['features'].append(
             _feature(k['threshold']['coords'],

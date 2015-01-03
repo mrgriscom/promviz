@@ -82,6 +82,8 @@ function loadData(map, data) {
                     style = {fillColor: '#0ff', radius: 7.5};
                 } else if (props.type == 'parent') {
                     style = {fillColor: '#0f0'};
+                } else if (props.type == 'subsaddle') {
+                    style = {fillColor: '#000'};
                 }
                 style.color = '#000';
                 style.weight = 1.5;
