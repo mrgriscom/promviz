@@ -501,7 +501,7 @@ public class DEMManager {
 					outputPromParentage(pi, up);
 				}
 				
-				List<Point> secondarySaddles = PromNetwork.domainSaddles(tn, p);
+				Map<Point, Long> secondarySaddles = PromNetwork.domainSaddles(tn, p);
 				if (!secondarySaddles.isEmpty()) {
 					outputSubsaddles(p, secondarySaddles, up);
 				}
@@ -592,7 +592,7 @@ public class DEMManager {
 		System.out.println(ser.toJson(new ParentData(up, pi.p, pi)));
 	}
 
-	static void outputSubsaddles(Point p, List<Point> subsaddles, boolean up) {
+	static void outputSubsaddles(Point p, Map<Point, Long> subsaddles, boolean up) {
 		Gson ser = new Gson();
 		System.out.println(ser.toJson(new SubsaddleData(up, p, subsaddles)));
 	}
@@ -687,16 +687,27 @@ public class DEMManager {
 	static class SubsaddleData {
 		boolean up;
 		PromPoint summit;
-		List<double[]> subsaddles;
 		String addendum = "subsaddles";
+
+		static class Subsaddle {
+			PromPoint saddle;
+			PromPoint peak;
+		}
+		List<Subsaddle> subsaddles;
 		
-		public SubsaddleData(boolean up, Point p, List<Point> saddles) {
+		public SubsaddleData(boolean up, Point p, Map<Point, Long> saddles) {
 			this.up = up;
 			this.summit = new PromPoint(p.ix);
 
-			this.subsaddles = new ArrayList<double[]>();
-			for (Point ss : saddles) {
-				this.subsaddles.add(PointIndex.toLatLon(ss.ix));
+			this.subsaddles = new ArrayList<Subsaddle>();
+			for (Entry<Point, Long> e : saddles.entrySet()) {
+				Point ss = e.getKey();
+				long peakIx = e.getValue();
+				
+				Subsaddle SS = new Subsaddle();
+				SS.saddle = new PromPoint(ss, null);
+				SS.peak = new PromPoint(peakIx);
+				this.subsaddles.add(SS);
 			}
 		}
 	}

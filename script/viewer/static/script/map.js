@@ -138,8 +138,18 @@ function loadData(map, data) {
                         html += '</table>';
                     }
                     $div.html(html);
-                } else if (props.type == 'saddle') {
-                    $div.html('<div>' + (props.name || '') + '</div><div>' + dispdist(props, 'elev') + '</div>');
+                } else if (props.type == 'saddle' || props.type == 'subsaddle') {
+                    var html = '<div>' + (props.name || '') + '</div><div>' + dispdist(props, 'elev') + '</div>';
+                    if (props.type == 'subsaddle') {
+                        html += (function(props) {
+                            var title = props.name || props.geo;
+                            title = '<a target="_blank" href="/view/' + props.geo + '">' + title + '</a>';
+                            var html = '<hr><div>for ' + title + '</div>';
+                            html += '<div>' + dispdist(props, 'prom') + (props.min_bound ? '*' : '') + '</div><div>' + dispdist(props, 'elev') + '</div>';
+                            return html;
+                        })(props.peak.properties);
+                    }
+                    $div.html(html);
                 } else {
                     return;
                 }

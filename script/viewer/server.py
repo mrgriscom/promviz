@@ -78,7 +78,14 @@ def to_geojson(k):
             _feature(k['parent_path'], type='toparent'),
         ]
     }
-    data['features'].extend(_feature(ss, type='subsaddle') for ss in k.get('subsaddles', []))
+    for ss in k.get('subsaddles', []):
+        f = _feature(ss['saddle']['coords'],
+                     type='subsaddle',
+                     elev_m=ss['saddle']['elev'],
+                     elev_ft=ss['saddle']['elev'] / .3048,
+                     peak=summit_feature(ss['_for'][ss['_for']['type']], type='sspeak'),
+                    )
+        data['features'].append(f)
 
     if k.get('threshold'):
         data['features'].append(
@@ -106,6 +113,8 @@ class MapViewHandler(web.RequestHandler):
         data['_children'] = [loadgeo(c) for c in data.get('children', [])]
         for i, ch in enumerate(data['_children']):
             ch['ix'] = i + 1
+        for ss in data.get('subsaddles', []):
+            ss['_for'] = loadgeo(ss['for']['geo'])
 
         self.render('map.html', mode='single', data=to_geojson(data))
 

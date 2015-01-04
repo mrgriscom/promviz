@@ -92,8 +92,19 @@ def process_addendum(p):
             },
         })
     if p['addendum'] == 'subsaddles':
+        def tx_saddle(ss):
+            return {
+                'saddle': {
+                    'elev': ss['saddle']['elev'],
+                    'coords': ss['saddle']['coords'],
+                    'geo': ss['saddle']['geo'],
+                },
+                'for': {
+                    'geo': ss['peak']['geo'],
+                },
+            }
         out.update({
-            'subsaddles': p['subsaddles'],
+            'subsaddles': map(tx_saddle, p['subsaddles']),
         })
 
     return out

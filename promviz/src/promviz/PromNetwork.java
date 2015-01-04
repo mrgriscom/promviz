@@ -472,9 +472,9 @@ public class PromNetwork {
 		});
 	}
 	
-	public static List<Point> domainSaddles(TopologyNetwork tree, Point p) {
+	public static Map<Point, Long> domainSaddles(TopologyNetwork tree, Point p) {
 		float threshold = ((PromMeta)tree.getMeta(p, "prom")).prom;
-		List<Point> saddles = new ArrayList<Point>();
+		Map<Point, Long> saddles = new HashMap<Point, Long>();
 		
 		Deque<Point> queue = new ArrayDeque<Point>();
 		Set<Point> seen = new HashSet<Point>();
@@ -490,7 +490,7 @@ public class PromNetwork {
 				float prom = ((PromMeta)tree.getMeta(cur, "prom")).prom;
 				if (prom >= threshold) {
 					if (sm.peakIx != p.ix) {
-						saddles.add(cur);
+						saddles.put(cur, sm.peakIx);
 					}
 					continue;
 				}
@@ -516,19 +516,7 @@ public class PromNetwork {
 
 		return saddles;
 	}
-	
-	static void saddleSearch(List<Point> saddles, Map<Point, PromNetwork.PromInfo> saddleIndex, TopologyNetwork tree, float threshold, Point p, Point parent) {
-		for (Point adj : tree.adjacent(p)) {
-			PromNetwork.PromInfo saddleInfo = saddleIndex.get(adj);
-			if (saddleInfo != null && saddleInfo.prominence() >= threshold) {
-				saddles.add(adj);
-			} else if (adj != parent) {
-				saddleSearch(saddles, saddleIndex, tree, threshold, adj, p);
-			}
-		}
-		
-	}
-		
+			
 	public static PromInfo _prominence(TopologyNetwork tree, Point p, boolean up, Criterion crit) {
 		if (up != tree.up) {
 			throw new IllegalArgumentException("incompatible topology tree");
