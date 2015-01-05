@@ -6,10 +6,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -502,8 +501,14 @@ public class DEMManager {
 				}
 				
 				Map<Point, Long> secondarySaddles = PromNetwork.domainSaddles(tn, p);
+				Map<Long, Boolean> saddlesHigher = new HashMap<Long, Boolean>();
+				Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
+				for (long otherIx : secondarySaddles.values()) {
+					saddlesHigher.put(otherIx, cmp.compare(tn.get(otherIx), p) > 0);
+				}
+				
 				if (!secondarySaddles.isEmpty()) {
-					outputSubsaddles(p, secondarySaddles, up);
+					outputSubsaddles(p, secondarySaddles, saddlesHigher, up);
 				}
 			}
 			
@@ -592,9 +597,9 @@ public class DEMManager {
 		System.out.println(ser.toJson(new ParentData(up, pi.p, pi)));
 	}
 
-	static void outputSubsaddles(Point p, Map<Point, Long> subsaddles, boolean up) {
+	static void outputSubsaddles(Point p, Map<Point, Long> subsaddles, Map<Long, Boolean> saddlesHigher, boolean up) {
 		Gson ser = new Gson();
-		System.out.println(ser.toJson(new SubsaddleData(up, p, subsaddles)));
+		System.out.println(ser.toJson(new SubsaddleData(up, p, subsaddles, saddlesHigher)));
 	}
 	
 	static class PromPoint {
@@ -692,10 +697,11 @@ public class DEMManager {
 		static class Subsaddle {
 			PromPoint saddle;
 			PromPoint peak;
+			boolean higher;
 		}
 		List<Subsaddle> subsaddles;
 		
-		public SubsaddleData(boolean up, Point p, Map<Point, Long> saddles) {
+		public SubsaddleData(boolean up, Point p, Map<Point, Long> saddles, Map<Long, Boolean> saddlesHigher) {
 			this.up = up;
 			this.summit = new PromPoint(p.ix);
 
@@ -707,6 +713,7 @@ public class DEMManager {
 				Subsaddle SS = new Subsaddle();
 				SS.saddle = new PromPoint(ss, null);
 				SS.peak = new PromPoint(peakIx);
+				SS.higher = saddlesHigher.get(peakIx);
 				this.subsaddles.add(SS);
 			}
 		}

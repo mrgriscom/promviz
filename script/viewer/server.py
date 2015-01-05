@@ -85,7 +85,7 @@ def to_geojson(k):
                      elev_m=ss['saddle']['elev'],
                      elev_ft=ss['saddle']['elev'] / .3048,
                      peak=summit_feature(meat(ss['_for']), type='sspeak'),
-                     higher=meat(ss['_for'])['elev'] > meat(k)['elev'], # what about eq tiebreaker?
+                     higher=ss['for']['higher'],
                     )
         data['features'].append(f)
 

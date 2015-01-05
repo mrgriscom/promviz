@@ -22,7 +22,7 @@ def calc_prom():
 
         try:
             yield json.loads(ln)
-        except:
+        except Exception:
             print 'invalid json [%s]' % ln
 
 def get_name(conn, pos, type, res=40030000./360/3600):
@@ -101,6 +101,7 @@ def process_addendum(p):
                 },
                 'for': {
                     'geo': ss['peak']['geo'],
+                    'higher': ss['higher'],
                 },
             }
         out.update({
@@ -189,8 +190,8 @@ if __name__ == "__main__":
     for p in calc_prom():
         try:
             p, addendum = process_point(p)
-        except:
-            sys.stderr.write('error on %s\n' % p)
+        except Exception, e:
+            sys.stderr.write('error [%s] on %s\n' % (e, p))
 
         if not addendum:
             index['data'].append(core(p))
