@@ -78,12 +78,14 @@ def to_geojson(k):
             _feature(k['parent_path'], type='toparent'),
         ]
     }
+    meat = lambda k: k[k['type']]
     for ss in k.get('subsaddles', []):
         f = _feature(ss['saddle']['coords'],
                      type='subsaddle',
                      elev_m=ss['saddle']['elev'],
                      elev_ft=ss['saddle']['elev'] / .3048,
-                     peak=summit_feature(ss['_for'][ss['_for']['type']], type='sspeak'),
+                     peak=summit_feature(meat(ss['_for']), type='sspeak'),
+                     higher=meat(ss['_for'])['elev'] > meat(k)['elev'], # what about eq tiebreaker?
                     )
         data['features'].append(f)
 
