@@ -20,6 +20,7 @@ import promviz.PreprocessNetwork.EdgeIterator;
 import promviz.PreprocessNetwork.Meta;
 import promviz.PreprocessNetwork.PromMeta;
 import promviz.PreprocessNetwork.SaddleMeta;
+import promviz.PromNetwork.ParentInfo;
 import promviz.PromNetwork.PromInfo;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
@@ -343,6 +344,9 @@ public class DEMManager {
 	public static interface OnProm {
 		void onprom(PromNetwork.PromInfo pi);
 	}
+	public static interface OnPromParent {
+		void onparent(PromNetwork.ParentInfo pi);
+	}
 	
 	static Point getHighest(DEMManager dm, boolean up) {
 		Point highest = null;
@@ -360,8 +364,8 @@ public class DEMManager {
 		return highest;
 	}
 	
-	static boolean oldSchool = true;
-	//static boolean oldSchool = false;
+	//static boolean oldSchool = true;
+	static boolean oldSchool = false;
 	static void promSearch(final boolean up, double cutoff, DEMManager dm, String region) {
 		DualTopologyNetwork dtn;
 		MESH_MAX_POINTS = (1 << 26);
@@ -482,7 +486,7 @@ public class DEMManager {
 		PreprocessNetwork.processMST(dm, up, highest);
 	}
 	
-	static void promPass2(Point highest, DEMManager dm, boolean up, String region) {
+	static void promPass2(Point highest, DEMManager dm, final boolean up, String region) {
 		MESH_MAX_POINTS = (1 << 26);
 		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new Meta[] {new PromMeta(), new SaddleMeta()});
 		
@@ -520,7 +524,13 @@ public class DEMManager {
 				highest = getHighest(dm, up);
 			}
 
-			
+			PromNetwork.bigOlPromParentSearch(up, highest, tn, new DEMManager.OnPromParent() {
+				public void onparent(ParentInfo pi) {
+					PromInfo _pi = new PromInfo(new Point(pi.pIx, 0), null);
+					_pi.path = pi.path;
+					outputPromParentage(_pi, up);
+				}
+			});
 		}
 	}
 	
