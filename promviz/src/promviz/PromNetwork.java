@@ -19,6 +19,7 @@ import java.util.Set;
 
 import promviz.PreprocessNetwork.PromMeta;
 import promviz.PreprocessNetwork.SaddleMeta;
+import promviz.PromNetwork.Backtrace.BacktracePruner;
 import promviz.util.Logging;
 import promviz.util.ReverseComparator;
 
@@ -60,7 +61,7 @@ public class PromNetwork {
 		
 		public void finalize(Front f, Point horizon) {
 			if (horizon != null) {
-				this.path = fmtPath(f.trace(horizon));
+				this.path = fmtPath(f.bt.trace(horizon));
 			} else {
 				this.path = new ArrayList<Long>();
 				this.path.add(this.p.ix);
@@ -83,11 +84,152 @@ public class PromNetwork {
 		}
 	}
 	
+	static class Backtrace {
+		Map<Point, Point> backtrace;
+		Point root;
+		
+		public Backtrace() {
+			this.backtrace = new HashMap<Point, Point>();
+		}
+		
+		public void add(Point p, Point parent) {
+			if (parent == null) {
+				root = p;
+			} else {
+				backtrace.put(p, parent);
+			}
+		}
+		
+		public Point get(Point p) {
+			Point parent = backtrace.get(p);
+			if (parent == null && !p.equals(root)) {
+				throw new RuntimeException("point not loaded");
+			}
+			return parent;
+		}
+		
+		public int size() {
+			return backtrace.size();
+		}
+		
+		class TraceIterator implements Iterator<Point> {
+			Point cur;
+			
+			public TraceIterator(Point start) {
+				this.cur = start;
+			}
+			
+			public boolean hasNext() {
+				return this.cur != null;
+			}
+
+			public Point next() {
+				Point toRet = this.cur;
+				this.cur = get(this.cur);
+				return toRet;
+			}
+
+			public void remove() {
+				throw new UnsupportedOperationException();
+			}
+		}
+		
+		public Iterable<Point> trace(final Point start) {
+			return new Iterable<Point>() {
+				public Iterator<Point> iterator() {
+					return new TraceIterator(start);
+				}				
+			};
+		}
+		
+		static interface BacktracePruner {
+			void markPoint(Point p);
+			void prune();
+		}
+		
+		public BacktracePruner pruner() {
+			final Set<Point> backtraceKeep = new HashSet<Point>();
+
+			return new BacktracePruner() {
+				public void markPoint(Point p) {
+					for (Point t : trace(p)) {
+						boolean newItem = backtraceKeep.add(t);
+						if (!newItem) {
+							break;
+						}
+					}
+				}
+
+				public void prune() {
+					Iterator<Point> iterBT = backtrace.keySet().iterator();
+					while (iterBT.hasNext()) {
+						Point p = iterBT.next();
+						if (!backtraceKeep.contains(p)) {
+					        iterBT.remove();
+					    }
+					}
+				}
+			};
+		}
+		
+		public Iterable<Point> getAtoB(Point pA, Point pB) {
+			if (pB == null) {
+				return trace(pA);
+			}
+			
+			List<Point> fromA = new ArrayList<Point>();
+			List<Point> fromB = new ArrayList<Point>();
+			Set<Point> inFromA = new HashSet<Point>();
+			Set<Point> inFromB = new HashSet<Point>();
+
+			Point intersection;
+			Point curA = pA;
+			Point curB = pB;
+			while (true) {
+				if (curA != null && curB != null && curA.equals(curB)) {
+					intersection = curA;
+					break;
+				}
+				
+				if (curA != null) {
+					fromA.add(curA);
+					inFromA.add(curA);
+					curA = this.get(curA);
+				}
+				if (curB != null) {
+					fromB.add(curB);
+					inFromB.add(curB);
+					curB = this.get(curB);
+				}
+					
+				if (inFromA.contains(curB)) {
+					intersection = curB;
+					break;
+				} else if (inFromB.contains(curA)) {
+					intersection = curA;
+					break;
+				}
+			}
+
+			List<Point> path = new ArrayList<Point>();
+			int i = fromA.indexOf(intersection);
+			path.addAll(i != -1 ? fromA.subList(0, i) : fromA);
+			path.add(intersection);
+			List<Point> path2 = new ArrayList<Point>();
+			i = fromB.indexOf(intersection);
+			path2 = (i != -1 ? fromB.subList(0, i) : fromB);
+			Collections.reverse(path2);
+			path.addAll(path2);
+			return path;
+		}
+
+	}
+	
 	static class Front {
 		PriorityQueue<Point> queue; // the search front, akin to an expanding contour
 		Set<Point> set; // set of all points in 'queue'
 		Set<Long> seen;
-		Map<Point, Point> backtrace;
+		Backtrace bt;
 		int pruneThreshold = 1; // this could start out much larger (memory-dependent) to avoid
 		                        // unnecessary pruning in the early stages
 
@@ -108,7 +250,7 @@ public class PromNetwork {
 			queue = new PriorityQueue<Point>(10, new ReverseComparator<BasePoint>(c));
 			set = new HashSet<Point>();
 			seen = new HashSet<Long>();
-			backtrace = new HashMap<Point, Point>();
+			bt = new Backtrace();
 			
 			forwardSaddles = new HashMap<Point, Point>();
 			backwardSaddles = new HashMap<Point, Point>();
@@ -122,9 +264,7 @@ public class PromNetwork {
 			boolean newItem = set.add(p);
 			if (newItem) {
 				queue.add(p);
-				if (parent != null) {
-					backtrace.put(p, parent);
-				}
+				bt.add(p, parent);
 			}
 			return newItem;
 		}
@@ -138,10 +278,6 @@ public class PromNetwork {
 			return p;
 		}
 
-		static interface OnMarkPoint {
-			void markPoint(Point p);
-		}
-		
 		public void prune(Collection<Point> pendingPeaks, Collection<Point> pendingSaddles) {
 			// when called, front must contain only saddles
 
@@ -155,18 +291,8 @@ public class PromNetwork {
 			
 			seen.retainAll(this.adjacent());
 			pruneThreshold = Math.max(pruneThreshold, 2 * seen.size());
-			
-			final Set<Point> backtraceKeep = new HashSet<Point>();
-			OnMarkPoint marker = new OnMarkPoint() {
-				public void markPoint(Point p) {
-					for (Point t : trace(p)) {
-						boolean newItem = backtraceKeep.add(t);
-						if (!newItem) {
-							break;
-						}
-					}
-				}
-			};
+
+			BacktracePruner btp = bt.pruner();
 
 			// concession for 'old school' mode
 			if (pendingPeaks == null) {
@@ -175,21 +301,15 @@ public class PromNetwork {
 			}
 			
 			for (Point p : Iterables.concat(queue, pendingPeaks)) {
-				marker.markPoint(p);
+				btp.markPoint(p);
 			}
 			Set<Point> bookkeeping = new HashSet<Point>();
 			Set<Point> significantSaddles = new HashSet<Point>(pendingSaddles);
 			for (Point p : Iterables.concat(queue, pendingSaddles)) {
-				bulkSearchThresholdStart(p, marker, bookkeeping, significantSaddles);
+				bulkSearchThresholdStart(p, btp, bookkeeping, significantSaddles);
 			}
-			
-			Iterator<Point> iterBT = backtrace.keySet().iterator();
-			while (iterBT.hasNext()) {
-				Point p = iterBT.next();
-				if (!backtraceKeep.contains(p)) {
-			        iterBT.remove();
-			    }
-			}
+			btp.prune();
+
 			Iterator<Point> iterFS = forwardSaddles.keySet().iterator();
 			while (iterFS.hasNext()) {
 				Point p = iterFS.next();
@@ -206,37 +326,7 @@ public class PromNetwork {
 			}
 						
 			double runTime = (System.currentTimeMillis() - startAt) / 1000.;
-			Logging.log(String.format("pruned [%.2fs] %d %d %d %d", runTime, queue.size(), backtrace.size(), forwardSaddles.size(), backwardSaddles.size()));
-		}
-		
-		class TraceIterator implements Iterator<Point> {
-			Point cur;
-			
-			public TraceIterator(Point start) {
-				this.cur = start;
-			}
-			
-			public boolean hasNext() {
-				return this.cur != null;
-			}
-
-			public Point next() {
-				Point toRet = this.cur;
-				this.cur = _next(this.cur);
-				return toRet;
-			}
-
-			public void remove() {
-				throw new UnsupportedOperationException();
-			}
-		}
-		
-		public Iterable<Point> trace(final Point start) {
-			return new Iterable<Point>() {
-				public Iterator<Point> iterator() {
-					return new TraceIterator(start);
-				}				
-			};
+			Logging.log(String.format("pruned [%.2fs] %d %d %d %d", runTime, queue.size(), bt.size(), forwardSaddles.size(), backwardSaddles.size()));
 		}
 		
 		public Set<Long> adjacent() {
@@ -253,10 +343,6 @@ public class PromNetwork {
 			return queue.size();
 		}
 		
-		Point _next(Point cur) {
-			return this.backtrace.get(cur);
-		}
-		
 		public Point searchThreshold(Point p, Point saddle) {
 			/*
 			 * we have mapping saddle->peak: forwardSaddles, backwardSaddles
@@ -268,10 +354,10 @@ public class PromNetwork {
 			 * backwardSaddles means: peak is located in opposite direction to the backtrace
              */
 
-			Point start = _next(saddle);
+			Point start = bt.get(saddle);
 			Point target = null;
 			for (int i = 0; i < 1000; i++) {
-				Iterable<Point> path = (target == null ? this.trace(start) : getAtoB(start, target));
+				Iterable<Point> path = bt.getAtoB(start, target);
 				start = null;
 				
 				boolean isPeak = true;
@@ -292,7 +378,7 @@ public class PromNetwork {
 						} else {
 							Point pf = forwardSaddles.get(cur);
 							Point pb = backwardSaddles.get(cur);
-							boolean dirForward = (prev.equals(this.backtrace.get(cur)));
+							boolean dirForward = (prev.equals(this.bt.get(cur)));
 							Point peakAway = (dirForward ? pf : pb);
 							Point peakToward = (dirForward ? pb : pf);
 							if (peakToward != null && this.c.compare(peakToward, start) > 0) {
@@ -313,21 +399,18 @@ public class PromNetwork {
 //			return saddle;
 		}
 
-		public void bulkSearchThresholdStart(Point saddle, OnMarkPoint markPoint, Set<Point> bookkeeping, Set<Point> significantSaddles) {
-			bulkSearchThreshold(_next(saddle), null, null, markPoint, bookkeeping, significantSaddles);
+		public void bulkSearchThresholdStart(Point saddle, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
+			bulkSearchThreshold(bt.get(saddle), null, null, btp, bookkeeping, significantSaddles);
 		}
 		
-		public void bulkSearchThreshold(Point start, Point target, Point minThresh, OnMarkPoint markPoint, Set<Point> bookkeeping, Set<Point> significantSaddles) {
+		public void bulkSearchThreshold(Point start, Point target, Point minThresh, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
 			// minThresh is the equivalent of 'p' in non-bulk mode
 			
 			boolean withBailout = (bookkeeping != null);
 			
-			Iterable<Point> path;
-			if (target == null) {
-				path = this.trace(start);
-			} else {
-				path = getAtoB(start, target);
-				markPoint.markPoint(target);
+			Iterable<Point> path = bt.getAtoB(start, target);
+			if (target != null) {
+				btp.markPoint(target);
 			}
 			start = null;
 						
@@ -352,7 +435,7 @@ public class PromNetwork {
 					} else {
 						Point pf = forwardSaddles.get(cur);
 						Point pb = backwardSaddles.get(cur);
-						boolean dirForward = (prev.equals(this.backtrace.get(cur)));
+						boolean dirForward = (prev.equals(this.bt.get(cur)));
 						Point peakAway = (dirForward ? pf : pb);
 						Point peakToward = (dirForward ? pb : pf);
 						if (peakToward != null) {
@@ -365,7 +448,7 @@ public class PromNetwork {
 						} else if (peakAway != null && this.c.compare(peakAway, minThresh) > 0) {
 							significantSaddles.add(cur);
 							Point newTarget = peakAway;
-							bulkSearchThreshold(start, newTarget, minThresh, markPoint, bookkeeping, significantSaddles);
+							bulkSearchThreshold(start, newTarget, minThresh, btp, bookkeeping, significantSaddles);
 							minThresh = newTarget;
 							bailoutCandidate = true;
 						}
@@ -385,54 +468,6 @@ public class PromNetwork {
 			// reached target
 		}
 		
-		public List<Point> getAtoB(Point pA, Point pB) {
-			Map<Point, Point> tree = this.backtrace;
-
-			List<Point> fromA = new ArrayList<Point>();
-			List<Point> fromB = new ArrayList<Point>();
-			Set<Point> inFromA = new HashSet<Point>();
-			Set<Point> inFromB = new HashSet<Point>();
-
-			Point intersection;
-			Point curA = pA;
-			Point curB = pB;
-			while (true) {
-				if (curA == null ? curB == null : curA.equals(curB)) {
-					intersection = curA;
-					break;
-				}
-				
-				if (curA != null) {
-					fromA.add(curA);
-					inFromA.add(curA);
-					curA = tree.get(curA);
-				}
-				if (curB != null) {
-					fromB.add(curB);
-					inFromB.add(curB);
-					curB = tree.get(curB);
-				}
-					
-				if (inFromA.contains(curB)) {
-					intersection = curB;
-					break;
-				} else if (inFromB.contains(curA)) {
-					intersection = curA;
-					break;
-				}
-			}
-
-			List<Point> path = new ArrayList<Point>();
-			int i = fromA.indexOf(intersection);
-			path.addAll(i != -1 ? fromA.subList(0, i) : fromA);
-			path.add(intersection);
-			List<Point> path2 = new ArrayList<Point>();
-			i = fromB.indexOf(intersection);
-			path2 = (i != -1 ? fromB.subList(0, i) : fromB);
-			Collections.reverse(path2);
-			path.addAll(path2);
-			return path;
-		}
 		
 	}
 	
@@ -578,13 +613,13 @@ public class PromNetwork {
 		}
 		
 		public void finalizeForward(Front front, Point horizon) {
-			this.path = fmtPath(front.getAtoB(horizon, this.p));
+			this.path = fmtPath(front.bt.getAtoB(horizon, this.p));
 			forwardSaddle = true;
 		}
 
 		public void finalizeBackward(Front front) {
 			Point thresh = front.searchThreshold(this.p, this.saddle);			
-			this.path = fmtPath(front.getAtoB(thresh, this.p));
+			this.path = fmtPath(front.bt.getAtoB(thresh, this.p));
 			forwardSaddle = false;
 		}
 		
@@ -751,7 +786,7 @@ public class PromNetwork {
 	static class ParentFront {
 		PriorityQueue<Point> queue; // the search front, akin to an expanding contour
 		Set<Long> seen;
-		Map<Point, Point> backtrace;
+		Backtrace bt;
 		int pruneThreshold = 1; // this could start out much larger (memory-dependent) to avoid
 		                        // unnecessary pruning in the early stages
 
@@ -768,7 +803,7 @@ public class PromNetwork {
 			this.c = c;
 			queue = new PriorityQueue<Point>(10, new ReverseComparator<BasePoint>(c));
 			seen = new HashSet<Long>();
-			backtrace = new HashMap<Point, Point>();
+			bt = new Backtrace();
 		}
 		
 		public boolean add(Point p, Point parent) {
@@ -777,9 +812,7 @@ public class PromNetwork {
 			}
 			
 			queue.add(p);
-			if (parent != null) {
-				backtrace.put(p, parent);
-			}
+			bt.add(p, parent);
 			return true;
 		}
 		
@@ -793,10 +826,6 @@ public class PromNetwork {
 
 		public boolean isEmpty() {
 			return queue.isEmpty();
-		}
-		
-		static interface OnMarkPoint {
-			void markPoint(Point p);
 		}
 		
 		public void prune(Collection<Point> pendingPeaks, Collection<Point> pendingSaddles) {
@@ -813,17 +842,7 @@ public class PromNetwork {
 			seen.retainAll(this.adjacent());
 			pruneThreshold = Math.max(pruneThreshold, 2 * seen.size());
 			
-			final Set<Point> backtraceKeep = new HashSet<Point>();
-			OnMarkPoint marker = new OnMarkPoint() {
-				public void markPoint(Point p) {
-					for (Point t : trace(p)) {
-						boolean newItem = backtraceKeep.add(t);
-						if (!newItem) {
-							break;
-						}
-					}
-				}
-			};
+			BacktracePruner btp = bt.pruner();
 
 			// concession for 'old school' mode
 			if (pendingPeaks == null) {
@@ -832,21 +851,15 @@ public class PromNetwork {
 			}
 			
 			for (Point p : Iterables.concat(queue, pendingPeaks)) {
-				marker.markPoint(p);
+				btp.markPoint(p);
 			}
 			Set<Point> bookkeeping = new HashSet<Point>();
 			Set<Point> significantSaddles = new HashSet<Point>(pendingSaddles);
 			for (Point p : Iterables.concat(queue, pendingSaddles)) {
-				bulkSearchThresholdStart(p, marker, bookkeeping, significantSaddles);
+				bulkSearchThresholdStart(p, btp, bookkeeping, significantSaddles);
 			}
-			
-			Iterator<Point> iterBT = backtrace.keySet().iterator();
-			while (iterBT.hasNext()) {
-				Point p = iterBT.next();
-				if (!backtraceKeep.contains(p)) {
-			        iterBT.remove();
-			    }
-			}
+			btp.prune();
+
 //			Iterator<Point> iterFS = forwardSaddles.keySet().iterator();
 //			while (iterFS.hasNext()) {
 //				Point p = iterFS.next();
@@ -863,37 +876,7 @@ public class PromNetwork {
 //			}
 						
 			double runTime = (System.currentTimeMillis() - startAt) / 1000.;
-			Logging.log(String.format("pruned [%.2fs] %d %d %d %d", runTime, queue.size(), backtrace.size(), 0, 0)); //, forwardSaddles.size(), backwardSaddles.size()));
-		}
-		
-		class TraceIterator implements Iterator<Point> {
-			Point cur;
-			
-			public TraceIterator(Point start) {
-				this.cur = start;
-			}
-			
-			public boolean hasNext() {
-				return this.cur != null;
-			}
-
-			public Point next() {
-				Point toRet = this.cur;
-				this.cur = _next(this.cur);
-				return toRet;
-			}
-
-			public void remove() {
-				throw new UnsupportedOperationException();
-			}
-		}
-		
-		public Iterable<Point> trace(final Point start) {
-			return new Iterable<Point>() {
-				public Iterator<Point> iterator() {
-					return new TraceIterator(start);
-				}				
-			};
+			Logging.log(String.format("pruned [%.2fs] %d %d %d %d", runTime, queue.size(), bt.size(), 0, 0)); //, forwardSaddles.size(), backwardSaddles.size()));
 		}
 		
 		public Set<Long> adjacent() {
@@ -910,55 +893,75 @@ public class PromNetwork {
 			return queue.size();
 		}
 		
-		Point _next(Point cur) {
-			return this.backtrace.get(cur);
-		}
-		
-		public Point searchThreshold(Point p, Point saddle) {
-			/*
-			 * we have mapping saddle->peak: forwardSaddles, backwardSaddles
-			 * forwardSaddles is saddles fixed via finalizeForward, etc.
-			 * backwardSaddles also includes all pending saddle/peak pairs
-			 * 
-			 * strict definition:
-			 * forwardSaddles means: given the saddle, the peak is located in the direction of the backtrace
-			 * backwardSaddles means: peak is located in opposite direction to the backtrace
-             */
-
-			Point start = _next(saddle);
+		public Point searchParent(Point saddle) {
+			float prom = ((PromMeta)tree.getMeta(saddle, "prom")).prom;
+			System.err.println("**"+prom + ";" + saddle);
+			
+			Point start = bt.get(saddle);
 			Point target = null;
-			for (int i = 0; i < 1000; i++) {
-				Iterable<Point> path = (target == null ? this.trace(start) : getAtoB(start, target));
-				start = null;
+			for (int i = 0; i < 10; i++) {
+				System.err.println("(("+target);
+				if (target != null) {
+					for (Point k : bt.getAtoB(start, target)) {
+						System.err.println("====== "+k);
+					}
+					Point q = target;
+					while (q != null) {
+						System.err.println("%%%%%% "+q);
+						q = bt.get(q);
+					}
+				}
 				
+				// load new branch immediately
+				// pend search until loaded naturally
+				
+				
+				Iterable<Point> path = bt.getAtoB(start, target);
+				//start = null;
+				System.err.println("+---");
 				boolean isPeak = true;
 				Point prev = null;
 				Point lockout = null;
 				for (Point cur : path) {
+					System.err.println(cur + " " + isPeak);
 					if (lockout != null && this.c.compare(cur, lockout) < 0) {
 						lockout = null;
 					}
 					if (lockout == null) {
 						if (isPeak) {
-							if (start == null || this.c.compare(cur, start) > 0) {
-								start = cur;
-								if (this.c.compare(start, p) > 0) {
-									return start;
-								}
+							PromMeta pm = (PromMeta)tree.getMeta(cur, "prom");
+							System.err.println(pm);
+							if (pm != null) System.err.println(">>"+pm.prom);
+							if (pm != null && pm.prom > prom) {
+								return cur;
 							}
 						} else {
 							Point pf = null; //forwardSaddles.get(cur);
 							Point pb = null; //backwardSaddles.get(cur);
-							boolean dirForward = (prev.equals(this.backtrace.get(cur)));
+							
+							SaddleMeta sm = (SaddleMeta)tree.getMeta(cur, "saddle");
+							float sprom = 0;
+							if (sm != null) {
+								sprom = ((PromMeta)tree.getMeta(cur, "prom")).prom;
+								if (sm.forward) {
+									pf = tree.get(sm.peakIx);
+								} else {
+									pb = tree.get(sm.peakIx);
+								}
+							}
+							
+							boolean dirForward = (prev.equals(this.bt.get(cur)));
 							Point peakAway = (dirForward ? pf : pb);
 							Point peakToward = (dirForward ? pb : pf);
-							if (peakToward != null && this.c.compare(peakToward, start) > 0) {
+							if (peakToward != null) {
 								lockout = cur;
-							} else if (peakAway != null && this.c.compare(peakAway, p) > 0) {
+							} else if (peakAway != null && sprom > prom) {
 								target = peakAway;
 								break;
 							}
 						}
+					} else {
+						System.err.println("lockedout");
 					}
 
 					isPeak = !isPeak;
@@ -970,21 +973,18 @@ public class PromNetwork {
 //			return saddle;
 		}
 
-		public void bulkSearchThresholdStart(Point saddle, OnMarkPoint markPoint, Set<Point> bookkeeping, Set<Point> significantSaddles) {
-			bulkSearchThreshold(_next(saddle), null, null, markPoint, bookkeeping, significantSaddles);
+		public void bulkSearchThresholdStart(Point saddle, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
+			bulkSearchThreshold(bt.get(saddle), null, null, btp, bookkeeping, significantSaddles);
 		}
 		
-		public void bulkSearchThreshold(Point start, Point target, Point minThresh, OnMarkPoint markPoint, Set<Point> bookkeeping, Set<Point> significantSaddles) {
+		public void bulkSearchThreshold(Point start, Point target, Point minThresh, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
 			// minThresh is the equivalent of 'p' in non-bulk mode
 			
 			boolean withBailout = (bookkeeping != null);
 			
-			Iterable<Point> path;
-			if (target == null) {
-				path = this.trace(start);
-			} else {
-				path = getAtoB(start, target);
-				markPoint.markPoint(target);
+			Iterable<Point> path = bt.getAtoB(start, target);
+			if (target != null) {
+				btp.markPoint(target);
 			}
 			start = null;
 						
@@ -1009,7 +1009,7 @@ public class PromNetwork {
 					} else {
 						Point pf = null; //forwardSaddles.get(cur);
 						Point pb = null; //backwardSaddles.get(cur);
-						boolean dirForward = (prev.equals(this.backtrace.get(cur)));
+						boolean dirForward = (prev.equals(this.bt.get(cur)));
 						Point peakAway = (dirForward ? pf : pb);
 						Point peakToward = (dirForward ? pb : pf);
 						if (peakToward != null) {
@@ -1022,7 +1022,7 @@ public class PromNetwork {
 						} else if (peakAway != null && this.c.compare(peakAway, minThresh) > 0) {
 							significantSaddles.add(cur);
 							Point newTarget = peakAway;
-							bulkSearchThreshold(start, newTarget, minThresh, markPoint, bookkeeping, significantSaddles);
+							bulkSearchThreshold(start, newTarget, minThresh, btp, bookkeeping, significantSaddles);
 							minThresh = newTarget;
 							bailoutCandidate = true;
 						}
@@ -1042,55 +1042,6 @@ public class PromNetwork {
 			// reached target
 		}
 		
-		public List<Point> getAtoB(Point pA, Point pB) {
-			Map<Point, Point> tree = this.backtrace;
-
-			List<Point> fromA = new ArrayList<Point>();
-			List<Point> fromB = new ArrayList<Point>();
-			Set<Point> inFromA = new HashSet<Point>();
-			Set<Point> inFromB = new HashSet<Point>();
-
-			Point intersection;
-			Point curA = pA;
-			Point curB = pB;
-			while (true) {
-				if (curA == null ? curB == null : curA.equals(curB)) {
-					intersection = curA;
-					break;
-				}
-				
-				if (curA != null) {
-					fromA.add(curA);
-					inFromA.add(curA);
-					curA = tree.get(curA);
-				}
-				if (curB != null) {
-					fromB.add(curB);
-					inFromB.add(curB);
-					curB = tree.get(curB);
-				}
-					
-				if (inFromA.contains(curB)) {
-					intersection = curB;
-					break;
-				} else if (inFromB.contains(curA)) {
-					intersection = curA;
-					break;
-				}
-			}
-
-			List<Point> path = new ArrayList<Point>();
-			int i = fromA.indexOf(intersection);
-			path.addAll(i != -1 ? fromA.subList(0, i) : fromA);
-			path.add(intersection);
-			List<Point> path2 = new ArrayList<Point>();
-			i = fromB.indexOf(intersection);
-			path2 = (i != -1 ? fromB.subList(0, i) : fromB);
-			Collections.reverse(path2);
-			path.addAll(path2);
-			return path;
-		}
-		
 	}
 
 	static class ParentInfo {
@@ -1106,12 +1057,12 @@ public class PromNetwork {
 		}
 		
 		public void finalizeForward(ParentFront front) {
-			this.path = fmtPath(front.getAtoB(this.parent, this.saddle));
+			this.path = fmtPath(front.bt.getAtoB(this.parent, this.saddle));
 		}
 
 		public void finalizeBackward(ParentFront front) {
-			//Point thresh = front.searchThreshold(this.p, this.saddle);			
-			//this.path = fmtPath(front.getAtoB(thresh, this.p));
+			this.parent = front.searchParent(this.saddle);			
+			this.path = fmtPath(front.bt.getAtoB(this.parent, this.saddle));
 		}
 	}
 	
@@ -1146,7 +1097,7 @@ public class PromNetwork {
 					} else {
 						ParentInfo pi = new ParentInfo(sm.peakIx, cur, null);
 						pi.finalizeBackward(front);
-						//onparent.onparent(pi);
+						onparent.onparent(pi);
 					}
 				}
 			} else {
