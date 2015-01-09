@@ -1,6 +1,9 @@
 package promviz;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 
 
 /* extends BasePoint with the concept of being part of a network or mesh, i.e., being
@@ -20,6 +23,8 @@ public class Point extends BasePoint {
 	 * inserted between them
 	 */
 	long[] _adjacent = new long[0];
+	Map<Long, Integer> tagging = null;
+	int[] _tagging = null;
 
 	public Point(long ix, float elev) {
 		super(ix, elev);
@@ -147,4 +152,36 @@ public class Point extends BasePoint {
 		return L;
 	}
 	
+	int encTag(int tag, boolean rev) {
+		return (tag < 0 ? 0 : (rev ? -1 : 1) * (1 + tag));
+	}
+	
+	void setTag(long dst, int tag, boolean rev) {
+		if (tag == -1) {
+			return;
+		}
+		if (tagging == null) {
+			tagging = new HashMap<Long, Integer>();
+		}
+		tagging.put(dst, encTag(tag, rev));
+	}
+	
+	// returns in 'encoded' format
+	int getTag(long dst) {
+		return (tagging != null ? tagging.get(dst) : 0);
+	}
+	
+	long getByTag(int tag, boolean rev) {
+		tag = encTag(tag, rev);
+		if (tagging != null) {
+			for (Entry<Long, Integer> e : tagging.entrySet()) {
+				long ix = e.getKey();
+				int t = e.getValue();
+				if (tag == t) {
+					return ix;
+				}
+			}
+		}
+		return -1;
+	}
 }

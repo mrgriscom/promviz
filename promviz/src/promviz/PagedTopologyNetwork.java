@@ -16,8 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import promviz.PreprocessNetwork.Edge;
 import promviz.PreprocessNetwork.EdgeIterator;
-import promviz.util.DefaultMap;
 import promviz.util.Logging;
 
 import com.google.common.collect.Lists;
@@ -112,15 +112,16 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 
 		Logging.log("pagedtn: loading network segment " + prefix);
 		
-		List<long[]> data = new ArrayList<long[]>();
+		List<Edge> data = new ArrayList<Edge>();
 		try {
 			DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(prefixes.get(prefix).path)));
-			try {
-				while (true) {
-					data.add(new long[] {in.readLong(), in.readLong()});
-					int leadIx = in.readByte();
+			while (true) {
+				Edge e = Edge.read(in);
+				if (e == null) {
+					break;
 				}
-			} catch (EOFException eof) {}
+				data.add(e);
+			}
 			in.close();
 		} catch (IOException ioe) {
 			throw new RuntimeException(ioe);
@@ -140,8 +141,8 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		}
 		
 		Set<Point> newPoints = new HashSet<Point>();
-		for (long[] e : data) {
-			for (long ix : e) {
+		for (Edge e : data) {
+			for (long ix : new long[] {e.a, e.b}) {
 				if (ix == 0xFFFFFFFFFFFFFFFFL) {
 					continue;
 				}
@@ -158,15 +159,15 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 			}
 		}
 		
-		for (long[] edge : data) {
-			if (edge[1] == 0xFFFFFFFFFFFFFFFFL) {
-				pendingSaddles.add(points.get(edge[0]));
+		for (Edge edge : data) {
+			if (edge.b == 0xFFFFFFFFFFFFFFFFL) {
+				pendingSaddles.add(points.get(edge.a));
 			} else {
-				if (prefix.isParent(edge[0])) {
-					addDirectedEdge(points.get(edge[0]), edge[1]);
+				if (prefix.isParent(edge.a)) {
+					addDirectedEdge(edge, false);
 				}
-				if (prefix.isParent(edge[1])) {
-					addDirectedEdge(points.get(edge[1]), edge[0]);
+				if (prefix.isParent(edge.b)) {
+					addDirectedEdge(edge, true);
 				}
 			}
 		}
@@ -276,18 +277,16 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 //		return match;
 	}
 	
-	void addEdge(Point a, Point b) {
-		addDirectedEdge(a, b);
-		addDirectedEdge(b, a);
-	}
+	void addDirectedEdge(Edge e, boolean rev) {
+		long ixFrom = (rev ? e.b : e.a);
+		long ixTo = (rev ? e.a : e.b);
 		
-	void addDirectedEdge(Point from, long to_ix) {
-		Point p = getPoint(from);
+		Point p = get(ixFrom);
 		// FUCKING JAVA!!
 		// all this does is add the new point's geocode to the adjacency array if it isn't already in there
 		boolean exists = false;
 		for (Long l : p._adjacent) {
-			if (l == to_ix) {
+			if (l == ixTo) {
 				exists = true;
 				break;
 			}
@@ -295,9 +294,10 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		if (!exists) {
 			long[] new_ = new long[p._adjacent.length + 1];
 			System.arraycopy(p._adjacent, 0, new_, 0, p._adjacent.length);
-			new_[p._adjacent.length] = to_ix;
+			new_[p._adjacent.length] = ixTo;
 			p._adjacent = new_;
 		}
+		p.setTag(ixTo, e.i, rev);
 	}
 	
 	Prefix matchPrefix(long ix) {

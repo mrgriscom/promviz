@@ -61,6 +61,16 @@ public class PreprocessNetwork {
 			}
 		}
 		
+		static Edge read(DataInputStream in) {
+			try {
+				return new Edge(in.readLong(), in.readLong(), in.readByte());
+			} catch (EOFException eof) {
+				return null;
+			} catch (IOException ioe) {
+				throw new RuntimeException(ioe);
+			}
+		}
+		
 		public boolean equals(Object o) {
 			if (o instanceof Edge) {
 				Edge e = (Edge)o;
@@ -115,15 +125,11 @@ public class PreprocessNetwork {
 		}
 		
 		void readNext() {
-			try {
-				nextEdge = new Edge(in.readLong(), in.readLong(), in.readByte());
-			} catch (EOFException eof) {
-				nextEdge = null;
+			nextEdge = Edge.read(in);
+			if (nextEdge == null) {
 				try {
 					in.close();
 				} catch (IOException e) { }
-			} catch (IOException ioe) {
-				throw new RuntimeException(ioe);
 			}
 			count += 1;
 		}

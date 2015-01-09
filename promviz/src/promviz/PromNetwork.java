@@ -108,6 +108,10 @@ public class PromNetwork {
 			return parent;
 		}
 		
+		public boolean isLoaded(Point p) {
+			return backtrace.containsKey(p) || p.equals(root);
+		}
+		
 		public int size() {
 			return backtrace.size();
 		}
@@ -705,7 +709,7 @@ public class PromNetwork {
 			for (Point adj : tree.adjacent(cur)) {
 				if (front.add(adj, cur)) {
 					deadEnd = false;
-					onedge.addEdge(adj, cur, isSaddle);
+					onedge.addEdge(adj, cur, !isSaddle); // type of 'adj' is opposite 'cur'
 				}
 			}
 						
@@ -895,43 +899,26 @@ public class PromNetwork {
 		
 		public Point searchParent(Point saddle) {
 			float prom = ((PromMeta)tree.getMeta(saddle, "prom")).prom;
-			System.err.println("**"+prom + ";" + saddle);
-			
 			Point start = bt.get(saddle);
 			Point target = null;
 			for (int i = 0; i < 10; i++) {
-				System.err.println("(("+target);
-				if (target != null) {
-					for (Point k : bt.getAtoB(start, target)) {
-						System.err.println("====== "+k);
-					}
-					Point q = target;
-					while (q != null) {
-						System.err.println("%%%%%% "+q);
-						q = bt.get(q);
-					}
+				if (target != null && !bt.isLoaded(target)) {
+					Point next = tree.get(target.getByTag(1, true));
+					next = tree.get(next.getByTag(0, false));					
+//					bt.load(target, tree);
 				}
-				
-				// load new branch immediately
-				// pend search until loaded naturally
-				
-				
 				Iterable<Point> path = bt.getAtoB(start, target);
-				//start = null;
-				System.err.println("+---");
+
 				boolean isPeak = true;
 				Point prev = null;
 				Point lockout = null;
 				for (Point cur : path) {
-					System.err.println(cur + " " + isPeak);
 					if (lockout != null && this.c.compare(cur, lockout) < 0) {
 						lockout = null;
 					}
 					if (lockout == null) {
 						if (isPeak) {
 							PromMeta pm = (PromMeta)tree.getMeta(cur, "prom");
-							System.err.println(pm);
-							if (pm != null) System.err.println(">>"+pm.prom);
 							if (pm != null && pm.prom > prom) {
 								return cur;
 							}
@@ -943,10 +930,11 @@ public class PromNetwork {
 							float sprom = 0;
 							if (sm != null) {
 								sprom = ((PromMeta)tree.getMeta(cur, "prom")).prom;
+								Point peak = tree.get(sm.peakIx);
 								if (sm.forward) {
-									pf = tree.get(sm.peakIx);
+									pf = peak;
 								} else {
-									pb = tree.get(sm.peakIx);
+									pb = peak;
 								}
 							}
 							
@@ -960,8 +948,6 @@ public class PromNetwork {
 								break;
 							}
 						}
-					} else {
-						System.err.println("lockedout");
 					}
 
 					isPeak = !isPeak;
