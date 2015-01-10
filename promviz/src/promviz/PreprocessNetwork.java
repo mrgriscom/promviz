@@ -727,12 +727,15 @@ public class PreprocessNetwork {
 	
 	static class PromMeta extends Meta {
 		float prom;
+		long otherIx;
 		
 		void readData(DataInputStream in) throws IOException {
 			this.prom = in.readFloat();
+			this.otherIx = in.readLong();
 		}
 		void writeData(DataOutputStream out) throws IOException {
-			out.writeFloat(this.prom);		
+			out.writeFloat(this.prom);	
+			out.writeLong(this.otherIx);
 		}
 		
 		String getName() {
@@ -740,7 +743,7 @@ public class PreprocessNetwork {
 		}
 		
 		int dataSize() {
-			return 4;
+			return 12;
 		}		
 		
 		Meta fuckingHell() { return new PromMeta(); }

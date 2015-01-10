@@ -23,8 +23,8 @@ public class Point extends BasePoint {
 	 * inserted between them
 	 */
 	long[] _adjacent = new long[0];
-	Map<Long, Integer> tagging = null;
-	int[] _tagging = null;
+	Map<Long, Integer> tagging = null; // make more memory efficient
+	//int[] _tagging = null;
 
 	public Point(long ix, float elev) {
 		super(ix, elev);

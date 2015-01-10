@@ -503,24 +503,30 @@ public class PromNetwork {
 	}
 
 	public static PromInfo parent(final TopologyNetwork tree, Point p, final boolean up) {
-		final float pProm = ((PromMeta)tree.getMeta(p, "prom")).prom;
+		final PromPair pp = PromPair.fromPeak(p, tree);
 		return _prominence(tree, p, up, new Criterion() {
 			@Override
 			public boolean condition(Comparator<BasePoint> cmp, BasePoint p, BasePoint cur) {
 				PromMeta m = (PromMeta)tree.getMeta(cur, "prom");
-				float curProm = (m != null ? m.prom : 0);
-				return curProm > pProm;
+				if (m != null) {
+					PromPair pp2 = PromPair.fromPeak(cur, tree);
+					return cmpProm(cmp).compare(pp2, pp) > 0;
+				} else {
+					return false;
+				}
 			}
 		});
 	}
 	
-	public static Map<Point, Long> domainSaddles(TopologyNetwork tree, Point p) {
-		float threshold = ((PromMeta)tree.getMeta(p, "prom")).prom;
+	public static Map<Point, Long> domainSaddles(boolean up, TopologyNetwork tree, Point p) {
+		final PromPair pp = PromPair.fromPeak(p, tree);
 		Map<Point, Long> saddles = new HashMap<Point, Long>();
 		
 		Deque<Point> queue = new ArrayDeque<Point>();
 		Set<Point> seen = new HashSet<Point>();
 		int pruneThresh = 1;
+		
+		Comparator<PromPair> cmp = cmpProm(BasePoint.cmpElev(up));
 		
 		queue.add(p);
 		while (!queue.isEmpty()) {
@@ -529,8 +535,8 @@ public class PromNetwork {
 
 			SaddleMeta sm = (SaddleMeta)tree.getMeta(cur, "saddle");
 			if (sm != null) {
-				float prom = ((PromMeta)tree.getMeta(cur, "prom")).prom;
-				if (prom >= threshold) {
+				PromPair pp2 = PromPair.fromSaddle(cur, tree);
+				if (cmp.compare(pp2, pp) >= 0) {
 					if (sm.peakIx != p.ix) {
 						saddles.put(cur, sm.peakIx);
 					}
@@ -1061,6 +1067,41 @@ public class PromNetwork {
 			this.parent = front.searchParent(this.saddle);			
 			this.path = fmtPath(front.bt.getAtoB(this.parent, this.saddle));
 		}
+	}
+	
+	static class PromPair {
+		BasePoint peak;
+		BasePoint saddle;
+		public PromPair(BasePoint peak, BasePoint saddle) {
+			this.peak = peak;
+			this.saddle = saddle;
+		}
+		float prominence() {
+			return Math.abs(peak.elev - saddle.elev);
+		}
+		static PromPair fromPeak(BasePoint p, TopologyNetwork tree) {
+			return new PromPair(p, tree.get(((PromMeta)tree.getMeta(p, "prom")).otherIx));
+		}
+		static PromPair fromSaddle(BasePoint s, TopologyNetwork tree) {
+			return new PromPair(tree.get(((PromMeta)tree.getMeta(s, "prom")).otherIx), s);
+		}
+	}
+	static Comparator<PromPair> cmpProm(final Comparator<BasePoint> cmp) {
+		return new Comparator<PromPair>() {
+			public int compare(PromPair ppa, PromPair ppb) {
+				int c = Float.compare(ppa.prominence(), ppb.prominence());
+				if (c == 0) {
+					int cp = cmp.compare(ppa.peak, ppb.peak);
+					int cs = cmp.compare(ppa.saddle, ppb.saddle);
+					if (cp > 0 && cs < 0) {
+						c = 1;
+					} else if (cp < 0 && cs > 0) {
+						c = -1;
+					}
+				}
+				return c;
+			}
+		};
 	}
 	
 	public static void bigOlPromParentSearch(boolean up, Point root, TopologyNetwork tree, DEMManager.OnPromParent onparent) {

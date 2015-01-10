@@ -364,8 +364,8 @@ public class DEMManager {
 		return highest;
 	}
 	
-	//static boolean oldSchool = true;
-	static boolean oldSchool = false;
+	static boolean oldSchool = true;
+	//static boolean oldSchool = false;
 	static void promSearch(final boolean up, double cutoff, DEMManager dm, String region) {
 		DualTopologyNetwork dtn;
 		MESH_MAX_POINTS = (1 << 26);
@@ -413,7 +413,9 @@ public class DEMManager {
 						promOut.writeLong(pi.p.ix);
 						promOut.writeFloat(pi.prominence());
 						promOut.writeLong(pi.saddle.ix);
+						promOut.writeLong(pi.saddle.ix);
 						promOut.writeFloat(pi.prominence());
+						promOut.writeLong(pi.p.ix);
 						
 						saddlesOut.writeLong(pi.saddle.ix);
 						saddlesOut.writeLong(pi.p.ix);
@@ -431,7 +433,7 @@ public class DEMManager {
 			}
 			
 			processMST(highest, dm, up, null);
-			promPass2(highest, dm, up, null);
+			//promPass2(highest, dm, up, null);
 		}
 		
 //		Map<Point, PromNetwork.PromInfo> saddleIndex = new HashMap<Point, PromNetwork.PromInfo>();
@@ -504,7 +506,7 @@ public class DEMManager {
 					outputPromParentage(pi, up);
 				}
 				
-				Map<Point, Long> secondarySaddles = PromNetwork.domainSaddles(tn, p);
+				Map<Point, Long> secondarySaddles = PromNetwork.domainSaddles(up, tn, p);
 				Map<Long, Boolean> saddlesHigher = new HashMap<Long, Boolean>();
 				Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
 				for (long otherIx : secondarySaddles.values()) {
