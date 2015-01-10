@@ -227,6 +227,19 @@ public class PromNetwork {
 			return path;
 		}
 
+		void load(Point p, TopologyNetwork tree, boolean isPeak) {
+			Point next;
+			while (!isLoaded(p)) {
+				if (isPeak) {
+					next = tree.get(p.getByTag(1, true));
+				} else {
+					next = tree.get(p.getByTag(0, false));					
+				}
+				this.add(p, next);
+				p = next;
+				isPeak = !isPeak;
+			}
+		}		
 	}
 	
 	static class Front {
@@ -901,11 +914,9 @@ public class PromNetwork {
 			float prom = ((PromMeta)tree.getMeta(saddle, "prom")).prom;
 			Point start = bt.get(saddle);
 			Point target = null;
-			for (int i = 0; i < 10; i++) {
+			for (int i = 0; i < 1000; i++) {
 				if (target != null && !bt.isLoaded(target)) {
-					Point next = tree.get(target.getByTag(1, true));
-					next = tree.get(next.getByTag(0, false));					
-//					bt.load(target, tree);
+					bt.load(target, tree, true);
 				}
 				Iterable<Point> path = bt.getAtoB(start, target);
 
@@ -1079,6 +1090,10 @@ public class PromNetwork {
 				SaddleMeta sm = (SaddleMeta)tree.getMeta(cur, "saddle");
 				if (sm != null) {
 					if (sm.forward) {
+						if (sm.peakIx == root.ix) {
+							// reached the edge of the root domain, beyond which this algorithm won't work
+							break;
+						}
 						pendingForward.addFirst(cur);
 					} else {
 						ParentInfo pi = new ParentInfo(sm.peakIx, cur, null);

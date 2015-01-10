@@ -409,7 +409,7 @@ public class DEMManager {
 					// note: if we ever have varying cutoffs this will take extra care
 					// to make sure we always capture the parent/next highest peaks for
 					// peaks right on the edge of the lower-cutoff region
-					try {
+					try {	
 						promOut.writeLong(pi.p.ix);
 						promOut.writeFloat(pi.prominence());
 						promOut.writeLong(pi.saddle.ix);
