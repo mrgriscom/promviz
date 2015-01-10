@@ -42,6 +42,19 @@ for k in points():
     #        psimp.append(p)
     #ref['threshold_path'] = psimp
 
+    if 'subsaddles' in ref:
+        del ref['subsaddles']
+    if 'subsaddles' in cur:
+        del cur['subsaddles']
+
+    # new-school parent search cuts off at root's saddle
+    if 'parent' not in cur:
+        if 'parent' in ref:
+            del ref['parent']
+    # new-school parent path only starts from saddle
+    del cur['parent_path']
+    del ref['parent_path']
+
     if cur != ref:
         diffs = True
         print cur['peak']['prom'], 'mismatch', k

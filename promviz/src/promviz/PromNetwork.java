@@ -820,10 +820,12 @@ public class PromNetwork {
 				
 		TopologyNetwork tree;
 		Comparator<BasePoint> c;
+		Comparator<PromPair> cprom;
 
-		public ParentFront(final Comparator<BasePoint> c, TopologyNetwork tree) {
+		public ParentFront(final Comparator<BasePoint> c, Comparator<PromPair> cprom, TopologyNetwork tree) {
 			this.tree = tree;
 			this.c = c;
+			this.cprom = cprom;
 			queue = new PriorityQueue<Point>(10, new ReverseComparator<BasePoint>(c));
 			seen = new HashSet<Long>();
 			bt = new Backtrace();
@@ -917,7 +919,7 @@ public class PromNetwork {
 		}
 		
 		public Point searchParent(Point saddle) {
-			float prom = ((PromMeta)tree.getMeta(saddle, "prom")).prom;
+			PromPair pp = PromPair.fromSaddle(saddle, tree);
 			Point start = bt.get(saddle);
 			Point target = null;
 			for (int i = 0; i < 1000; i++) {
@@ -936,7 +938,7 @@ public class PromNetwork {
 					if (lockout == null) {
 						if (isPeak) {
 							PromMeta pm = (PromMeta)tree.getMeta(cur, "prom");
-							if (pm != null && pm.prom > prom) {
+							if (pm != null && cprom.compare(PromPair.fromPeak(cur, tree), pp) > 0) {
 								return cur;
 							}
 						} else {
@@ -944,9 +946,9 @@ public class PromNetwork {
 							Point pb = null; //backwardSaddles.get(cur);
 							
 							SaddleMeta sm = (SaddleMeta)tree.getMeta(cur, "saddle");
-							float sprom = 0;
+							PromPair cand = null;
 							if (sm != null) {
-								sprom = ((PromMeta)tree.getMeta(cur, "prom")).prom;
+								cand = PromPair.fromSaddle(cur, tree);
 								Point peak = tree.get(sm.peakIx);
 								if (sm.forward) {
 									pf = peak;
@@ -960,7 +962,7 @@ public class PromNetwork {
 							Point peakToward = (dirForward ? pb : pf);
 							if (peakToward != null) {
 								lockout = cur;
-							} else if (peakAway != null && sprom > prom) {
+							} else if (peakAway != null && cprom.compare(cand, pp) > 0) {
 								target = peakAway;
 								break;
 							}
@@ -1079,10 +1081,10 @@ public class PromNetwork {
 		float prominence() {
 			return Math.abs(peak.elev - saddle.elev);
 		}
-		static PromPair fromPeak(BasePoint p, TopologyNetwork tree) {
+		static PromPair fromPeak(BasePoint p, TopologyNetwork tree) { // TODO check meta for null?
 			return new PromPair(p, tree.get(((PromMeta)tree.getMeta(p, "prom")).otherIx));
 		}
-		static PromPair fromSaddle(BasePoint s, TopologyNetwork tree) {
+		static PromPair fromSaddle(BasePoint s, TopologyNetwork tree) { // TODO check meta for null?
 			return new PromPair(tree.get(((PromMeta)tree.getMeta(s, "prom")).otherIx), s);
 		}
 	}
@@ -1107,11 +1109,12 @@ public class PromNetwork {
 	public static void bigOlPromParentSearch(boolean up, Point root, TopologyNetwork tree, DEMManager.OnPromParent onparent) {
 		root = tree.getPoint(root);
 		Comparator<BasePoint> c = BasePoint.cmpElev(up);
+		Comparator<PromPair> cprom = cmpProm(c);
 		
-		ParentFront front = new ParentFront(c, tree);
+		ParentFront front = new ParentFront(c, cprom, tree);
 		front.add(root, null);
 		
-		Deque<Point> pendingForward = new ArrayDeque<Point>();
+		Deque<PromPair> pendingForward = new ArrayDeque<PromPair>();
 		
 		Point cur = null;
 		while (!front.isEmpty()) {
@@ -1135,7 +1138,7 @@ public class PromNetwork {
 							// reached the edge of the root domain, beyond which this algorithm won't work
 							break;
 						}
-						pendingForward.addFirst(cur);
+						pendingForward.addFirst(PromPair.fromSaddle(cur, tree));
 					} else {
 						ParentInfo pi = new ParentInfo(sm.peakIx, cur, null);
 						pi.finalizeBackward(front);
@@ -1145,14 +1148,13 @@ public class PromNetwork {
 			} else {
 				PromMeta pm = (PromMeta)tree.getMeta(cur, "prom");
 				if (pm != null) {
+					PromPair pp = PromPair.fromPeak(cur, tree);
 					while (!pendingForward.isEmpty()) {
-						Point pend = pendingForward.peekFirst();
-						PromMeta pendpm = (PromMeta)tree.getMeta(pend, "prom");
-						if (pm.prom > pendpm.prom) {
+						PromPair pend = pendingForward.peekFirst();
+						if (cprom.compare(pp, pend) > 0) {
 							pendingForward.removeFirst();
 							
-							SaddleMeta pendsm = (SaddleMeta)tree.getMeta(pend, "saddle");
-							ParentInfo pi = new ParentInfo(pendsm.peakIx, pend, cur);
+							ParentInfo pi = new ParentInfo(pend.peak.ix, (Point)pend.saddle, cur);
 							pi.finalizeForward(front);
 							onparent.onparent(pi);
 						} else {

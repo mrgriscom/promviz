@@ -364,8 +364,8 @@ public class DEMManager {
 		return highest;
 	}
 	
-	static boolean oldSchool = true;
-	//static boolean oldSchool = false;
+	//static boolean oldSchool = true;
+	static boolean oldSchool = false;
 	static void promSearch(final boolean up, double cutoff, DEMManager dm, String region) {
 		DualTopologyNetwork dtn;
 		MESH_MAX_POINTS = (1 << 26);
