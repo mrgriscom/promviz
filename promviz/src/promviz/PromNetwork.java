@@ -535,9 +535,8 @@ public class PromNetwork {
 			if (isSaddle) {
 				PromPair pp2 = PromPair.fromSaddle(cur, tree);
 				if (pp2 != null && cmp.compare(pp2, pp) >= 0) {
-					long peakIx = pp2.peak.ix;
-					if (peakIx != p.ix) {
-						saddles.put(cur, peakIx);
+					if (pp2.getPeakIx() != p.ix) {
+						saddles.put(cur, pp2.getPeakIx());
 					}
 					continue;
 				}
@@ -946,11 +945,11 @@ public class PromNetwork {
 							
 							PromPair cand = PromPair.fromSaddle(cur, tree);
 							if (cand != null) {
-								PromMeta pm = (PromMeta)tree.getMeta(cur, "prom");								
-								if (pm.forward) {
-									pf = (Point)cand.peak;
+								Point peak = (Point)cand.getPeak();
+								if (cand.m.forward) {
+									pf = peak;
 								} else {
-									pb = (Point)cand.peak;
+									pb = peak;
 								}
 							}
 							
@@ -1069,22 +1068,54 @@ public class PromNetwork {
 	}
 	
 	static class PromPair { // TODO could load 'other' on demand only if needed
-		BasePoint peak;
-		BasePoint saddle;
-		public PromPair(BasePoint peak, BasePoint saddle) {
-			this.peak = peak;
-			this.saddle = saddle;
-		}
-		float prominence() {
-			return Math.abs(peak.elev - saddle.elev);
+		private BasePoint peak;
+		private BasePoint saddle;
+		PromMeta m;
+		TopologyNetwork tree;
+		
+		static PromPair make(BasePoint p, TopologyNetwork tree, boolean isSaddle) {
+			PromPair pp = new PromPair();
+			pp.tree = tree;
+			pp.m = (PromMeta)tree.getMeta(p, "prom");
+			if (pp.m == null) {
+				return null;
+			}
+			if (isSaddle) {
+				pp.saddle = p;
+			} else {
+				pp.peak = p;
+			}
+			return pp;
 		}
 		static PromPair fromPeak(BasePoint p, TopologyNetwork tree) {
-			PromMeta pm = (PromMeta)tree.getMeta(p, "prom");
-			return (pm != null ? new PromPair(p, tree.get(pm.getSaddle(false))) : null);
+			return make(p, tree, false);
 		}
-		static PromPair fromSaddle(BasePoint s, TopologyNetwork tree) {
-			PromMeta pm = (PromMeta)tree.getMeta(s, "prom");
-			return (pm != null ? new PromPair(tree.get(pm.getPeak(true)), s) : null);
+		static PromPair fromSaddle(BasePoint p, TopologyNetwork tree) {
+			return make(p, tree, true);
+		}
+		
+		float prominence() {
+			return m.prom;
+		}
+		
+		long getPeakIx() {
+			return (peak != null ? peak.ix : m.getPeak(true));
+		}
+		BasePoint getPeak() {
+			if (peak == null) {
+				peak = tree.get(getPeakIx());
+			}
+			return peak;
+		}
+		
+		long getSaddleIx() {
+			return (saddle != null ? saddle.ix : m.getSaddle(false));
+		}
+		BasePoint getSaddle() {
+			if (saddle == null) {
+				saddle = tree.get(getSaddleIx());
+			}
+			return saddle;
 		}
 	}
 	static Comparator<PromPair> cmpProm(final Comparator<BasePoint> cmp) {
@@ -1092,8 +1123,8 @@ public class PromNetwork {
 			public int compare(PromPair ppa, PromPair ppb) {
 				int c = Float.compare(ppa.prominence(), ppb.prominence());
 				if (c == 0) {
-					int cp = cmp.compare(ppa.peak, ppb.peak);
-					int cs = cmp.compare(ppa.saddle, ppb.saddle);
+					int cp = cmp.compare(ppa.getPeak(), ppb.getPeak());
+					int cs = cmp.compare(ppa.getSaddle(), ppb.getSaddle());
 					if (cp > 0 && cs < 0) {
 						c = 1;
 					} else if (cp < 0 && cs > 0) {
@@ -1130,16 +1161,16 @@ public class PromNetwork {
 			}
 
 			if (isSaddle) {
-				PromMeta pm = (PromMeta)tree.getMeta(cur, "prom");
-				if (pm != null) {
-					if (pm.forward) {
-						if (pm.getPeak(true) == root.ix) {
+				PromPair pp = PromPair.fromSaddle(cur, tree);
+				if (pp != null) {
+					if (pp.m.forward) {
+						if (pp.getPeakIx() == root.ix) {
 							// reached the edge of the root domain, beyond which this algorithm won't work
 							break;
 						}
-						pendingForward.addFirst(PromPair.fromSaddle(cur, tree));
+						pendingForward.addFirst(pp);
 					} else {
-						ParentInfo pi = new ParentInfo(pm.getPeak(true), cur, null);
+						ParentInfo pi = new ParentInfo(pp.getPeakIx(), cur, null);
 						pi.finalizeBackward(front);
 						onparent.onparent(pi);
 					}
@@ -1152,7 +1183,7 @@ public class PromNetwork {
 						if (cprom.compare(pp, pend) > 0) {
 							pendingForward.removeFirst();
 							
-							ParentInfo pi = new ParentInfo(pend.peak.ix, (Point)pend.saddle, cur);
+							ParentInfo pi = new ParentInfo(pend.getPeakIx(), (Point)pend.getSaddle(), cur);
 							pi.finalizeForward(front);
 							onparent.onparent(pi);
 						} else {
