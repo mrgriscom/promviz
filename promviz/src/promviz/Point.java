@@ -2,8 +2,8 @@ package promviz;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
+import java.util.NoSuchElementException;
 
 
 /* extends BasePoint with the concept of being part of a network or mesh, i.e., being
@@ -23,8 +23,7 @@ public class Point extends BasePoint {
 	 * inserted between them
 	 */
 	long[] _adjacent = new long[0];
-	Map<Long, Integer> tagging = null; // make more memory efficient
-	//int[] _tagging = null;
+	int[] _tagging = null;
 
 	public Point(long ix, float elev) {
 		super(ix, elev);
@@ -152,6 +151,35 @@ public class Point extends BasePoint {
 		return L;
 	}
 	
+	boolean adjAdd(long ixTo) {
+		return adjAdd(ixTo, -1, false);
+	}
+	boolean adjAdd(long ixTo, int tag, boolean rev) {
+		// FUCKING JAVA!!
+		// all this does is add the new point's geocode to the adjacency array if it isn't already in there
+		boolean exists = false;
+		for (long l : this._adjacent) {
+			if (l == ixTo) {
+				exists = true;
+				break;
+			}
+		}
+		if (!exists) {
+			long[] new_ = new long[this._adjacent.length + 1];
+			System.arraycopy(this._adjacent, 0, new_, 0, this._adjacent.length);
+			new_[this._adjacent.length] = ixTo;
+			this._adjacent = new_;
+
+			if (_tagging != null) {
+				int[] tnew_ = new int[this._tagging.length + 1];
+				System.arraycopy(this._tagging, 0, tnew_, 0, this._tagging.length);
+				this._tagging = tnew_;
+			}
+		}
+		this.setTag(ixTo, tag, rev);
+		return !exists;
+	}
+	
 	int encTag(int tag, boolean rev) {
 		return (tag < 0 ? 0 : (rev ? -1 : 1) * (1 + tag));
 	}
@@ -160,25 +188,37 @@ public class Point extends BasePoint {
 		if (tag == -1) {
 			return;
 		}
-		if (tagging == null) {
-			tagging = new HashMap<Long, Integer>();
+		if (_tagging == null) {
+			_tagging = new int[_adjacent.length];
 		}
-		tagging.put(dst, encTag(tag, rev));
+		for (int i = 0; i < _adjacent.length; i++) {
+			if (_adjacent[i] == dst) {
+				_tagging[i] = encTag(tag, rev);
+				return;
+			}
+		}
+		throw new NoSuchElementException();
 	}
 	
 	// returns in 'encoded' format
 	int getTag(long dst) {
-		return (tagging != null ? tagging.get(dst) : 0);
+		if (_tagging != null) {
+			for (int i = 0; i < _adjacent.length; i++) {
+				if (_adjacent[i] == dst) {
+					return _tagging[i];
+				}
+			}
+			throw new NoSuchElementException();
+		}
+		return 0;
 	}
 	
 	long getByTag(int tag, boolean rev) {
 		tag = encTag(tag, rev);
-		if (tagging != null) {
-			for (Entry<Long, Integer> e : tagging.entrySet()) {
-				long ix = e.getKey();
-				int t = e.getValue();
-				if (tag == t) {
-					return ix;
+		if (_tagging != null) {
+			for (int i = 0; i < _tagging.length; i++) {
+				if (_tagging[i] == tag) {
+					return _adjacent[i];
 				}
 			}
 		}

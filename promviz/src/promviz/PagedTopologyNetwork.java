@@ -281,23 +281,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		long ixFrom = (rev ? e.b : e.a);
 		long ixTo = (rev ? e.a : e.b);
 		
-		Point p = get(ixFrom);
-		// FUCKING JAVA!!
-		// all this does is add the new point's geocode to the adjacency array if it isn't already in there
-		boolean exists = false;
-		for (Long l : p._adjacent) {
-			if (l == ixTo) {
-				exists = true;
-				break;
-			}
-		}
-		if (!exists) {
-			long[] new_ = new long[p._adjacent.length + 1];
-			System.arraycopy(p._adjacent, 0, new_, 0, p._adjacent.length);
-			new_[p._adjacent.length] = ixTo;
-			p._adjacent = new_;
-		}
-		p.setTag(ixTo, e.i, rev);
+		get(ixFrom).adjAdd(ixTo, e.i, rev);
 	}
 	
 	Prefix matchPrefix(long ix) {

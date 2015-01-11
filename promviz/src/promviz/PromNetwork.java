@@ -1022,6 +1022,7 @@ public class PromNetwork {
 			bulkSearchParent(bt.get(saddle), null, null, btp, bookkeeping);
 		}
 		
+		// FIXME this seems to have quadratic-like behavior, unlike bulkSearchThreshold...
 		public void bulkSearchParent(Point start, Point target, PromPair minThresh, BacktracePruner btp, Set<Point> bookkeeping) {
 			// minThresh is the equivalent of 'p' in non-bulk mode
 			

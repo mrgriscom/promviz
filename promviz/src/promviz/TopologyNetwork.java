@@ -154,22 +154,7 @@ public class TopologyNetwork implements IMesh {
 	}
 	
 	void addDirectedEdge(Point from, Point to) {
-		Point p = getPoint(from);
-		// FUCKING JAVA!!
-		// all this does is add the new point's geocode to the adjacency array if it isn't already in there
-		boolean exists = false;
-		for (Long l : p._adjacent) {
-			if (l == to.ix) {
-				exists = true;
-				break;
-			}
-		}
-		if (!exists) {
-			long[] new_ = new long[p._adjacent.length + 1];
-			System.arraycopy(p._adjacent, 0, new_, 0, p._adjacent.length);
-			new_[p._adjacent.length] = to.ix;
-			p._adjacent = new_;
-		}
+		getPoint(from).adjAdd(to.ix);
 	}
 
 	void addPending(Lead lead) {
