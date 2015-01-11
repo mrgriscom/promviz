@@ -19,7 +19,6 @@ import java.util.Set;
 import promviz.PreprocessNetwork.EdgeIterator;
 import promviz.PreprocessNetwork.Meta;
 import promviz.PreprocessNetwork.PromMeta;
-import promviz.PreprocessNetwork.SaddleMeta;
 import promviz.PromNetwork.ParentInfo;
 import promviz.PromNetwork.PromInfo;
 import promviz.util.DefaultMap;
@@ -409,20 +408,8 @@ public class DEMManager {
 					// note: if we ever have varying cutoffs this will take extra care
 					// to make sure we always capture the parent/next highest peaks for
 					// peaks right on the edge of the lower-cutoff region
-					try {	
-						promOut.writeLong(pi.p.ix);
-						promOut.writeFloat(pi.prominence());
-						promOut.writeLong(pi.saddle.ix);
-						promOut.writeLong(pi.saddle.ix);
-						promOut.writeFloat(pi.prominence());
-						promOut.writeLong(pi.p.ix);
-						
-						saddlesOut.writeLong(pi.saddle.ix);
-						saddlesOut.writeLong(pi.p.ix);
-						saddlesOut.writeBoolean(pi.forward);
-					} catch (IOException ioe) {
-						throw new RuntimeException();
-					}
+					new PromMeta(pi.p.ix, pi.prominence(), pi.saddle.ix, pi.forward).write(promOut);
+					new PromMeta(pi.saddle.ix, pi.prominence(), pi.p.ix, pi.forward).write(promOut);
 				}
 			}, new PromNetwork.MSTWriter(up), cutoff);
 			try {
@@ -490,7 +477,7 @@ public class DEMManager {
 	
 	static void promPass2(Point highest, DEMManager dm, final boolean up, String region) {
 		MESH_MAX_POINTS = (1 << 26);
-		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new Meta[] {new PromMeta(), new SaddleMeta()});
+		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new Meta[] {new PromMeta()});
 		
 		if (oldSchool) {
 

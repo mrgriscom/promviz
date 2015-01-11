@@ -18,7 +18,6 @@ import java.util.PriorityQueue;
 import java.util.Set;
 
 import promviz.PreprocessNetwork.PromMeta;
-import promviz.PreprocessNetwork.SaddleMeta;
 import promviz.PromNetwork.Backtrace.BacktracePruner;
 import promviz.util.Logging;
 import promviz.util.ReverseComparator;
@@ -507,9 +506,8 @@ public class PromNetwork {
 		return _prominence(tree, p, up, new Criterion() {
 			@Override
 			public boolean condition(Comparator<BasePoint> cmp, BasePoint p, BasePoint cur) {
-				PromMeta m = (PromMeta)tree.getMeta(cur, "prom");
-				if (m != null) {
-					PromPair pp2 = PromPair.fromPeak(cur, tree);
+				PromPair pp2 = PromPair.fromPeak(cur, tree);
+				if (pp2 != null) {
 					return cmpProm(cmp).compare(pp2, pp) > 0;
 				} else {
 					return false;
@@ -533,17 +531,18 @@ public class PromNetwork {
 			Point cur = queue.removeFirst();
 			seen.add(cur);
 
-			SaddleMeta sm = (SaddleMeta)tree.getMeta(cur, "saddle");
-			if (sm != null) {
+			boolean isSaddle = (cur.classify(tree) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT));
+			if (isSaddle) {
 				PromPair pp2 = PromPair.fromSaddle(cur, tree);
-				if (cmp.compare(pp2, pp) >= 0) {
-					if (sm.peakIx != p.ix) {
-						saddles.put(cur, sm.peakIx);
+				if (pp2 != null && cmp.compare(pp2, pp) >= 0) {
+					long peakIx = pp2.peak.ix;
+					if (peakIx != p.ix) {
+						saddles.put(cur, peakIx);
 					}
 					continue;
 				}
 			}
-			
+				
 			for (Point adj : tree.adjacent(cur)) {
 				if (!seen.contains(adj)) {
 					queue.addLast(adj);
@@ -937,23 +936,21 @@ public class PromNetwork {
 					}
 					if (lockout == null) {
 						if (isPeak) {
-							PromMeta pm = (PromMeta)tree.getMeta(cur, "prom");
-							if (pm != null && cprom.compare(PromPair.fromPeak(cur, tree), pp) > 0) {
+							PromPair pp2 = PromPair.fromPeak(cur, tree);
+							if (pp2 != null && cprom.compare(pp2, pp) > 0) {
 								return cur;
 							}
 						} else {
 							Point pf = null; //forwardSaddles.get(cur);
 							Point pb = null; //backwardSaddles.get(cur);
 							
-							SaddleMeta sm = (SaddleMeta)tree.getMeta(cur, "saddle");
-							PromPair cand = null;
-							if (sm != null) {
-								cand = PromPair.fromSaddle(cur, tree);
-								Point peak = tree.get(sm.peakIx);
-								if (sm.forward) {
-									pf = peak;
+							PromPair cand = PromPair.fromSaddle(cur, tree);
+							if (cand != null) {
+								PromMeta pm = (PromMeta)tree.getMeta(cur, "prom");								
+								if (pm.forward) {
+									pf = (Point)cand.peak;
 								} else {
-									pb = peak;
+									pb = (Point)cand.peak;
 								}
 							}
 							
@@ -1071,7 +1068,7 @@ public class PromNetwork {
 		}
 	}
 	
-	static class PromPair {
+	static class PromPair { // TODO could load 'other' on demand only if needed
 		BasePoint peak;
 		BasePoint saddle;
 		public PromPair(BasePoint peak, BasePoint saddle) {
@@ -1081,11 +1078,13 @@ public class PromNetwork {
 		float prominence() {
 			return Math.abs(peak.elev - saddle.elev);
 		}
-		static PromPair fromPeak(BasePoint p, TopologyNetwork tree) { // TODO check meta for null?
-			return new PromPair(p, tree.get(((PromMeta)tree.getMeta(p, "prom")).otherIx));
+		static PromPair fromPeak(BasePoint p, TopologyNetwork tree) {
+			PromMeta pm = (PromMeta)tree.getMeta(p, "prom");
+			return (pm != null ? new PromPair(p, tree.get(pm.getSaddle(false))) : null);
 		}
-		static PromPair fromSaddle(BasePoint s, TopologyNetwork tree) { // TODO check meta for null?
-			return new PromPair(tree.get(((PromMeta)tree.getMeta(s, "prom")).otherIx), s);
+		static PromPair fromSaddle(BasePoint s, TopologyNetwork tree) {
+			PromMeta pm = (PromMeta)tree.getMeta(s, "prom");
+			return (pm != null ? new PromPair(tree.get(pm.getPeak(true)), s) : null);
 		}
 	}
 	static Comparator<PromPair> cmpProm(final Comparator<BasePoint> cmp) {
@@ -1131,24 +1130,23 @@ public class PromNetwork {
 			}
 
 			if (isSaddle) {
-				SaddleMeta sm = (SaddleMeta)tree.getMeta(cur, "saddle");
-				if (sm != null) {
-					if (sm.forward) {
-						if (sm.peakIx == root.ix) {
+				PromMeta pm = (PromMeta)tree.getMeta(cur, "prom");
+				if (pm != null) {
+					if (pm.forward) {
+						if (pm.getPeak(true) == root.ix) {
 							// reached the edge of the root domain, beyond which this algorithm won't work
 							break;
 						}
 						pendingForward.addFirst(PromPair.fromSaddle(cur, tree));
 					} else {
-						ParentInfo pi = new ParentInfo(sm.peakIx, cur, null);
+						ParentInfo pi = new ParentInfo(pm.getPeak(true), cur, null);
 						pi.finalizeBackward(front);
 						onparent.onparent(pi);
 					}
 				}
 			} else {
-				PromMeta pm = (PromMeta)tree.getMeta(cur, "prom");
-				if (pm != null) {
-					PromPair pp = PromPair.fromPeak(cur, tree);
+				PromPair pp = PromPair.fromPeak(cur, tree);
+				if (pp != null) {
 					while (!pendingForward.isEmpty()) {
 						PromPair pend = pendingForward.peekFirst();
 						if (cprom.compare(pp, pend) > 0) {

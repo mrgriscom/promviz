@@ -578,8 +578,6 @@ public class PreprocessNetwork {
 	    cacheElevation(phase, up, buckets, dm);
 	    
 	    //trimMST(highest, up);
-
-	    partitionMeta(up, buckets, new SaddleMeta());
 	}
 	
 	public static void trimMST(Point highest, boolean up) {
@@ -615,10 +613,18 @@ public class PreprocessNetwork {
 		 * special handling for pend
 		 * 
 		 */
+		
+		// need to regenerate the buckets, right?
 	}
 	
 	static class Meta {
 		long ix;
+		
+		public Meta() {}
+		
+		public Meta(long ix) {
+			this.ix = ix;
+		}
 		
 		void read(DataInputStream in) throws EOFException {
 			try {
@@ -727,15 +733,43 @@ public class PreprocessNetwork {
 	
 	static class PromMeta extends Meta {
 		float prom;
-		long otherIx;
+		private long otherIx;
+		boolean forward;
+		
+		public PromMeta() {}
+		
+		public PromMeta(long ix, float prom, long otherIx, boolean forward) {
+			super(ix);
+			this.prom = prom;
+			this.otherIx = otherIx;
+			this.forward = forward;
+		}
 		
 		void readData(DataInputStream in) throws IOException {
 			this.prom = in.readFloat();
 			this.otherIx = in.readLong();
+			this.forward = in.readBoolean();
 		}
 		void writeData(DataOutputStream out) throws IOException {
 			out.writeFloat(this.prom);	
 			out.writeLong(this.otherIx);
+			out.writeBoolean(this.forward);		
+		}
+		
+		long getPeak(boolean isSaddle) {
+			if (isSaddle) {
+				return otherIx;
+			} else {
+				throw new IllegalArgumentException();
+			}
+		}
+		
+		long getSaddle(boolean isSaddle) {
+			if (isSaddle) {
+				throw new IllegalArgumentException();
+			} else {
+				return otherIx;
+			}			
 		}
 		
 		String getName() {
@@ -743,36 +777,12 @@ public class PreprocessNetwork {
 		}
 		
 		int dataSize() {
-			return 12;
+			return 13;
 		}		
 		
 		Meta fuckingHell() { return new PromMeta(); }
 	}
-	
-	static class SaddleMeta extends Meta {
-		long peakIx;
-		boolean forward;
 		
-		void readData(DataInputStream in) throws IOException {
-			this.peakIx = in.readLong();
-			this.forward = in.readBoolean();
-		}
-		void writeData(DataOutputStream out) throws IOException {
-			out.writeLong(this.peakIx);		
-			out.writeBoolean(this.forward);		
-		}
-
-		String getName() {
-			return "saddle";
-		}
-		
-		int dataSize() {
-			return 9;
-		}
-
-		Meta fuckingHell() { return new SaddleMeta(); }
-	}
-	
 	public static void partitionMeta(boolean up, Set<Prefix> buckets, Meta spec) {
 		Logging.log("--" + spec.getName() + "--");
 		final long MAX_UNITS_AT_ONCE = Long.parseLong(DEMManager.props.getProperty("memory")) / (3 * spec.recSize());
