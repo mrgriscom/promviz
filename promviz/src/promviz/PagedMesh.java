@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 import promviz.DEMFile.Sample;
+import promviz.PreprocessNetwork.Meta;
 import promviz.util.Logging;
 
 public class PagedMesh implements IMesh {
@@ -137,4 +138,7 @@ public class PagedMesh implements IMesh {
 		Logging.log("booting " + toEject.getKey());
 	}
 	
+	public Meta getMeta(BasePoint p, String type) {
+		throw new RuntimeException("not supported");
+	}
 }

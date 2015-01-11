@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 
+import promviz.PreprocessNetwork.Meta;
 import promviz.PreprocessNetwork.PromMeta;
 import promviz.PromNetwork.Backtrace.BacktracePruner;
 import promviz.util.Logging;
@@ -803,6 +804,70 @@ public class PromNetwork {
 	
 	
 	
+	static class CachingTopologyNetwork implements IMesh {
+		TopologyNetwork tree;
+		Map<BasePoint, Meta> metaCache;
+		Map<Long, Point> pointCache;
+
+		// pruning
+		Set<BasePoint> keepMeta;
+		Set<Long> keepPoint;
+		
+		public CachingTopologyNetwork(TopologyNetwork tree) {
+			this.tree = tree;
+			this.metaCache = new HashMap<BasePoint, Meta>();
+			this.pointCache = new HashMap<Long, Point>();
+		}
+
+		public Point get(long geocode) {
+			if (keepPoint != null) {
+				keepPoint.add(geocode);
+			}
+			if (!pointCache.containsKey(geocode)) {
+				pointCache.put(geocode, tree.get(geocode));
+			}
+			return pointCache.get(geocode);
+		}
+
+		public Meta getMeta(BasePoint p, String type) {
+			if (!type.equals("prom")) {
+				return tree.getMeta(p, type);
+			}
+			
+			if (keepMeta != null) {
+				keepMeta.add(p);
+			}
+			if (!metaCache.containsKey(p)) {
+				metaCache.put(p, tree.getMeta(p, type));
+			}
+			return metaCache.get(p);
+		}
+		
+		void startPrune() {
+			keepPoint = new HashSet<Long>();
+			keepMeta = new HashSet<BasePoint>();
+		}
+		
+		void prune() {
+			Iterator<BasePoint> iterMeta = metaCache.keySet().iterator();
+			while (iterMeta.hasNext()) {
+				BasePoint p = iterMeta.next();
+				if (!keepMeta.contains(p)) {
+			        iterMeta.remove();
+			    }
+			}
+			Iterator<Long> iterPt = pointCache.keySet().iterator();
+			while (iterPt.hasNext()) {
+				Long ix = iterPt.next();
+				if (!keepPoint.contains(ix)) {
+			        iterPt.remove();
+			    }
+			}
+			
+			keepPoint = null;
+			keepMeta = null;
+		}
+	}
 	
 	static class ParentFront {
 		PriorityQueue<Point> queue; // the search front, akin to an expanding contour
@@ -817,11 +882,13 @@ public class PromNetwork {
 		 */
 				
 		TopologyNetwork tree;
+		CachingTopologyNetwork cache;
 		Comparator<BasePoint> c;
 		Comparator<PromPair> cprom;
 
 		public ParentFront(final Comparator<BasePoint> c, Comparator<PromPair> cprom, TopologyNetwork tree) {
 			this.tree = tree;
+			this.cache = new CachingTopologyNetwork(tree);
 			this.c = c;
 			this.cprom = cprom;
 			queue = new PriorityQueue<Point>(10, new ReverseComparator<BasePoint>(c));
@@ -851,7 +918,7 @@ public class PromNetwork {
 			return queue.isEmpty();
 		}
 		
-		public void prune(Collection<Point> pendingPeaks, Collection<Point> pendingSaddles) {
+		public void prune() {
 			// when called, front must contain only saddles
 
 			// TODO: could this be made to work generationally (i.e., only deal with the
@@ -866,40 +933,19 @@ public class PromNetwork {
 			pruneThreshold = Math.max(pruneThreshold, 2 * seen.size());
 			
 			BacktracePruner btp = bt.pruner();
-
-			// concession for 'old school' mode
-			if (pendingPeaks == null) {
-				pendingPeaks = new ArrayList<Point>();
-				pendingSaddles = new ArrayList<Point>();
-			}
-			
-			for (Point p : Iterables.concat(queue, pendingPeaks)) {
+			for (Point p : queue) {
 				btp.markPoint(p);
 			}
 			Set<Point> bookkeeping = new HashSet<Point>();
-			Set<Point> significantSaddles = new HashSet<Point>(pendingSaddles);
-			for (Point p : Iterables.concat(queue, pendingSaddles)) {
-				bulkSearchThresholdStart(p, btp, bookkeeping, significantSaddles);
+			cache.startPrune();
+			for (Point p : queue) {
+				bulkSearchParentStart(p, btp, bookkeeping);
 			}
+			cache.prune();
 			btp.prune();
-
-//			Iterator<Point> iterFS = forwardSaddles.keySet().iterator();
-//			while (iterFS.hasNext()) {
-//				Point p = iterFS.next();
-//				if (!significantSaddles.contains(p)) {
-//			        iterFS.remove();
-//			    }
-//			}
-//			Iterator<Point> iterBS = backwardSaddles.keySet().iterator();
-//			while (iterBS.hasNext()) {
-//				Point p = iterBS.next();
-//				if (!significantSaddles.contains(p)) {
-//			        iterBS.remove();
-//			    }
-//			}
 						
 			double runTime = (System.currentTimeMillis() - startAt) / 1000.;
-			Logging.log(String.format("pruned [%.2fs] %d %d %d %d", runTime, queue.size(), bt.size(), 0, 0)); //, forwardSaddles.size(), backwardSaddles.size()));
+			Logging.log(String.format("pruned [%.2fs] %d %d %d %d", runTime, queue.size(), bt.size(), cache.metaCache.size(), cache.pointCache.size()));
 		}
 		
 		public Set<Long> adjacent() {
@@ -935,31 +981,29 @@ public class PromNetwork {
 					}
 					if (lockout == null) {
 						if (isPeak) {
-							PromPair pp2 = PromPair.fromPeak(cur, tree);
+							PromPair pp2 = PromPair.fromPeak(cur, cache);
 							if (pp2 != null && cprom.compare(pp2, pp) > 0) {
 								return cur;
 							}
 						} else {
-							Point pf = null; //forwardSaddles.get(cur);
-							Point pb = null; //backwardSaddles.get(cur);
-							
-							PromPair cand = PromPair.fromSaddle(cur, tree);
+							long pfIx = -1;
+							long pbIx = -1;
+							PromPair cand = PromPair.fromSaddle(cur, cache);
 							if (cand != null) {
-								Point peak = (Point)cand.getPeak();
 								if (cand.m.forward) {
-									pf = peak;
+									pfIx = cand.getPeakIx();
 								} else {
-									pb = peak;
+									pbIx = cand.getPeakIx();
 								}
 							}
 							
 							boolean dirForward = (prev.equals(this.bt.get(cur)));
-							Point peakAway = (dirForward ? pf : pb);
-							Point peakToward = (dirForward ? pb : pf);
-							if (peakToward != null) {
+							long peakAwayIx = (dirForward ? pfIx : pbIx);
+							long peakTowardIx = (dirForward ? pbIx : pfIx);
+							if (peakTowardIx != -1) {
 								lockout = cur;
-							} else if (peakAway != null && cprom.compare(cand, pp) > 0) {
-								target = peakAway;
+							} else if (peakAwayIx != -1 && cprom.compare(cand, pp) > 0) {
+								target = cache.get(peakAwayIx);
 								break;
 							}
 						}
@@ -974,21 +1018,23 @@ public class PromNetwork {
 //			return saddle;
 		}
 
-		public void bulkSearchThresholdStart(Point saddle, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
-			bulkSearchThreshold(bt.get(saddle), null, null, btp, bookkeeping, significantSaddles);
+		public void bulkSearchParentStart(Point saddle, BacktracePruner btp, Set<Point> bookkeeping) {
+			bulkSearchParent(bt.get(saddle), null, null, btp, bookkeeping);
 		}
 		
-		public void bulkSearchThreshold(Point start, Point target, Point minThresh, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
+		public void bulkSearchParent(Point start, Point target, PromPair minThresh, BacktracePruner btp, Set<Point> bookkeeping) {
 			// minThresh is the equivalent of 'p' in non-bulk mode
 			
 			boolean withBailout = (bookkeeping != null);
 			
+			if (target != null && !bt.isLoaded(target)) {
+				bt.load(target, tree, true);
+			}
 			Iterable<Point> path = bt.getAtoB(start, target);
 			if (target != null) {
 				btp.markPoint(target);
 			}
-			start = null;
-						
+
 			boolean isPeak = true;
 			Point prev = null;
 			Point lockout = null;
@@ -1000,31 +1046,32 @@ public class PromNetwork {
 				}
 				if (lockout == null) {
 					if (isPeak) {
-						if (start == null || this.c.compare(cur, start) > 0) {
-							start = cur;
-							if (minThresh == null || this.c.compare(start, minThresh) > 0) {
-								minThresh = start;
-								bailoutCandidate = true;
-							}
+						PromPair pp2 = PromPair.fromPeak(cur, cache);
+						if (pp2 != null && (minThresh == null || cprom.compare(pp2, minThresh) > 0)) {
+							minThresh = pp2;
+							bailoutCandidate = true;
 						}
 					} else {
-						Point pf = null; //forwardSaddles.get(cur);
-						Point pb = null; //backwardSaddles.get(cur);
+						long pfIx = -1;
+						long pbIx = -1;
+						PromPair cand = PromPair.fromSaddle(cur, cache);
+						if (cand != null) {
+							if (cand.m.forward) {
+								pfIx = cand.getPeakIx();
+							} else {
+								pbIx = cand.getPeakIx();
+							}
+						}
+						
 						boolean dirForward = (prev.equals(this.bt.get(cur)));
-						Point peakAway = (dirForward ? pf : pb);
-						Point peakToward = (dirForward ? pb : pf);
-						if (peakToward != null) {
-							// i don't think we can filter based on 'start' like in non-bulk mode because
-							// different paths might have differing 'start's at any given time even though
-							// they ultimately find the same peaks. if the processing order changed things
-							// would break? unfortunately that means every 'toward' saddle is significant
-							significantSaddles.add(cur);
+						long peakAwayIx = (dirForward ? pfIx : pbIx);
+						long peakTowardIx = (dirForward ? pbIx : pfIx);
+						if (peakTowardIx != -1) {
 							lockout = cur;
-						} else if (peakAway != null && this.c.compare(peakAway, minThresh) > 0) {
-							significantSaddles.add(cur);
-							Point newTarget = peakAway;
-							bulkSearchThreshold(start, newTarget, minThresh, btp, bookkeeping, significantSaddles);
-							minThresh = newTarget;
+						} else if (peakAwayIx != -1 && (minThresh == null || cprom.compare(cand, minThresh) > 0)) {
+							Point newTarget = cache.get(peakAwayIx);
+							bulkSearchParent(start, newTarget, minThresh, btp, bookkeeping);
+							minThresh = cand;
 							bailoutCandidate = true;
 						}
 					}
@@ -1071,9 +1118,9 @@ public class PromNetwork {
 		private BasePoint peak;
 		private BasePoint saddle;
 		PromMeta m;
-		TopologyNetwork tree;
+		IMesh tree;
 		
-		static PromPair make(BasePoint p, TopologyNetwork tree, boolean isSaddle) {
+		static PromPair make(BasePoint p, IMesh tree, boolean isSaddle) {
 			PromPair pp = new PromPair();
 			pp.tree = tree;
 			pp.m = (PromMeta)tree.getMeta(p, "prom");
@@ -1087,10 +1134,10 @@ public class PromNetwork {
 			}
 			return pp;
 		}
-		static PromPair fromPeak(BasePoint p, TopologyNetwork tree) {
+		static PromPair fromPeak(BasePoint p, IMesh tree) {
 			return make(p, tree, false);
 		}
-		static PromPair fromSaddle(BasePoint p, TopologyNetwork tree) {
+		static PromPair fromSaddle(BasePoint p, IMesh tree) {
 			return make(p, tree, true);
 		}
 		
@@ -1193,7 +1240,7 @@ public class PromNetwork {
 				}
 		
 				// front contains only saddles
-				//front.prune(peaks, saddles);
+				front.prune();
 			}
 		}
 	}
