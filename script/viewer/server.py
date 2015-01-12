@@ -17,6 +17,32 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import settings
 import util
 
+meat = lambda k: k[k['type']]
+
+def _feature(coords, **props):
+    def coord(c):
+        return [c[1], c[0]]
+
+    if hasattr(coords[0], '__iter__'):
+        if hasattr(coords[0][0], '__iter__'):
+            type = 'MultiLineString'
+            coords = [[coord(c) for c in k] for k in coords]
+        else:
+            type = 'LineString'
+            coords = [coord(c) for c in coords]
+    else:
+        type = 'Point'
+        coords = coord(coords)
+
+    return {
+        'type': 'Feature',
+        'geometry': {
+            'type': type,
+            'coordinates': coords,
+        },
+        'properties': props,
+    }
+
 def summit_feature(s, **props):
     f = {
         'type': 'Feature',
@@ -38,56 +64,31 @@ def summit_feature(s, **props):
     f['properties'].update(props)
     return f
 
+def saddle_feature(k, type='saddle', **props):
+    f = _feature(k['saddle']['coords'],
+                 type=type,
+                 name=k['saddle'].get('name'),
+                 elev_m=k['saddle']['elev'],
+                 elev_ft=k['saddle']['elev'] / .3048,
+                 geo=k['saddle']['geo'],
+                 )
+    if k.get('_for'):
+        props['peak'] = summit_feature(meat(k['_for']), type='sspeak')
+    f['properties'].update(props)
+    return f
+
 def to_geojson(k):
-    def _feature(coords, **props):
-        def coord(c):
-            return [c[1], c[0]]
-
-        if hasattr(coords[0], '__iter__'):
-            if hasattr(coords[0][0], '__iter__'):
-                type = 'MultiLineString'
-                coords = [[coord(c) for c in k] for k in coords]
-            else:
-                type = 'LineString'
-                coords = [coord(c) for c in coords]
-        else:
-            type = 'Point'
-            coords = coord(coords)
-
-        return {
-            'type': 'Feature',
-            'geometry': {
-                'type': type,
-                'coordinates': coords,
-            },
-            'properties': props,
-        }
-
     data = {
         'type': 'FeatureCollection',
         'features': [
             summit_feature(k[k['type']], type=k['type']),
-            _feature(k['saddle']['coords'],
-                     type='saddle',
-                     name=k['saddle'].get('name'),
-                     elev_m=k['saddle']['elev'],
-                     elev_ft=k['saddle']['elev'] / .3048,
-                     geo=k['saddle']['geo'],
-                    ),
+            saddle_feature(k),
             _feature(k['threshold_path'], type='divide'),
             _feature(k['parent_path'], type='toparent'),
         ]
     }
-    meat = lambda k: k[k['type']]
     for ss in k.get('subsaddles', []):
-        f = _feature(ss['saddle']['coords'],
-                     type='subsaddle',
-                     elev_m=ss['saddle']['elev'],
-                     elev_ft=ss['saddle']['elev'] / .3048,
-                     peak=summit_feature(meat(ss['_for']), type='sspeak'),
-                     higher=ss['for']['higher'],
-                    )
-        data['features'].append(f)
+        data['features'].append(saddle_feature(ss, 'subsaddle', higher=ss['for']['higher']))
 
     if k.get('threshold'):
         data['features'].append(
@@ -99,6 +100,7 @@ def to_geojson(k):
         data['features'].append(summit_feature(k['_parent'][k['_parent']['type']], type='parent'))
     for child in k.get('_children', []):
         data['features'].append(summit_feature(child[child['type']], type='child', ix=child['ix']))
+        data['features'].append(saddle_feature(child, type='childsaddle', ix=child['ix']))
     #if k.get('runoff'):
     #    data['features'].append(feature(k['runoff'], type='domain'))
 

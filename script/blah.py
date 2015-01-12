@@ -120,14 +120,6 @@ def add_name(p, conn):
     _name(p['type'])
     _name('saddle')
 
-def set_children(points):
-    index = dict((p[p['type']]['geo'], p) for p in points)
-    children = u.map_reduce(filter(lambda p: p.get('parent'), points),
-                            lambda p: [(p['parent']['geo'], p)],
-                            lambda v: [p[p['type']]['geo'] for p in sorted(v, key=lambda p: p[p['type']]['prom'], reverse=True)])
-    for k, v in children.iteritems():
-        index[k]['children'] = v
-
 def write_master(ix, mode, i):
     ix.sort(key=lambda e: e['prom'], reverse=True)
     with open('/tmp/pvindex', 'w') as f:
@@ -196,8 +188,6 @@ if __name__ == "__main__":
         if not addendum:
             index['data'].append(core(p))
             add_name(p, conn)
-
-        #set_children(points)
 
         save_point(p)
 

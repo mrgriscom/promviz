@@ -84,6 +84,8 @@ function loadData(map, data) {
                     style = {fillColor: '#0f0'};
                 } else if (props.type == 'subsaddle') {
                     style = {fillColor: props.higher ? '#800' : '#000'};
+                } else if (props.type == 'childsaddle') {
+                    style = {fillColor: '#00f', radius: 3};
                 }
                 style.color = '#000';
                 style.weight = 1.5;
@@ -179,5 +181,5 @@ function round(x, digits) {
 function dispdist(obj, field) {
     var m = obj[field + '_m'];
     var ft = obj[field + '_ft'];
-    return ft.toFixed(1) + ' ft | ' + m.toFixed(1) + ' m';
+    return '<span style="white-space: nowrap;">' + ft.toFixed(1) + ' ft | ' + m.toFixed(1) + ' m' + '</span>';
 }
