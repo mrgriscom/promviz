@@ -180,7 +180,7 @@ public class Point extends BasePoint {
 		return !exists;
 	}
 	
-	int encTag(int tag, boolean rev) {
+	static int encTag(int tag, boolean rev) {
 		return (tag < 0 ? 0 : (rev ? -1 : 1) * (1 + tag));
 	}
 	

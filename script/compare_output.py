@@ -42,11 +42,6 @@ for k in points():
     #        psimp.append(p)
     #ref['threshold_path'] = psimp
 
-    if 'subsaddles' in ref:
-        del ref['subsaddles']
-    if 'subsaddles' in cur:
-        del cur['subsaddles']
-
     # new-school parent search cuts off at root's saddle
     if 'parent' not in cur:
         if 'parent' in ref:

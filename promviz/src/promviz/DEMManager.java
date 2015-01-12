@@ -494,15 +494,14 @@ public class DEMManager {
 				}
 				
 				Map<Point, Long> secondarySaddles = PromNetwork.domainSaddles(up, tn, p);
-				Map<Long, Boolean> saddlesHigher = new HashMap<Long, Boolean>();
+				Set<Long> saddlesHigher = new HashSet<Long>();
 				Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
 				for (long otherIx : secondarySaddles.values()) {
-					saddlesHigher.put(otherIx, cmp.compare(tn.get(otherIx), p) > 0);
+					if (cmp.compare(tn.get(otherIx), p) > 0) {
+						saddlesHigher.add(otherIx);
+					}
 				}
-				
-				if (!secondarySaddles.isEmpty()) {
-					outputSubsaddles(p, secondarySaddles, saddlesHigher, up);
-				}
+				outputSubsaddles(p, secondarySaddles, saddlesHigher, up);
 			}
 			
 		} else {
@@ -520,6 +519,24 @@ public class DEMManager {
 					outputPromParentage(_pi, up);
 				}
 			});
+			
+			// just use old-school method for subsaddle search
+			for (Point p : tn.allPoints()) {
+				if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT) || tn.getMeta(p, "prom") == null) {
+					continue;
+				}
+				
+				Map<Point, Long> secondarySaddles = PromNetwork.domainSaddles(up, tn, p);
+				Set<Long> saddlesHigher = new HashSet<Long>();
+				Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
+				for (long otherIx : secondarySaddles.values()) {
+					if (cmp.compare(tn.get(otherIx), p) > 0) {
+						saddlesHigher.add(otherIx);
+					}
+				}
+				outputSubsaddles(p, secondarySaddles, saddlesHigher, up);
+			}
+
 		}
 	}
 	
@@ -596,7 +613,10 @@ public class DEMManager {
 		System.out.println(ser.toJson(new ParentData(up, pi.p, pi)));
 	}
 
-	static void outputSubsaddles(Point p, Map<Point, Long> subsaddles, Map<Long, Boolean> saddlesHigher, boolean up) {
+	static void outputSubsaddles(Point p, Map<Point, Long> subsaddles, Set<Long> saddlesHigher, boolean up) {
+		if (subsaddles.isEmpty()) {
+			return;
+		}
 		Gson ser = new Gson();
 		System.out.println(ser.toJson(new SubsaddleData(up, p, subsaddles, saddlesHigher)));
 	}
@@ -700,7 +720,7 @@ public class DEMManager {
 		}
 		List<Subsaddle> subsaddles;
 		
-		public SubsaddleData(boolean up, Point p, Map<Point, Long> saddles, Map<Long, Boolean> saddlesHigher) {
+		public SubsaddleData(boolean up, Point p, Map<Point, Long> saddles, Set<Long> saddlesHigher) {
 			this.up = up;
 			this.summit = new PromPoint(p.ix);
 
@@ -712,7 +732,7 @@ public class DEMManager {
 				Subsaddle SS = new Subsaddle();
 				SS.saddle = new PromPoint(ss, null);
 				SS.peak = new PromPoint(peakIx);
-				SS.higher = saddlesHigher.get(peakIx);
+				SS.higher = saddlesHigher.contains(peakIx);
 				this.subsaddles.add(SS);
 			}
 		}

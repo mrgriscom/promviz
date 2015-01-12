@@ -245,7 +245,7 @@ public class PromNetwork {
 	static class Front {
 		PriorityQueue<Point> queue; // the search front, akin to an expanding contour
 		Set<Point> set; // set of all points in 'queue'
-		Set<Long> seen;
+		Set<Long> seen; // TODO is this redundant due to backtrace?
 		Backtrace bt;
 		int pruneThreshold = 1; // this could start out much larger (memory-dependent) to avoid
 		                        // unnecessary pruning in the early stages
@@ -517,20 +517,46 @@ public class PromNetwork {
 		});
 	}
 	
+	static class MSTFront {
+		Deque<Point> queue;
+		Map<Point, Point> parents;
+				
+		public MSTFront() {
+			queue = new ArrayDeque<Point>();
+			parents = new HashMap<Point, Point>();
+		}
+		
+		public int size() {
+			return queue.size();
+		}
+		
+		public Point next() {
+			return queue.removeFirst();
+		}
+		
+		public void add(Point p, Point parent) {
+			if (p.equals(parents.get(parent))) {
+				return;
+			}
+			queue.addLast(p);
+			parents.put(p, parent);
+		}
+		
+		public void doneWith(Point p) {
+			parents.remove(p);
+		}
+	}
+	
 	public static Map<Point, Long> domainSaddles(boolean up, TopologyNetwork tree, Point p) {
 		final PromPair pp = PromPair.fromPeak(p, tree);
 		Map<Point, Long> saddles = new HashMap<Point, Long>();
 		
-		Deque<Point> queue = new ArrayDeque<Point>();
-		Set<Point> seen = new HashSet<Point>();
-		int pruneThresh = 1;
-		
+		MSTFront front = new MSTFront();
 		Comparator<PromPair> cmp = cmpProm(BasePoint.cmpElev(up));
 		
-		queue.add(p);
-		while (!queue.isEmpty()) {
-			Point cur = queue.removeFirst();
-			seen.add(cur);
+		front.add(p, null);
+		while (front.size() > 0) {
+			Point cur = front.next();
 
 			boolean isSaddle = (cur.classify(tree) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT));
 			if (isSaddle) {
@@ -544,21 +570,9 @@ public class PromNetwork {
 			}
 				
 			for (Point adj : tree.adjacent(cur)) {
-				if (!seen.contains(adj)) {
-					queue.addLast(adj);
-				}
+				front.add(adj, cur);
 			}
-
-			if (seen.size() > pruneThresh) {
-				Set<Point> frontAdj = new HashSet<Point>();
-				for (Point f : queue) {
-					for (Point adj : tree.adjacent(f)) {
-						frontAdj.add(adj);
-					}
-				}
-				seen.retainAll(frontAdj);
-				pruneThresh = Math.max(pruneThresh, 2 * seen.size());
-			}
+			front.doneWith(cur);
 		}
 
 		return saddles;
@@ -869,9 +883,14 @@ public class PromNetwork {
 		}
 	}
 	
+	static boolean isUpstream(TopologyNetwork mst, Point p, Point next) {
+		int tag = p.getTag(next.ix);
+		return (tag == Point.encTag(0, false) || tag == Point.encTag(1, true));
+	}
+	
 	static class ParentFront {
 		PriorityQueue<Point> queue; // the search front, akin to an expanding contour
-		Set<Long> seen;
+		Set<Long> seen; // TODO can't we traverse via edge tags instead?
 		Backtrace bt;
 		int pruneThreshold = 1; // this could start out much larger (memory-dependent) to avoid
 		                        // unnecessary pruning in the early stages
