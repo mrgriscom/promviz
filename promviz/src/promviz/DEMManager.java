@@ -6,9 +6,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +19,7 @@ import java.util.Set;
 import promviz.PreprocessNetwork.EdgeIterator;
 import promviz.PreprocessNetwork.Meta;
 import promviz.PreprocessNetwork.PromMeta;
+import promviz.PreprocessNetwork.ThresholdMeta;
 import promviz.PromNetwork.ParentInfo;
 import promviz.PromNetwork.PromInfo;
 import promviz.util.DefaultMap;
@@ -394,10 +395,10 @@ public class DEMManager {
 			Point highest = getHighest(dm, up);
 			
 			final DataOutputStream promOut;
-			final DataOutputStream saddlesOut;
+			final DataOutputStream thresholdsOut;
 			try {
 				promOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(DEMManager.props.getProperty("dir_mstdump") + "/prom-" + (up ? "up" : "down"))));
-				saddlesOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(DEMManager.props.getProperty("dir_mstdump") + "/saddle-" + (up ? "up" : "down"))));
+				thresholdsOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(DEMManager.props.getProperty("dir_mstdump") + "/thresh-" + (up ? "up" : "down"))));
 			} catch (IOException ioe) {
 				throw new RuntimeException();
 			}
@@ -410,11 +411,13 @@ public class DEMManager {
 					// peaks right on the edge of the lower-cutoff region
 					new PromMeta(pi.p.ix, pi.prominence(), pi.saddle.ix, pi.forward).write(promOut);
 					new PromMeta(pi.saddle.ix, pi.prominence(), pi.p.ix, pi.forward).write(promOut);
+					
+					new ThresholdMeta(pi.path.get(0)).write(thresholdsOut);
 				}
 			}, new PromNetwork.MSTWriter(up), cutoff);
 			try {
 				promOut.close();
-				saddlesOut.close();
+				thresholdsOut.close();
 			} catch (IOException ioe) {
 				throw new RuntimeException();
 			}
@@ -540,6 +543,24 @@ public class DEMManager {
 		}
 		
 		// assign nh
+		// must operate on *untrimmed* MST!
+		tn = null;
+		TopologyNetwork tnfull = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new Meta[] {new PromMeta(), new ThresholdMeta()});
+		try {
+			PrintWriter w = new PrintWriter("/tmp/thresh");
+			for (Point p : tnfull.allPoints()) {
+				if (p.classify(tnfull) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT) || tnfull.getMeta(p, "thresh") == null) {
+					continue;
+				}
+				
+				PromNetwork.PromInfo pi = PromNetwork.promThresh(tnfull, p, up);
+				if (pi != null) {
+					outputPromThresh(w, pi, up);
+				}
+			}
+			w.close();
+		} catch (IOException ioe) { throw new RuntimeException(); }
+
 	}
 	
 	public static void main(String[] args) {
@@ -622,6 +643,14 @@ public class DEMManager {
 		Gson ser = new Gson();
 		System.out.println(ser.toJson(new SubsaddleData(up, p, subsaddles, saddlesHigher)));
 	}
+
+	static void outputPromThresh(PrintWriter w, PromNetwork.PromInfo pi, boolean up) {
+		if (pi.min_bound_only) {
+			return;
+		}
+		w.write(new PromPoint(pi.p.ix).geo + " " + new PromPoint(pi.path.get(0)).geo + "\n");
+	}
+
 	
 	static class PromPoint {
 		double coords[];
@@ -659,6 +688,7 @@ public class DEMManager {
 		List<double[]> higher_path;
 		List<double[]> parent_path;
 		//List<PromPoint> secondary_saddles;
+		PromPoint _thresh;
 		
 		public PromData(boolean up, Point p, PromNetwork.PromInfo pi, PromNetwork.PromInfo parentage,
 				List<Point> domainSaddles) {
@@ -686,6 +716,8 @@ public class DEMManager {
 					last[i] = last[i] * pi.thresholdFactor + nextToLast[i] * (1. - pi.thresholdFactor);
 				}
 			}
+			this._thresh = new PromPoint(pi.path.get(0));
+			
 			this.parent_path = new ArrayList<double[]>();
 			for (long k : parentage.path) {
 				this.parent_path.add(PointIndex.toLatLon(k));
@@ -752,4 +784,5 @@ public class DEMManager {
 			}
 		}
 	}
+	
 }

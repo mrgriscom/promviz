@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import promviz.PromNetwork.MSTFront;
+import promviz.PromNetwork.PromPair;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 import promviz.util.Util;
@@ -575,6 +577,7 @@ public class PreprocessNetwork {
 	    Logging.log(buckets.size() + " buckets");
 	    partition(phase, up, buckets);
 	    partitionMeta(up, buckets, new PromMeta());
+	    partitionMeta(up, buckets, new ThresholdMeta());
 	    cacheElevation(phase, up, buckets, dm);
 	    
 	    //trimMST(highest, up);
@@ -585,23 +588,30 @@ public class PreprocessNetwork {
 		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new Meta[] {new PromMeta()});
 		System.err.println(tn.get(highest.ix));
 
-		Deque<Point> q = new ArrayDeque<Point>();
-		Set<Point> seen = new HashSet<Point>();
-		q.add(highest);
-		
-		while (!q.isEmpty()) {
-			Point cur = q.removeFirst();
-			seen.add(cur);
-			for (Point adj : tn.adjacent(cur)) {
-				if (!seen.contains(adj)) {
-					q.addLast(adj);
-				}
+		MSTFront front = new MSTFront();
+
+		for (Point adj : tn.adjacent(highest)) {
+			front.add(adj, highest);
+		}
+		while (front.size() > 0) {
+			Point cur = front.next();
+			Point parent = front.parents.get(cur);
+			
+			MSTFront inner = new MSTFront();
+			inner.add(cur, parent);
+			
+			while (inner.size() > 0) {
+				Point cur2 = front.next();
+				PromMeta pm = (PromMeta)tn.getMeta(cur2, "prom");
+				MSTFront target = (pm != null ? front : inner);
+				for (Point adj : tn.adjacent(cur2)) {
+					target.add(adj, highest); // loopback prevention won't work for 'front'
+				}				
 			}
 			
-			PromMeta m = (PromMeta)tn.getMeta(cur, "prom");
-			if (m != null) {
-				System.err.println("ppt! " + cur + " # " + m.prom);
-			}
+			// process accumulated paths
+
+			// doneWith?
 		}
 		
 		/*
@@ -782,7 +792,27 @@ public class PreprocessNetwork {
 		
 		Meta fuckingHell() { return new PromMeta(); }
 	}
+
+	static class ThresholdMeta extends Meta {
+				
+		public ThresholdMeta() {}
 		
+		public ThresholdMeta(long ix) {
+			super(ix);
+		}
+		
+		String getName() {
+			return "thresh";
+		}
+		
+		int dataSize() {
+			return 0;
+		}		
+		
+		Meta fuckingHell() { return new ThresholdMeta(); }
+	}
+
+	
 	public static void partitionMeta(boolean up, Set<Prefix> buckets, Meta spec) {
 		Logging.log("--" + spec.getName() + "--");
 		final long MAX_UNITS_AT_ONCE = Long.parseLong(DEMManager.props.getProperty("memory")) / (3 * spec.recSize());

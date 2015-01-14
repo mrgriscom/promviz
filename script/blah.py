@@ -76,6 +76,10 @@ def process_point(p):
         out['parent'] = {
             'geo': p['parent']['geo'],
         }
+    if p.get('_thresh'):
+        out['_thresh'] = {
+            'geo': p['_thresh']['geo'],
+        }
     
     return out, False
 

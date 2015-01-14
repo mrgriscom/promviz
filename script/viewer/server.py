@@ -97,10 +97,12 @@ def to_geojson(k):
                  ),
         )
     if k.get('parent'):
-        data['features'].append(summit_feature(k['_parent'][k['_parent']['type']], type='parent'))
+        data['features'].append(summit_feature(meat(k['_parent']), type='parent'))
     for child in k.get('_children', []):
-        data['features'].append(summit_feature(child[child['type']], type='child', ix=child['ix']))
+        data['features'].append(summit_feature(meat(child), type='child', ix=child['ix']))
         data['features'].append(saddle_feature(child, type='childsaddle', ix=child['ix']))
+    if k.get('pthresh'):
+        data['features'].append(summit_feature(meat(k['_pthresh']), type='pthresh'))
     #if k.get('runoff'):
     #    data['features'].append(feature(k['runoff'], type='domain'))
 
@@ -119,6 +121,7 @@ class MapViewHandler(web.RequestHandler):
             ch['ix'] = i + 1
         for ss in data.get('subsaddles', []):
             ss['_for'] = loadgeo(ss['for']['geo'])
+        data['_pthresh'] = loadgeo(data['pthresh']['geo']) if 'pthresh' in data else None        
 
         self.render('map.html', mode='single', data=to_geojson(data))
 

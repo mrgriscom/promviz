@@ -61,8 +61,8 @@ function singleStyle(props, highlight) {
         style = {fillColor: '#f00'};
     } else if (props.type == 'saddle') {
         style = {fillColor: '#ff0'};
-    } else if (props.type == 'threshold') {
-        style = {fillColor: '#00f', radius: 5};
+    } else if (props.type == 'threshold' || props.type == 'pthresh') {
+        style = {fillColor: '#00f', radius: (props.type == 'pthresh' ? 7 : 5)};
     } else if (props.type == 'child') {
         style = {fillColor: '#0ff', radius: 8};
     } else if (props.type == 'parent') {
@@ -140,7 +140,7 @@ function loadData(map, data) {
             if (MODE == 'single') {                
                 var $div = $('<div>');
                 var self = (props.type == 'peak' || props.type == 'pit');
-                if (self || props.type == 'parent' || props.type == 'child') {
+                if (self || props.type == 'parent' || props.type == 'child' || props.type == 'pthresh') {
                     var title = props.name || props.geo;
                     if (!self) {
                         title = '<a target="_blank" href="/view/' + props.geo + '">' + title + '</a>';

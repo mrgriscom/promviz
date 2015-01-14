@@ -44,7 +44,7 @@ public class PromNetwork {
 				i++;
 			}
 
-			if (ref != null) {
+			if (ref != null && this.path.size() >= 2) {
 				Point last = endSeg[0];
 				Point nextToLast = endSeg[1];
 				thresholdFactor = (ref.elev - nextToLast.elev) / (last.elev - nextToLast.elev);
@@ -537,6 +537,15 @@ public class PromNetwork {
 		});
 	}
 	
+	public static PromInfo promThresh(final TopologyNetwork tree, Point p, final boolean up) {
+		return _prominence(tree, p, up, new Criterion() {
+			@Override
+			public boolean condition(Comparator<BasePoint> cmp, BasePoint p, BasePoint cur) {
+				return tree.getMeta(cur, "prom") != null;
+			}
+		});
+	}
+
 	static class MSTFront {
 		Deque<Point> queue;
 		Map<Point, Point> parents;
