@@ -538,6 +538,8 @@ public class DEMManager {
 			}
 
 		}
+		
+		// assign nh
 	}
 	
 	public static void main(String[] args) {
@@ -640,6 +642,11 @@ public class DEMManager {
 			this.coords = PointIndex.toLatLon(ix);
 			this.geo = GeoCode.print(GeoCode.fromCoord(this.coords[0], this.coords[1]));			
 		}
+		
+		public PromPoint(double[] c) {
+			this.coords = c;
+			this.geo = GeoCode.print(GeoCode.fromCoord(this.coords[0], this.coords[1]));			
+		}
 	}
 	
 	static class PromData {
@@ -671,13 +678,21 @@ public class DEMManager {
 			for (long k : pi.path) {
 				this.higher_path.add(PointIndex.toLatLon(k));
 			}
+			if (pi.thresholdFactor >= 0) {
+				// this is a stop-gap; actually threshold should be determined by following chase from saddle
+				double[] last = this.higher_path.get(0);
+				double[] nextToLast = this.higher_path.get(1);
+				for (int i = 0; i < 2; i++) {
+					last[i] = last[i] * pi.thresholdFactor + nextToLast[i] * (1. - pi.thresholdFactor);
+				}
+			}
 			this.parent_path = new ArrayList<double[]>();
 			for (long k : parentage.path) {
 				this.parent_path.add(PointIndex.toLatLon(k));
 			}
 			
 			if (!pi.min_bound_only && !pi.path.isEmpty()) {
-				this.higher = new PromPoint(pi.path.get(0));
+				this.higher = new PromPoint(this.higher_path.get(0));
 			}
 			if (!parentage.min_bound_only && !parentage.path.isEmpty()) {
 				this.parent = new PromPoint(parentage.path.get(0));

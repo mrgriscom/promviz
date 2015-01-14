@@ -27,12 +27,29 @@ import com.google.common.collect.Iterables;
 
 public class PromNetwork {
 
-	static List<Long> fmtPath(Iterable<Point> path) {
-		List<Long> lpath = new ArrayList<Long>();
-		for (Point p : path) {
-			lpath.add(p.ix);
+	static class Path {
+		List<Long> path;
+		double thresholdFactor = -1;
+		
+		public Path(Iterable<Point> path, Point ref) {
+			this.path = new ArrayList<Long>();
+			Point[] endSeg = new Point[2];
+			int i = 0;
+			for (Point p : path) {
+				this.path.add(p.ix);
+				
+				if (i < 2) {
+					endSeg[i] = p;
+				}
+				i++;
+			}
+
+			if (ref != null) {
+				Point last = endSeg[0];
+				Point nextToLast = endSeg[1];
+				thresholdFactor = (ref.elev - nextToLast.elev) / (last.elev - nextToLast.elev);
+			}
 		}
-		return lpath;
 	}
 	
 	static class PromInfo {
@@ -43,6 +60,7 @@ public class PromNetwork {
 		Comparator<BasePoint> c;
 		List<Long> path;
 		boolean forward;
+		double thresholdFactor = -1;
 		
 		public PromInfo(Point p, Comparator<BasePoint> c) {
 			this.p = p;
@@ -61,7 +79,9 @@ public class PromNetwork {
 		
 		public void finalize(Front f, Point horizon) {
 			if (horizon != null) {
-				this.path = fmtPath(f.bt.trace(horizon));
+				Path _ = new Path(f.bt.trace(horizon), this.p);
+				this.path = _.path;
+				this.thresholdFactor = _.thresholdFactor;
 			} else {
 				this.path = new ArrayList<Long>();
 				this.path.add(this.p.ix);
@@ -627,6 +647,7 @@ public class PromNetwork {
 		Comparator<BasePoint> c;
 		List<Long> path;
 		boolean forwardSaddle;
+		double thresholdFactor = -1;
 		
 		public PromInfo2(Point peak, Point saddle) {
 			this.p = peak;
@@ -649,13 +670,17 @@ public class PromNetwork {
 		}
 		
 		public void finalizeForward(Front front, Point horizon) {
-			this.path = fmtPath(front.bt.getAtoB(horizon, this.p));
+			Path _ = new Path(front.bt.getAtoB(horizon, this.p), this.p);
+			this.path = _.path;
+			this.thresholdFactor = _.thresholdFactor;
 			forwardSaddle = true;
 		}
 
 		public void finalizeBackward(Front front) {
 			Point thresh = front.searchThreshold(this.p, this.saddle);			
-			this.path = fmtPath(front.bt.getAtoB(thresh, this.p));
+			Path _ = new Path(front.bt.getAtoB(thresh, this.p), this.p);
+			this.path = _.path;
+			this.thresholdFactor = _.thresholdFactor;
 			forwardSaddle = false;
 		}
 		
@@ -667,6 +692,7 @@ public class PromNetwork {
 			pi.forward = this.forwardSaddle;
 			if (this.path != null) {
 				pi.path = this.path;
+				pi.thresholdFactor = this.thresholdFactor;
 			} else {
 				pi.path = new ArrayList<Long>();
 				pi.path.add(this.p.ix);
@@ -1125,12 +1151,12 @@ public class PromNetwork {
 		}
 		
 		public void finalizeForward(ParentFront front) {
-			this.path = fmtPath(front.bt.getAtoB(this.parent, this.saddle));
+			this.path = new Path(front.bt.getAtoB(this.parent, this.saddle), null).path;
 		}
 
 		public void finalizeBackward(ParentFront front) {
 			this.parent = front.searchParent(this.saddle);			
-			this.path = fmtPath(front.bt.getAtoB(this.parent, this.saddle));
+			this.path = new Path(front.bt.getAtoB(this.parent, this.saddle), null).path;
 		}
 	}
 	
