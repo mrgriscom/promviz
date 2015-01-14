@@ -50,6 +50,11 @@ for k in points():
     del cur['parent_path']
     del ref['parent_path']
 
+    del cur['_thresh']
+    del ref['_thresh']
+    #if 'children' in cur:
+    #    del cur['children']
+
     if cur != ref:
         diffs = True
         print cur['peak']['prom'], 'mismatch', k
