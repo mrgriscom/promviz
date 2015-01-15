@@ -39,6 +39,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 	Map<Prefix, PrefixInfo> prefixes;
 	PreprocessNetwork.Meta[] metadata;
 	PagedMesh m; // unused
+	int phase;
 	
 	public PagedTopologyNetwork(int phase, boolean up, DEMManager dm, PreprocessNetwork.Meta[] metadata) {
 		this.up = up;
@@ -58,7 +59,8 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 	}
 	
 	void loadPrefixes(int phase) {
-		String dir = DEMManager.props.getProperty(phase == EdgeIterator.PHASE_RAW ? "dir_net" : "dir_mst");
+		this.phase = phase;
+		String dir = EdgeIterator.dir(phase, false);
 		File folder = new File(dir);
 		File[] listOfFiles = folder.listFiles();
 		for (File f : listOfFiles) {
@@ -175,7 +177,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		info.metadata = new HashMap<String, Map<Point, PreprocessNetwork.Meta>>();
 		for (PreprocessNetwork.Meta m : this.metadata) {
 			Map<Point, PreprocessNetwork.Meta> map = new HashMap<Point, PreprocessNetwork.Meta>();
-			for (PreprocessNetwork.Meta rec : m.iterator(this.up, prefix).toIter()) {
+			for (PreprocessNetwork.Meta rec : m.iterator(this.phase, this.up, prefix).toIter()) {
 				map.put(points.get(rec.ix), rec);
 			}
 			info.metadata.put(m.getName(), map);

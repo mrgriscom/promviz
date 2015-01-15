@@ -52,8 +52,6 @@ for k in points():
 
     del cur['_thresh']
     del ref['_thresh']
-    #if 'children' in cur:
-    #    del cur['children']
 
     if cur != ref:
         diffs = True

@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 
+import promviz.PreprocessNetwork.EdgeIterator;
 import promviz.PreprocessNetwork.Meta;
 import promviz.PreprocessNetwork.PromMeta;
 import promviz.PromNetwork.Backtrace.BacktracePruner;
@@ -549,10 +550,14 @@ public class PromNetwork {
 	static class MSTFront {
 		Deque<Point> queue;
 		Map<Point, Point> parents;
+		Backtrace bt = null;
 				
-		public MSTFront() {
+		public MSTFront(boolean includeBacktrace) {
 			queue = new ArrayDeque<Point>();
 			parents = new HashMap<Point, Point>();
+			if (includeBacktrace) {
+				bt = new Backtrace();
+			}
 		}
 		
 		public int size() {
@@ -569,6 +574,9 @@ public class PromNetwork {
 			}
 			queue.addLast(p);
 			parents.put(p, parent);
+			if (bt != null) {
+				bt.add(p, parent);
+			}
 		}
 		
 		public void doneWith(Point p) {
@@ -580,7 +588,7 @@ public class PromNetwork {
 		final PromPair pp = PromPair.fromPeak(p, tree);
 		Map<Point, Long> saddles = new HashMap<Point, Long>();
 		
-		MSTFront front = new MSTFront();
+		MSTFront front = new MSTFront(false);
 		Comparator<PromPair> cmp = cmpProm(BasePoint.cmpElev(up));
 		
 		front.add(p, null);
@@ -720,9 +728,9 @@ public class PromNetwork {
 	static class MSTWriter implements OnMSTEdge {
 		DataOutputStream out;
 		
-		public MSTWriter(boolean up) {
+		public MSTWriter(boolean up, int phase) {
 			try {
-				out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(DEMManager.props.getProperty("dir_mstdump") + "/" + (up ? "up" : "down"))));
+				out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(EdgeIterator.dir(phase, true) + "/" + (up ? "up" : "down"))));
 			} catch (IOException ioe) {
 				throw new RuntimeException();
 			}		

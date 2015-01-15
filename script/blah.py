@@ -109,7 +109,7 @@ def process_addendum(p):
                 },
             }
         out.update({
-            'subsaddles': map(tx_saddle, p['subsaddles']),
+            'subsaddles': sorted(map(tx_saddle, p['subsaddles']), key=lambda ss: ss['saddle']['geo']),
         })
 
     return out

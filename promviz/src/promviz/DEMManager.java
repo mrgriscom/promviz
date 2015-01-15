@@ -397,8 +397,8 @@ public class DEMManager {
 			final DataOutputStream promOut;
 			final DataOutputStream thresholdsOut;
 			try {
-				promOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(DEMManager.props.getProperty("dir_mstdump") + "/prom-" + (up ? "up" : "down"))));
-				thresholdsOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(DEMManager.props.getProperty("dir_mstdump") + "/thresh-" + (up ? "up" : "down"))));
+				promOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(EdgeIterator.dir(EdgeIterator.PHASE_MST, true) + "/prom-" + (up ? "up" : "down"))));
+				thresholdsOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(EdgeIterator.dir(EdgeIterator.PHASE_MST, true) + "/thresh-" + (up ? "up" : "down"))));
 			} catch (IOException ioe) {
 				throw new RuntimeException();
 			}
@@ -414,7 +414,7 @@ public class DEMManager {
 					
 					new ThresholdMeta(pi.path.get(0)).write(thresholdsOut);
 				}
-			}, new PromNetwork.MSTWriter(up), cutoff);
+			}, new PromNetwork.MSTWriter(up, EdgeIterator.PHASE_MST), cutoff);
 			try {
 				promOut.close();
 				thresholdsOut.close();
@@ -423,44 +423,7 @@ public class DEMManager {
 			}
 			
 			processMST(highest, dm, up, null);
-			//promPass2(highest, dm, up, null);
 		}
-		
-//		Map<Point, PromNetwork.PromInfo> saddleIndex = new HashMap<Point, PromNetwork.PromInfo>();
-//		for (Entry<Point, PromNetwork.PromInfo> e : prominentPoints.entrySet()) {
-//			// TODO i think we need to refine the tiebreaker logic here
-//			saddleIndex.put(e.getValue().saddle, e.getValue());
-//		}
-		
-//		Gson ser = new Gson();
-//		System.out.println("[");
-//		boolean first = true;
-//		for (Entry<Point, PromNetwork.PromInfo> e : prominentPoints.entrySet()) {
-//			Point p = e.getKey();
-//			PromNetwork.PromInfo pi = e.getValue();
-//			
-//			PromNetwork.PromInfo parentfill = new PromNetwork.PromInfo(pi.p, pi.c);
-//			parentfill.saddle = pi.saddle;
-//			parentfill.path = new ArrayList<Long>();
-//			parentfill.path.add(pi.p.ix);
-//			parentfill.path.add(pi.saddle.ix);
-//			parentfill.min_bound_only = true;
-//			PromNetwork.PromInfo parentage = parentfill; //PromNetwork.parent(tn, p, up, prominentPoints);
-//			
-//			List<Point> domainSaddles = null; //PromNetwork.domainSaddles(tn, p, saddleIndex, (float)pi.prominence());
-////				List<String> domainLimits = new ArrayList<String>();
-////				for (List<Point> ro : PromNetwork.runoff(anti_tn, pi.saddle, up)) {
-////					domainLimits.add(pathToStr(ro));					
-////				}
-//			//domainSaddles.remove(pi.saddle);
-//			
-//			System.out.println((first ? "" : ",") + ser.toJson(new PromData(
-//					up, p, pi, parentage, domainSaddles
-//				)));
-//			first = false;
-//		}
-//		System.out.println("]");
-
 	}
 
 	static void processMST(Point highest, DEMManager dm, boolean up, String region) {
@@ -476,11 +439,16 @@ public class DEMManager {
 			throw new RuntimeException("/mst not empty!");
 		}
 		PreprocessNetwork.processMST(dm, up, highest);
+		folder = new File(DEMManager.props.getProperty("dir_rmst"));
+		if (folder.listFiles().length != 0) {
+			throw new RuntimeException("/rmst not empty!");
+		}
+		PreprocessNetwork.processRMST(dm, up, highest);
 	}
 	
 	static void promPass2(Point highest, DEMManager dm, final boolean up, String region) {
 		MESH_MAX_POINTS = (1 << 26);
-		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new Meta[] {new PromMeta()});
+		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_RMST, up, null, new Meta[] {new PromMeta()});
 		
 		if (oldSchool) {
 
@@ -542,7 +510,6 @@ public class DEMManager {
 
 		}
 		
-		// assign nh
 		// must operate on *untrimmed* MST!
 		tn = null;
 		TopologyNetwork tnfull = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new Meta[] {new PromMeta(), new ThresholdMeta()});

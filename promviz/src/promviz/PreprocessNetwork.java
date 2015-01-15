@@ -10,12 +10,10 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -24,10 +22,12 @@ import java.util.Map;
 import java.util.Set;
 
 import promviz.PromNetwork.MSTFront;
-import promviz.PromNetwork.PromPair;
+import promviz.PromNetwork.MSTWriter;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 import promviz.util.Util;
+
+import com.google.common.collect.Lists;
 
 public class PreprocessNetwork {
 	
@@ -108,18 +108,25 @@ public class PreprocessNetwork {
 				
 		static final int PHASE_RAW = 0;
 		static final int PHASE_MST = 1;
+		static final int PHASE_RMST = 2;
 		
-		static String fuckJava(boolean up, int phase) {
+		static String dir(int phase, boolean dump) {
+			String _d = null;
 			if (phase == PHASE_RAW) {
-				return DEMManager.props.getProperty("dir_netdump") + "/" + (up ? "up" : "down");
+				_d = "dir_net";
 			} else if (phase == PHASE_MST) {
-				return DEMManager.props.getProperty("dir_mstdump") + "/" + (up ? "up" : "down");				
+				_d = "dir_mst";
+			} else if (phase == PHASE_RMST) {
+				_d = "dir_rmst";
 			}
-			return null;
+			if (dump) {
+				_d += "dump";
+			}
+			return DEMManager.props.getProperty(_d);
 		}
 		
 		public EdgeIterator(boolean up, int phase) {
-			this(fuckJava(up, phase));
+			this(dir(phase, true) + "/" + (up ? "up" : "down"));
 		}
 
 		public EdgeIterator(boolean up, Prefix p, int phase) {
@@ -248,13 +255,8 @@ public class PreprocessNetwork {
 	
 	static String prefixPath(boolean up, String mode, Prefix p, int phase) {
 		int[] pp = PointIndex.split(p.prefix);
-		String dir = null;
-		if (phase == EdgeIterator.PHASE_RAW) {
-			dir = "dir_net";
-		} else if (phase == EdgeIterator.PHASE_MST) {
-			dir = "dir_mst";			
-		}
-		return String.format("%s/%s%s-%d,%d,%d,%d", DEMManager.props.getProperty(dir), mode != null ? mode : "", up ? "up" : "down", p.res, pp[0], pp[1], pp[2]);		
+		String dir = EdgeIterator.dir(phase, false);
+		return String.format("%s/%s%s-%d,%d,%d,%d", dir, mode != null ? mode : "", up ? "up" : "down", p.res, pp[0], pp[1], pp[2]);		
 	}
 	
 	static void partitionChunk(int phase, boolean up, Set<Prefix> buckets, Iterable<Edge> edges) {
@@ -570,26 +572,36 @@ public class PreprocessNetwork {
 	
 	public static void processMST(DEMManager dm, final boolean up, Point highest) {
 		Logging.log("processing MST");
-		int phase = EdgeIterator.PHASE_MST;
-		
+		_procMST(dm, up, highest, EdgeIterator.PHASE_MST, new Meta[] {new PromMeta(), new ThresholdMeta()});
+	    trimMST(highest, up);
+	}
+
+	public static void processRMST(DEMManager dm, final boolean up, Point highest) {
+		Logging.log("processing RMST");
+		_procMST(dm, up, highest, EdgeIterator.PHASE_RMST, new Meta[] {new PromMeta()});
+	}
+
+	static void _procMST(DEMManager dm, final boolean up, Point highest, int phase, Meta[] metas) {
         Map<Prefix, Long> tally = initialTally(new EdgeIterator(up, phase).toIter());
 	    Set<Prefix> buckets = consolidateTally(tally);
 	    Logging.log(buckets.size() + " buckets");
 	    partition(phase, up, buckets);
-	    partitionMeta(up, buckets, new PromMeta());
-	    partitionMeta(up, buckets, new ThresholdMeta());
+	    for (Meta m : metas) {
+	    	partitionMeta(phase, up, buckets, m);
+	    }
 	    cacheElevation(phase, up, buckets, dm);
-	    
-	    //trimMST(highest, up);
 	}
+	
 	
 	public static void trimMST(Point highest, boolean up) {
 		Logging.log("trimming MST");
 		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_MST, up, null, new Meta[] {new PromMeta()});
-		System.err.println(tn.get(highest.ix));
+		highest = tn.get(highest.ix);
 
-		MSTFront front = new MSTFront();
-
+		MSTFront front = new MSTFront(false);
+		Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
+		MSTWriter w = new MSTWriter(up, EdgeIterator.PHASE_RMST);
+		
 		for (Point adj : tn.adjacent(highest)) {
 			front.add(adj, highest);
 		}
@@ -597,34 +609,129 @@ public class PreprocessNetwork {
 			Point cur = front.next();
 			Point parent = front.parents.get(cur);
 			
-			MSTFront inner = new MSTFront();
+			MSTFront inner = new MSTFront(true);
+			inner.bt.add(parent, null);
 			inner.add(cur, parent);
 			
+			Set<Point> frontiers = new HashSet<Point>();
+			
 			while (inner.size() > 0) {
-				Point cur2 = front.next();
+				boolean noteworthyPoint = false;
+				Point cur2 = inner.next();
 				PromMeta pm = (PromMeta)tn.getMeta(cur2, "prom");
-				MSTFront target = (pm != null ? front : inner);
-				for (Point adj : tn.adjacent(cur2)) {
-					target.add(adj, highest); // loopback prevention won't work for 'front'
-				}				
+				if (pm != null) {
+					// prominent point -- delegate back to main front
+					for (Point adj : tn.adjacent(cur2)) {
+						if (!PromNetwork.isUpstream(tn, cur2, adj)) {
+							front.add(adj, cur2);
+						}
+					}
+					noteworthyPoint = true;
+				} else {
+					for (Point adj : tn.adjacent(cur2)) {
+						inner.add(adj, cur2);
+					}				
+				}
+				if (tn.pendingSaddles.contains(cur2)) {
+					noteworthyPoint = true;
+				}
+				inner.doneWith(cur2);
+				
+				if (noteworthyPoint) {
+					frontiers.add(cur2);
+				}
+			}
+			front.doneWith(cur);
+
+			List<List<Point>> paths = new ArrayList<List<Point>>();
+			for (Point fr : frontiers) {
+				List<Point> path = Lists.newArrayList(inner.bt.trace(fr));
+				path = Lists.reverse(path);
+				if (tn.pendingSaddles.contains(fr)) {
+					path.add(null); // sentinel; treat like a peak
+				}
+				paths.add(path);
+			}
+			if (paths.isEmpty()) {
+				continue;
 			}
 			
-			// process accumulated paths
+			List<List<Point>> splitPaths = new ArrayList<List<Point>>();
+			partitionPaths(paths, splitPaths);
 
-			// doneWith?
+			List<Edge> edges = new ArrayList<Edge>();
+			for (List<Point> path : splitPaths) {
+				Point head = path.get(0);
+				Point tail = path.get(path.size() - 1);
+				boolean headIsSaddle = (head.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT));
+				boolean tailIsSaddle = (tail != null && (tail.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)));
+				long tailIx = (tail != null ? tail.ix : -1);
+				
+				if (headIsSaddle) {
+					if (tailIsSaddle) {
+						throw new RuntimeException("shouldn't happen");
+					} else {
+						edges.add(new Edge(head.ix, tailIx, 1));
+					}
+				} else {
+					if (tailIsSaddle) {
+						edges.add(new Edge(tailIx, head.ix, 0));						
+					} else {
+						// two peaks: one is a junction peak
+						Point junctionSaddle = null;
+						for (Point p : path) {
+							if (p == null) {
+								continue; // the sentinel
+							}
+							if (junctionSaddle == null || cmp.compare(p, junctionSaddle) < 0) {
+								junctionSaddle = p;
+							}
+						}
+						edges.add(new Edge(junctionSaddle.ix, head.ix, 0));
+						edges.add(new Edge(junctionSaddle.ix, tailIx, 1));
+					}
+				}
+			}
+			for (Edge e : edges) {
+				e.write(w.out);
+			}
+		}
+		w.finalize();
+	}
+	
+	static void partitionPaths(List<List<Point>> paths, List<List<Point>> split) {
+		if (paths.size() == 1) {
+			split.add(paths.get(0));
+			return;
 		}
 		
-		/*
-		 * from a prom pt, explore all branches until termed at other prom pts
-		 * add term pts to queue
-		 * consolidate branches and write out to stream
-		 * 
-		 * 
-		 * special handling for pend
-		 * 
-		 */
+		Map<Point, List<List<Point>>> p;
+		int i = 0;
+		while (true) {
+			p = new DefaultMap<Point, List<List<Point>>>() {
+				public List<List<Point>> defaultValue(Point key) {
+					return new ArrayList<List<Point>>();
+				}
+			};
+			
+			for (List<Point> path : paths) {
+				p.get(path.get(i)).add(path);
+			}
+			if (p.size() > 1) {
+				// divergence!
+				break;
+			}
+			i++;
+		}
 		
-		// need to regenerate the buckets, right?
+		split.add(paths.get(0).subList(0, i));
+		for (List<List<Point>> subPaths : p.values()) {
+			List<List<Point>> _sps = new ArrayList<List<Point>>();
+			for (List<Point> sp : subPaths) {
+				_sps.add(sp.subList(i - 1, sp.size()));
+			}
+			partitionPaths(_sps, split);
+		}
 	}
 	
 	static class Meta {
@@ -664,11 +771,11 @@ public class PreprocessNetwork {
 		int dataSize() { return 0; }
 		String getName() { return null; }
 		
-		String bulkPath(boolean up) {
-			return DEMManager.props.getProperty("dir_mstdump") + "/" + getName() + "-" + (up ? "up" : "down");
+		String bulkPath(boolean up) { // bulk meta is always located in the 'mst' directory
+			return EdgeIterator.dir(EdgeIterator.PHASE_MST, true) + "/" + getName() + "-" + (up ? "up" : "down");
 		}
-		String chunkPath(boolean up, Prefix p) {
-			return prefixPath(up, getName(), p, EdgeIterator.PHASE_MST);
+		String chunkPath(int phase, boolean up, Prefix p) {
+			return prefixPath(up, getName(), p, phase);
 		}
 		Meta fuckingHell() { return null; }
 		
@@ -691,8 +798,8 @@ public class PreprocessNetwork {
 				this(bulkPath(up));
 			}
 
-			public MetaIterator(boolean up, Prefix p) {
-				this(chunkPath(up, p));
+			public MetaIterator(int phase, boolean up, Prefix p) {
+				this(chunkPath(phase, up, p));
 			}
 			
 			void readNext() {
@@ -736,8 +843,8 @@ public class PreprocessNetwork {
 		MetaIterator iterator(boolean up) {
 			return new MetaIterator(up);
 		}
-		MetaIterator iterator(boolean up, Prefix p) {
-			return new MetaIterator(up, p);
+		MetaIterator iterator(int phase, boolean up, Prefix p) {
+			return new MetaIterator(phase, up, p);
 		}
 	}
 	
@@ -813,15 +920,15 @@ public class PreprocessNetwork {
 	}
 
 	
-	public static void partitionMeta(boolean up, Set<Prefix> buckets, Meta spec) {
+	public static void partitionMeta(int phase, boolean up, Set<Prefix> buckets, Meta spec) {
 		Logging.log("--" + spec.getName() + "--");
 		final long MAX_UNITS_AT_ONCE = Long.parseLong(DEMManager.props.getProperty("memory")) / (3 * spec.recSize());
 		for (Iterable<Meta> chunk : chunker(spec.iterator(up), MAX_UNITS_AT_ONCE)) {
-			partitionMetaChunk(up, buckets, chunk, spec);
+			partitionMetaChunk(phase, up, buckets, chunk, spec);
 		}
 	}
 	
-	static void partitionMetaChunk(boolean up, Set<Prefix> buckets, Iterable<Meta> metas, Meta spec) {
+	static void partitionMetaChunk(int phase, boolean up, Set<Prefix> buckets, Iterable<Meta> metas, Meta spec) {
 		final Map<Prefix, ByteArrayOutputStream> _f = new HashMap<Prefix, ByteArrayOutputStream>();
 		Map<Prefix, DataOutputStream> f = new DefaultMap<Prefix, DataOutputStream>() {
 			public DataOutputStream defaultValue(Prefix key) {
@@ -841,7 +948,7 @@ public class PreprocessNetwork {
 			ByteArrayOutputStream out = e.getValue();
 
 			try {
-				FileOutputStream fout = new FileOutputStream(spec.chunkPath(up, p), true);
+				FileOutputStream fout = new FileOutputStream(spec.chunkPath(phase, up, p), true);
 				fout.write(out.toByteArray());
 				fout.close();
 			} catch (IOException ioe) {
