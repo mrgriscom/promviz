@@ -68,7 +68,7 @@ function singleStyle(props, highlight) {
     } else if (props.type == 'parent') {
         style = {fillColor: '#0f0'};
     } else if (props.type == 'subsaddle') {
-        style = {fillColor: props.higher ? '#800' : '#000'};
+        style = {fillColor: props.higher ? '#800' : '#000', radius: props.domain ? 10 : 5};
     } else if (props.type == 'childsaddle') {
         style = {fillColor: '#00f', radius: 3};
     }
@@ -151,14 +151,14 @@ function loadData(map, data) {
                     }
                     html += '<div>' + dispdist(props, 'prom') + (props.min_bound ? '*' : '') + '</div><div>' + dispdist(props, 'elev') + '</div>';
                     if (self) {
-                        html += '<hr><table style="font-size: 12px;">';
+                        html += '<hr><div style="max-height: 400px; overflow-x: hidden; overflow-y: auto;"><table style="font-size: 12px;">';
                         _.each(DATA.features, function(e) {
                             var p = e.properties;
                             if (p.type == 'child') {
                                 html += '<tr class="childentry" ix="' + p.ix + '"><td>' + p.ix + '</td><td><a target="_blank" href="/view/' + p.geo + '">' + (p.name || p.geo) + '</a></td><td>' + dispdist(p, 'prom') + '</td></tr>';
                             }
                         });
-                        html += '</table>';
+                        html += '</table></div>';
                     }
                     $div.html(html);
                 } else if (props.type == 'saddle' || props.type == 'subsaddle') {

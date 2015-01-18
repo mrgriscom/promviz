@@ -20,6 +20,7 @@ import promviz.PreprocessNetwork.EdgeIterator;
 import promviz.PreprocessNetwork.Meta;
 import promviz.PreprocessNetwork.PromMeta;
 import promviz.PreprocessNetwork.ThresholdMeta;
+import promviz.PromNetwork.DomainSaddleInfo;
 import promviz.PromNetwork.ParentInfo;
 import promviz.PromNetwork.PromInfo;
 import promviz.util.DefaultMap;
@@ -463,16 +464,9 @@ public class DEMManager {
 				if (pi != null) {
 					outputPromParentage(pi, up);
 				}
-				
-				Map<Point, Long> secondarySaddles = PromNetwork.domainSaddles(up, tn, p);
-				Set<Long> saddlesHigher = new HashSet<Long>();
-				Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
-				for (long otherIx : secondarySaddles.values()) {
-					if (cmp.compare(tn.get(otherIx), p) > 0) {
-						saddlesHigher.add(otherIx);
-					}
-				}
-				outputSubsaddles(p, secondarySaddles, saddlesHigher, up);
+
+				List<DomainSaddleInfo> dsi = PromNetwork.domainSaddles(up, tn, p);
+				outputSubsaddles(p, dsi, up);
 			}
 			
 		} else {
@@ -497,15 +491,8 @@ public class DEMManager {
 					continue;
 				}
 				
-				Map<Point, Long> secondarySaddles = PromNetwork.domainSaddles(up, tn, p);
-				Set<Long> saddlesHigher = new HashSet<Long>();
-				Comparator<BasePoint> cmp = BasePoint.cmpElev(up);
-				for (long otherIx : secondarySaddles.values()) {
-					if (cmp.compare(tn.get(otherIx), p) > 0) {
-						saddlesHigher.add(otherIx);
-					}
-				}
-				outputSubsaddles(p, secondarySaddles, saddlesHigher, up);
+				List<DomainSaddleInfo> dsi = PromNetwork.domainSaddles(up, tn, p);
+				outputSubsaddles(p, dsi, up);
 			}
 
 		}
@@ -603,12 +590,12 @@ public class DEMManager {
 		System.out.println(ser.toJson(new ParentData(up, pi.p, pi)));
 	}
 
-	static void outputSubsaddles(Point p, Map<Point, Long> subsaddles, Set<Long> saddlesHigher, boolean up) {
-		if (subsaddles.isEmpty()) {
+	static void outputSubsaddles(Point p, List<DomainSaddleInfo> dsi, boolean up) {
+		if (dsi.isEmpty()) {
 			return;
 		}
 		Gson ser = new Gson();
-		System.out.println(ser.toJson(new SubsaddleData(up, p, subsaddles, saddlesHigher)));
+		System.out.println(ser.toJson(new SubsaddleData(up, p, dsi)));
 	}
 
 	static void outputPromThresh(PrintWriter w, PromNetwork.PromInfo pi, boolean up) {
@@ -731,22 +718,21 @@ public class DEMManager {
 			PromPoint saddle;
 			PromPoint peak;
 			boolean higher;
+			boolean domain;
 		}
 		List<Subsaddle> subsaddles;
 		
-		public SubsaddleData(boolean up, Point p, Map<Point, Long> saddles, Set<Long> saddlesHigher) {
+		public SubsaddleData(boolean up, Point p, List<DomainSaddleInfo> dsis) {
 			this.up = up;
 			this.summit = new PromPoint(p.ix);
 
 			this.subsaddles = new ArrayList<Subsaddle>();
-			for (Entry<Point, Long> e : saddles.entrySet()) {
-				Point ss = e.getKey();
-				long peakIx = e.getValue();
-				
+			for (DomainSaddleInfo dsi : dsis) {
 				Subsaddle SS = new Subsaddle();
-				SS.saddle = new PromPoint(ss, null);
-				SS.peak = new PromPoint(peakIx);
-				SS.higher = saddlesHigher.contains(peakIx);
+				SS.saddle = new PromPoint((Point)dsi.saddle, null);
+				SS.peak = new PromPoint(dsi.peakIx);
+				SS.higher = dsi.isHigher;
+				SS.domain = dsi.isDomain;
 				this.subsaddles.add(SS);
 			}
 		}

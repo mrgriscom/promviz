@@ -88,7 +88,7 @@ def to_geojson(k):
         ]
     }
     for ss in k.get('subsaddles', []):
-        data['features'].append(saddle_feature(ss, 'subsaddle', higher=ss['for']['higher']))
+        data['features'].append(saddle_feature(ss, 'subsaddle', higher=ss['for']['higher'], domain=ss['domain']))
 
     if k.get('threshold'):
         data['features'].append(

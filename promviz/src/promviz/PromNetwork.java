@@ -579,39 +579,99 @@ public class PromNetwork {
 			}
 		}
 		
+		public List<Point> downstreamAdj(Point p, TopologyNetwork tree) {
+			List<Point> adjs = new ArrayList<Point>();
+			for (Point adj : tree.adjacent(p)) {
+				if (!adj.equals(parents.get(p))) {
+					adjs.add(adj);
+				}
+			}				
+			return adjs;
+		}
+		
 		public void doneWith(Point p) {
 			parents.remove(p);
 		}
 	}
 	
-	public static Map<Point, Long> domainSaddles(boolean up, TopologyNetwork tree, Point p) {
+	static class DomainSaddleInfo {
+		BasePoint saddle;
+		Long peakIx;
+		boolean isHigher;
+		boolean isDomain;
+		
+		public DomainSaddleInfo(PromPair pp, boolean isDomain, TopologyNetwork tree, Comparator<BasePoint> cmp, Point p) {
+			this.saddle = pp.getSaddle();
+			this.peakIx = pp.getPeakIx();
+			this.isDomain = isDomain;
+			this.isHigher = (cmp.compare(tree.get(this.peakIx), p) > 0);
+		}
+	}
+	
+	public static List<DomainSaddleInfo> domainSaddles(boolean up, TopologyNetwork tree, Point p) {
 		final PromPair pp = PromPair.fromPeak(p, tree);
-		Map<Point, Long> saddles = new HashMap<Point, Long>();
+		List<DomainSaddleInfo> saddles = new ArrayList<DomainSaddleInfo>();
 		
 		MSTFront front = new MSTFront(false);
-		Comparator<PromPair> cmp = cmpProm(BasePoint.cmpElev(up));
+		MSTFront front2 = new MSTFront(false);
+		Comparator<BasePoint> cmpE = BasePoint.cmpElev(up);
+		Comparator<PromPair> cmp = cmpProm(cmpE);
 		
 		front.add(p, null);
 		while (front.size() > 0) {
 			Point cur = front.next();
 
+			DomainSaddleInfo dsi = null;
 			boolean isSaddle = (cur.classify(tree) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT));
 			if (isSaddle) {
 				PromPair pp2 = PromPair.fromSaddle(cur, tree);
 				if (pp2 != null && cmp.compare(pp2, pp) >= 0) {
-					if (pp2.getPeakIx() != p.ix) {
-						saddles.put(cur, pp2.getPeakIx());
-					}
-					continue;
+					dsi = new DomainSaddleInfo(pp2, true, tree, cmpE, p);
 				}
 			}
-				
-			for (Point adj : tree.adjacent(cur)) {
-				front.add(adj, cur);
+			if (dsi == null) {
+				// no significant saddle found -- keep traversing
+				for (Point adj : tree.adjacent(cur)) {
+					front.add(adj, cur);
+				}
+			} else if (dsi != null && dsi.peakIx != p.ix) {
+				// significant saddle (and not p's key saddle)
+				if (!dsi.isHigher) {
+					// continue search for strictly-higher subsaddles
+					for (Point adj : front.downstreamAdj(cur, tree)) {
+						front2.add(adj, cur);
+					}
+				}
+				saddles.add(dsi);
 			}
+
 			front.doneWith(cur);
 		}
 
+		// search further for 'height-based' subsaddles that are not part of this point's domain
+		front = null;
+		while (front2.size() > 0) {
+			Point cur = front2.next();
+			
+			DomainSaddleInfo dsi = null;
+			boolean isSaddle = (cur.classify(tree) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT));
+			if (isSaddle) {
+				PromPair pp2 = PromPair.fromSaddle(cur, tree);
+				if (pp2 != null && cmp.compare(pp2, pp) >= 0) {
+					dsi = new DomainSaddleInfo(pp2, false, tree, cmpE, p);
+				}
+			}
+
+			if (dsi != null && dsi.isHigher) {
+				saddles.add(dsi);
+			} else {
+				for (Point adj : tree.adjacent(cur)) {
+					front2.add(adj, cur);
+				}
+			}
+			front2.doneWith(cur);
+		}
+		
 		return saddles;
 	}
 			

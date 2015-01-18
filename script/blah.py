@@ -107,6 +107,7 @@ def process_addendum(p):
                     'geo': ss['peak']['geo'],
                     'higher': ss['higher'],
                 },
+                'domain': ss['domain'],
             }
         out.update({
             'subsaddles': sorted(map(tx_saddle, p['subsaddles']), key=lambda ss: ss['saddle']['geo']),

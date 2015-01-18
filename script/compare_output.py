@@ -22,6 +22,7 @@ dref = tempfile.mkdtemp()
 
 diffs = False
 for k in points():
+#for k in list(points())[:10]:
     fcur = path(k, False)
     fref = path(k, True)
 
