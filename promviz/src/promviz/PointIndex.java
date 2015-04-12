@@ -3,7 +3,9 @@ package promviz;
 import java.util.ArrayList;
 import java.util.List;
 
+import promviz.dem.Projection;
 import promviz.util.GeoCode;
+import promviz.util.Util;
 
 public class PointIndex {
 	
@@ -33,11 +35,14 @@ public class PointIndex {
 		}
 	}
 	
+	static final long NULL = -1;
+	
 	public static long make(int projId, int x, int y) {
 		return make(projId, x, y, 0);
 	}
 	
 	public static long make(int projId, int x, int y, int seq) {
+		assert seq >= (-1 << (BITS_SEQ - 1)) && seq < (1 << (BITS_SEQ - 1)); 
 		return ((long)(projId & ~(~0 << BITS_PROJ)) << OFFSET_PROJ) |
 			   ((long)(x      & ~(~0 << BITS_X   )) << OFFSET_X   ) |
 			   ((long)(y      & ~(~0 << BITS_Y   )) << OFFSET_Y   ) |
@@ -64,9 +69,6 @@ public class PointIndex {
 	}
 
 	public static long clone(long ix, int seq) {
-		if (seq < (-1 << (BITS_SEQ - 1)) || seq >= (1 << (BITS_SEQ - 1))) {
-			throw new IllegalArgumentException();
-		}
 		int[] k = split(ix);
 		return make(k[0], k[1], k[2], seq);
 	}
@@ -96,7 +98,12 @@ public class PointIndex {
 	
 	public static double[] toLatLon(long ix) {
 		int[] _ix = split(ix);
-		return DEMManager.PROJ.fromGrid(_ix[1], _ix[2]);
+		return Projection.authority.forRef(_ix[0]).fromGrid(_ix[1], _ix[2]);
+	}
+	
+	public static String geocode(long ix) {
+		double[] ll = PointIndex.toLatLon(ix);
+		return Util.print(GeoCode.fromCoord(ll[0], ll[1]));
 	}
 	
 	public static long truncate(long ix, int depth) {
@@ -106,12 +113,7 @@ public class PointIndex {
 		return make(c[0], x, y);
 	}
 	
-	public static String geocode(long ix) {
-		double[] ll = PointIndex.toLatLon(ix);
-		return GeoCode.print(GeoCode.fromCoord(ll[0], ll[1]));
-	}
-	
-	public static String print(long ix) {
+	public static String toString(long ix) {
 		if (ix == -1) {
 			return "---";
 		}
@@ -119,6 +121,10 @@ public class PointIndex {
 		int[] c = split(ix);
 		return String.format("%d/%d,%d:%d", c[0], c[1], c[2], c[3]);
 	}
+	
+	
+	
+	
 	
 	static void testA(int proj, int x, int y) {
 		long ix = make(proj, x, y);

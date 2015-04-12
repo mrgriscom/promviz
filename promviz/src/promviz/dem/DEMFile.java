@@ -88,9 +88,9 @@ public abstract class DEMFile {
 		};
 	}
 	
-	static class Sample {
-		long ix;
-		float elev;
+	public static class Sample {
+		public long ix;
+		public float elev;
 		
 		public Sample(long ix, float elev) {
 			this.ix = ix;

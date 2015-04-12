@@ -6,5 +6,8 @@ public class Util {
 		return String.format("%016x", L);
 	}
 
+	public static int mod(int a, int b) {
+		return ((a % b) + b) % b;
+	}
 
 }

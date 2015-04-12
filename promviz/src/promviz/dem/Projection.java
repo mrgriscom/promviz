@@ -8,6 +8,11 @@ public abstract class Projection {
 	int refID;
 	int sampleMode;
 
+	public static interface Authority {
+		Projection forRef(int refID);
+	}
+	public static Authority authority;
+	
 	public Projection() {
 		this(SAMPLE_CENTER);
 	}

@@ -1,13 +1,15 @@
-package old.promviz;
+package promviz;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import old.promviz.IMesh;
 
-/* extends BasePoint with the concept of being part of a network or mesh, i.e., being
+
+/* extends Point with the concept of being part of a network or mesh, i.e., being
  * adjacent to other points
  */
-public class Point extends BasePoint {
+public class MeshPoint extends Point {
 
 	public static final int CLASS_OTHER = 0;
 	public static final int CLASS_SUMMIT = 1;
@@ -23,11 +25,11 @@ public class Point extends BasePoint {
 	long[] _adjacent = new long[0];
 	int[] _tagging = null;
 
-	public Point(long ix, float elev) {
+	public MeshPoint(long ix, float elev) {
 		super(ix, elev);
 	}
 	
-	public Point(long ix, float elev, int isodist) {
+	public MeshPoint(long ix, float elev, int isodist) {
 		super(ix, elev, isodist);
 	}
 	
@@ -35,10 +37,10 @@ public class Point extends BasePoint {
 		return _adjacent;
 	}
 	
-	public List<Point> adjacent(IMesh m) {
-		List<Point> adj = new ArrayList<Point>();
+	public List<MeshPoint> adjacent(IMesh m) {
+		List<MeshPoint> adj = new ArrayList<MeshPoint>();
 		for (long geocode : adjIx()) {
-			adj.add(geocode != -1 ? m.get(geocode) : null);
+			adj.add(geocode != PointIndex.NULL ? m.get(geocode) : null);
 		}
 		return adj;
 	}
@@ -51,8 +53,8 @@ public class Point extends BasePoint {
 			return CLASS_OTHER; // or indet?
 		}
 		
-		List<Point> adjacent = this.adjacent(m);
-		for (Point p : adjacent) {
+		List<MeshPoint> adjacent = this.adjacent(m);
+		for (MeshPoint p : adjacent) {
 			if (p == null)  {
 				return CLASS_INDETERMINATE;
 			}
@@ -72,8 +74,8 @@ public class Point extends BasePoint {
 		
 		int transitions = 0;
 		for (int i = 0; i < adjacent.size(); i++) {
-			Point p0 = adjacent.get(i);
-			Point p1 = adjacent.get((i + 1) % adjacent.size());
+			MeshPoint p0 = adjacent.get(i);
+			MeshPoint p1 = adjacent.get((i + 1) % adjacent.size());
 			
 			if (this.compareElev(p0) != this.compareElev(p1)) {
 				transitions++;
@@ -87,11 +89,11 @@ public class Point extends BasePoint {
 	}
 	
 	static class Lead {
-		Point p0;
-		Point p;
+		MeshPoint p0;
+		MeshPoint p;
 		int i;
 		
-		public Lead(Point p0, Point p, int i) {
+		public Lead(MeshPoint p0, MeshPoint p, int i) {
 			this.p0 = p0;
 			this.p = p;
 			this.i = i;
@@ -112,12 +114,12 @@ public class Point extends BasePoint {
 	}
 	
 	List<Lead> leads(IMesh m, boolean up) {
-		List<Point> adjacent = this.adjacent(m);
+		List<MeshPoint> adjacent = this.adjacent(m);
 		int[] cohort = new int[adjacent.size()];
 		int current_cohort = 0;
 		for (int i = 0; i < adjacent.size(); i++) {
-			Point p = adjacent.get(i);
-			Point p_prev = (i > 0 ? adjacent.get(i - 1) : null);
+			MeshPoint p = adjacent.get(i);
+			MeshPoint p_prev = (i > 0 ? adjacent.get(i - 1) : null);
 			if (p_prev != null && this.compareElev(p) != this.compareElev(p_prev)) {
 				current_cohort++;
 			}
@@ -131,13 +133,13 @@ public class Point extends BasePoint {
 		
 		List<Lead> L = new ArrayList<Lead>();
 		for (int cur_cohort = 0; cur_cohort < num_cohorts; cur_cohort++) {
-			Point best = null;
+			MeshPoint best = null;
 			for (int i = 0; i < adjacent.size(); i++) {
 				if (cohort[i] != cur_cohort) {
 					continue;
 				}
 				
-				Point p = adjacent.get(i);
+				MeshPoint p = adjacent.get(i);
 				if (best == null || best.compareElev(p) == this.compareElev(best)) {
 					best = p;
 				}
