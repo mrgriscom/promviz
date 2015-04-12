@@ -1,4 +1,4 @@
-package promviz;
+package old.promviz;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -21,11 +21,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import promviz.PromNetwork.MSTFront;
-import promviz.PromNetwork.MSTWriter;
-import promviz.util.DefaultMap;
-import promviz.util.Logging;
-import promviz.util.Util;
+import old.promviz.PromNetwork.MSTFront;
+import old.promviz.PromNetwork.MSTWriter;
+import old.promviz.util.DefaultMap;
+import old.promviz.util.Logging;
+import old.promviz.util.Util;
 
 import com.google.common.collect.Lists;
 

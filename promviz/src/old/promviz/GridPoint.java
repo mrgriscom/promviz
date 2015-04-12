@@ -1,6 +1,4 @@
-package promviz;
-
-import promviz.dem.DEMFile;
+package old.promviz;
 
 
 public class GridPoint extends Point {

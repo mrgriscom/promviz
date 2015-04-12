@@ -1,4 +1,4 @@
-package promviz;
+package old.promviz;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
@@ -16,16 +16,16 @@ import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 
-import promviz.PreprocessNetwork.EdgeIterator;
-import promviz.PreprocessNetwork.Meta;
-import promviz.PreprocessNetwork.PromMeta;
-import promviz.PreprocessNetwork.ThresholdMeta;
-import promviz.PromNetwork.DomainSaddleInfo;
-import promviz.PromNetwork.ParentInfo;
-import promviz.PromNetwork.PromInfo;
-import promviz.util.DefaultMap;
-import promviz.util.Logging;
-import promviz.util.Util;
+import old.promviz.PreprocessNetwork.EdgeIterator;
+import old.promviz.PreprocessNetwork.Meta;
+import old.promviz.PreprocessNetwork.PromMeta;
+import old.promviz.PreprocessNetwork.ThresholdMeta;
+import old.promviz.PromNetwork.DomainSaddleInfo;
+import old.promviz.PromNetwork.ParentInfo;
+import old.promviz.PromNetwork.PromInfo;
+import old.promviz.util.DefaultMap;
+import old.promviz.util.Logging;
+import old.promviz.util.Util;
 
 import com.google.gson.Gson;
 

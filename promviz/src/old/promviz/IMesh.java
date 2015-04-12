@@ -1,6 +1,6 @@
-package promviz;
+package old.promviz;
 
-import promviz.PreprocessNetwork.Meta;
+import old.promviz.PreprocessNetwork.Meta;
 
 public interface IMesh {
 	public Point get(long geocode);

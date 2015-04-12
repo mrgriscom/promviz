@@ -1,4 +1,4 @@
-package promviz;
+package old.promviz;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -16,9 +16,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import promviz.PreprocessNetwork.Edge;
-import promviz.PreprocessNetwork.EdgeIterator;
-import promviz.util.Logging;
+import old.promviz.PreprocessNetwork.Edge;
+import old.promviz.PreprocessNetwork.EdgeIterator;
+import old.promviz.util.Logging;
 
 import com.google.common.collect.Lists;
 

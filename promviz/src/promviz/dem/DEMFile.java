@@ -1,10 +1,15 @@
-package promviz;
+package promviz.dem;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Iterator;
+
+import promviz.PointIndex;
 
 public abstract class DEMFile {
 
+	static final boolean DEBUG_NODATA_IS_OCEAN = true;
+	
 	Projection proj;
 	int width;
 	int height;
@@ -19,6 +24,14 @@ public abstract class DEMFile {
 		this.height = height;
 		this.x0 = x0;
 		this.y0 = y0;
+	}
+	
+	public DEMFile(String path, Projection proj, int width, int height, int[] xy0) {
+		this(path, proj, width, height, xy0[0], xy0[1]);
+	}
+
+	public DEMFile(String path, Projection proj, int width, int height, double lat0, double lon0) {
+		this(path, proj, width, height, proj.toGrid(lat0, lon0));
 	}
 	
 	public int xmax() {
@@ -76,26 +89,24 @@ public abstract class DEMFile {
 	}
 	
 	static class Sample {
+		long ix;
+		float elev;
+		
 		public Sample(long ix, float elev) {
 			this.ix = ix;
 			this.elev = elev;
 		}
-			
-		long ix;
-		float elev;
 	}
 	
 	class SamplesIterator implements Iterator<Sample> {
 		Object f;
 		
 		Iterator<Long> coords;
-		Prefix prefix;
 		
 		long _nextIx;
 		float _nextElev;
 
-		public SamplesIterator(Prefix prefix) {
-			this.prefix = prefix;
+		public SamplesIterator() {
 			try {
 				f = getReader(path);
 			} catch (FileNotFoundException fnfe) {
@@ -106,30 +117,33 @@ public abstract class DEMFile {
 			
 		@Override
 		public boolean hasNext() {
-			while (coords.hasNext()) {
-				long ix = coords.next();
-				float elev;
+			boolean has = coords.hasNext();
+			if (!has) {
 				try {
-					elev = getNextSample(f);
-				} catch (IOException ioe) {
-					throw new RuntimeException("error reading DEM");
-				}
-
-				if (prefix == null || prefix.isParent(ix)) {
-					_nextIx = ix;
-					_nextElev = elev;
-					return true;
-				}
+					closeReader(f);
+				} catch (IOException ioe) { }				
 			}
-			try {
-				closeReader(f);
-			} catch (IOException ioe) { }
-			return false;
+			return has;
 		}
-
+		
 		@Override
 		public Sample next() {
-			return new Sample(_nextIx, _nextElev);
+			long ix = coords.next();
+			double elev;
+			try {
+				elev = getNextSample(f);
+			} catch (IOException ioe) {
+				throw new RuntimeException("error reading DEM");
+			}
+
+			if (elev == noDataVal()) {
+				elev = Double.NaN;
+			}
+			if (Double.isNaN(elev) && DEBUG_NODATA_IS_OCEAN) {
+				elev = 0;
+			}
+			
+			return new Sample(ix, (float)elev);
 		}
 
 		@Override
@@ -138,11 +152,11 @@ public abstract class DEMFile {
 		}		
 	}
 
-	public Iterable<Sample> samples(final Prefix prefix) {
+	public Iterable<Sample> samples() {
 		return new Iterable<Sample>() {
 			@Override
 			public Iterator<Sample> iterator() {
-				return new SamplesIterator(prefix);
+				return new SamplesIterator();
 			}
 		};
 	}
@@ -153,13 +167,14 @@ public abstract class DEMFile {
 	
 	public abstract Object getReader(String path) throws FileNotFoundException;
 	
-	public abstract void closeReader(Object f) throws IOException;
-	
-	public abstract float getNextSample(Object reader) throws IOException;
-
-	public static void main(String[] args) {
-//		for (Long l : new DEMFile("", 20, 10, 40, -75, .01, .01, true).coords()) {
-//			System.out.println(GeoCode.print(GeoCode.prefix(l, 26)));
-//		}
+	public void closeReader(Object f) throws IOException {
+		((InputStream)f).close();
 	}
+	
+	public abstract double getNextSample(Object reader) throws IOException;
+
+	public double noDataVal() {
+		return Double.NaN;
+	}
+	
 }

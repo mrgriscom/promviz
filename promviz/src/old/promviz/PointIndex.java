@@ -1,9 +1,7 @@
-package promviz;
+package old.promviz;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import promviz.util.GeoCode;
 
 public class PointIndex {
 	

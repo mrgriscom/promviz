@@ -1,12 +1,12 @@
-package promviz;
+package old.promviz;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import promviz.PreprocessNetwork.EdgeIterator;
-import promviz.util.DefaultMap;
-import promviz.util.Logging;
+import old.promviz.PreprocessNetwork.EdgeIterator;
+import old.promviz.util.DefaultMap;
+import old.promviz.util.Logging;
 
 
 public class DualTopologyNetwork extends TopologyNetwork {

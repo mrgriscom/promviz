@@ -1,4 +1,4 @@
-package promviz;
+package old.promviz;
 import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
 import java.io.FileOutputStream;
@@ -11,9 +11,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-import promviz.Point.Lead;
-import promviz.util.DefaultMap;
-import promviz.util.Logging;
+import old.promviz.Point.Lead;
+import old.promviz.util.DefaultMap;
+import old.promviz.util.Logging;
 
 public class TopologyNetwork implements IMesh {
 

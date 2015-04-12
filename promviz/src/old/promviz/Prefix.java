@@ -1,4 +1,4 @@
-package promviz;
+package old.promviz;
 
 class Prefix implements Comparable<Prefix> {
 	long prefix;

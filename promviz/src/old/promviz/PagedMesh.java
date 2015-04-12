@@ -1,4 +1,4 @@
-package promviz;
+package old.promviz;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -9,9 +9,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import promviz.DEMFile.Sample;
-import promviz.PreprocessNetwork.Meta;
-import promviz.util.Logging;
+import old.promviz.DEMFile.Sample;
+import old.promviz.PreprocessNetwork.Meta;
+import old.promviz.util.Logging;
 
 public class PagedMesh implements IMesh {
 
