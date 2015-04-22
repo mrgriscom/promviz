@@ -22,6 +22,7 @@ import old.promviz.PreprocessNetwork.Meta;
 import old.promviz.PreprocessNetwork.PromMeta;
 import old.promviz.PromNetwork.Backtrace.BacktracePruner;
 import old.promviz.util.Logging;
+import promviz.IMesh;
 import promviz.util.ReverseComparator;
 
 import com.google.common.collect.Iterables;

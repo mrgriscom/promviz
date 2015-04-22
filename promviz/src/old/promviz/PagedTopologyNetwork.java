@@ -19,6 +19,8 @@ import java.util.Set;
 import old.promviz.PreprocessNetwork.Edge;
 import old.promviz.PreprocessNetwork.EdgeIterator;
 import old.promviz.util.Logging;
+import promviz.PagedElevGrid;
+import promviz.Prefix;
 
 import com.google.common.collect.Lists;
 
@@ -38,7 +40,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 	
 	Map<Prefix, PrefixInfo> prefixes;
 	PreprocessNetwork.Meta[] metadata;
-	PagedMesh m; // unused
+	PagedElevGrid m; // unused
 	int phase;
 	
 	public PagedTopologyNetwork(int phase, boolean up, DEMManager dm, PreprocessNetwork.Meta[] metadata) {
@@ -52,7 +54,7 @@ public class PagedTopologyNetwork extends TopologyNetwork {
 		Logging.log("prefixes inventoried (" + prefixes.size() + ")");
 
 		if (prefixes.size() > 0 && dm != null) {
-			m = new PagedMesh(dm.partitionDEM(), dm.MESH_MAX_POINTS);
+			m = new PagedElevGrid(dm.partitionDEM(), dm.MESH_MAX_POINTS);
 			Logging.log("dem coverage paritioned");
 			this.dm = dm;			
 		}

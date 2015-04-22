@@ -15,7 +15,7 @@ public abstract class DEMFile {
 	int height;
 	int x0; //left
 	int y0; //bottom
-	String path;
+	public String path;
 	
 	public DEMFile(String path, Projection proj, int width, int height, int x0, int y0) {
 		this.path = path;

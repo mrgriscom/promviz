@@ -23,9 +23,11 @@ import java.util.Set;
 
 import old.promviz.PromNetwork.MSTFront;
 import old.promviz.PromNetwork.MSTWriter;
-import old.promviz.util.DefaultMap;
 import old.promviz.util.Logging;
 import old.promviz.util.Util;
+import promviz.PagedElevGrid;
+import promviz.Prefix;
+import promviz.util.DefaultMap;
 
 import com.google.common.collect.Lists;
 
@@ -333,7 +335,7 @@ public class PreprocessNetwork {
 	}
 	
 	static void cacheElevation(int phase, final boolean up, Set<Prefix> buckets, DEMManager dm) {
-		PagedMesh m = new PagedMesh(dm.partitionDEM(), dm.MESH_MAX_POINTS); // can reuse this for up and down phases
+		PagedElevGrid m = new PagedElevGrid(dm.partitionDEM(), dm.MESH_MAX_POINTS); // can reuse this for up and down phases
 		Map<Prefix, Set<Prefix>> segmentMap = new DefaultMap<Prefix, Set<Prefix>>() {
 			public Set<Prefix> defaultValue(Prefix key) {
 				return new HashSet<Prefix>();

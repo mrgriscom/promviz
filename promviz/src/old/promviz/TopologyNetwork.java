@@ -12,8 +12,11 @@ import java.util.Map.Entry;
 import java.util.Set;
 
 import old.promviz.Point.Lead;
-import old.promviz.util.DefaultMap;
 import old.promviz.util.Logging;
+import promviz.IMesh;
+import promviz.PagedElevGrid;
+import promviz.Prefix;
+import promviz.util.DefaultMap;
 
 public class TopologyNetwork implements IMesh {
 
@@ -196,7 +199,7 @@ public class TopologyNetwork implements IMesh {
 		return result;
 	}
 	
-	public void buildPartial(PagedMesh m, Iterable<DEMFile.Sample> newPage) {
+	public void buildPartial(PagedElevGrid m, Iterable<DEMFile.Sample> newPage) {
 		Set<Lead> oldPending = pendingLeads;
 		pendingLeads = new HashSet<Lead>();
 		pendingSaddles = new HashSet<Point>();

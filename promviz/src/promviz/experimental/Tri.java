@@ -1,4 +1,6 @@
-package old.promviz;
+package promviz.experimental;
+
+import promviz.Point;
 
 public class Tri {
 
@@ -6,7 +8,7 @@ public class Tri {
 	
 	//todo (as shorts):
 	//angles (only need to store 2 angles)
-	//gradient
+	//gradient (need to handle 'flat')
 	
 	// this could be computed dynamically from the adjacency
 	// lists of the individual points, but since this is a very

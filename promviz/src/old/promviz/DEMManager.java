@@ -23,9 +23,11 @@ import old.promviz.PreprocessNetwork.ThresholdMeta;
 import old.promviz.PromNetwork.DomainSaddleInfo;
 import old.promviz.PromNetwork.ParentInfo;
 import old.promviz.PromNetwork.PromInfo;
-import old.promviz.util.DefaultMap;
 import old.promviz.util.Logging;
 import old.promviz.util.Util;
+import promviz.PagedElevGrid;
+import promviz.Prefix;
+import promviz.util.DefaultMap;
 
 import com.google.gson.Gson;
 
@@ -52,7 +54,7 @@ public class DEMManager {
 		Logging.log("partitioning complete");
 		Set<Prefix> yetToProcess = new HashSet<Prefix>(coverage.keySet()); //mutable!
 
-		PagedMesh m = new PagedMesh(coverage, MESH_MAX_POINTS);
+		PagedElevGrid m = new PagedElevGrid(coverage, MESH_MAX_POINTS);
 		DualTopologyNetwork tn = new DualTopologyNetwork(this, true);
 		while (!tn.complete(allPrefixes, yetToProcess)) {
 			Prefix nextPrefix = getNextPrefix(allPrefixes, yetToProcess, tn, m);
@@ -69,7 +71,7 @@ public class DEMManager {
 		return tn;
 	}
 		
-	Prefix getNextPrefix(Set<Prefix> allPrefixes, Set<Prefix> yetToProcess, TopologyNetwork tn, PagedMesh m) {
+	Prefix getNextPrefix(Set<Prefix> allPrefixes, Set<Prefix> yetToProcess, TopologyNetwork tn, PagedElevGrid m) {
 		Map<Set<Prefix>, Integer> frontierTotals = tn.tallyPending(allPrefixes);
 		
 		Map<Prefix, Set<Set<Prefix>>> pendingPrefixes = new DefaultMap<Prefix, Set<Set<Prefix>>>() {
@@ -119,36 +121,7 @@ public class DEMManager {
 		}
 		return mostInDemand;
 	}
-	
-	public static long[] adjacency(Long ix) {
-		int[] _ix = PointIndex.split(ix);
-		int[] rc = {_ix[1], _ix[2]};
 		
-		int[][] offsets = {
-				{0, 1},
-				{1, 1},
-				{1, 0},
-				{1, -1},
-				{0, -1},
-				{-1, -1},
-				{-1, 0},
-				{-1, 1},
-			};
-		List<Long> adj = new ArrayList<Long>();
-		boolean fully_connected = (Util.mod(rc[0] + rc[1], 2) == 0);
-		for (int[] offset : offsets) {
-			boolean diagonal_connection = (Util.mod(offset[0] + offset[1], 2) == 0);
-			if (fully_connected || !diagonal_connection) {
-				adj.add(PointIndex.make(_ix[0], rc[0] + offset[0], rc[1] + offset[1]));
-			}
-		}
-		long[] adjix = new long[adj.size()];
-		for (int i = 0; i < adjix.length; i++) {
-			adjix[i] = adj.get(i);
-		}
-		return adjix;
-	}
-	
 	class PartitionCounter {
 		int count;
 		Set<DEMFile> coverage;
@@ -168,26 +141,7 @@ public class DEMManager {
 			coverage.addAll(pc.coverage);
 		}
 	}
-	
-	public Map<Prefix, Set<DEMFile>> partitionDEM() {
-		class PartitionMap extends DefaultMap<Prefix, Set<DEMFile>> {
-			@Override
-			public Set<DEMFile> defaultValue(Prefix _) {
-				return new HashSet<DEMFile>();
-			}
-		};
 		
-		PartitionMap partitions = new PartitionMap();
-		for (DEMFile dem : DEMs) {
-			for (long ix : dem.coords()) {
-				Prefix p = new Prefix(ix, GRID_TILE_SIZE);
-				partitions.get(p).add(dem);
-			}
-		}
-
-		return partitions;
-	}
-	
 	// HACKY
 	boolean inScope(long ix) {
 		// FIXME bug lurking here: nodata areas within loaded DEM extents

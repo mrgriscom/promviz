@@ -3,8 +3,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import old.promviz.IMesh;
-
 
 /* extends Point with the concept of being part of a network or mesh, i.e., being
  * adjacent to other points

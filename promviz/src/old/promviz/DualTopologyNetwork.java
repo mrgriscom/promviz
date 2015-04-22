@@ -5,8 +5,10 @@ import java.util.Map;
 import java.util.Set;
 
 import old.promviz.PreprocessNetwork.EdgeIterator;
-import old.promviz.util.DefaultMap;
 import old.promviz.util.Logging;
+import promviz.PagedElevGrid;
+import promviz.Prefix;
+import promviz.util.DefaultMap;
 
 
 public class DualTopologyNetwork extends TopologyNetwork {
@@ -34,7 +36,7 @@ public class DualTopologyNetwork extends TopologyNetwork {
 		return dtn;
 	}
 	
-	public void buildPartial(PagedMesh m, Iterable<DEMFile.Sample> newPage) {
+	public void buildPartial(PagedElevGrid m, Iterable<DEMFile.Sample> newPage) {
 		long start = System.currentTimeMillis();
 		
 		// seems a bit questionable to use an iterable twice like this...
