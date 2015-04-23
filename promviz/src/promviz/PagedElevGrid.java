@@ -7,13 +7,15 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
-
-import com.google.common.collect.Iterables;
 
 import old.promviz.util.Logging;
 import promviz.dem.DEMFile;
 import promviz.util.DefaultMap;
+import promviz.util.SaneIterable;
+
+import com.google.common.collect.Iterables;
 
 public class PagedElevGrid implements IMesh {
 
@@ -42,11 +44,17 @@ public class PagedElevGrid implements IMesh {
 		long ctr;
 		
 		public Segment(Prefix p) {
+			this(p, false);
+		}
+		
+		public Segment(Prefix p, boolean virtual) {
 			this.p = p;
 			this.pbase = PointIndex.split(p.prefix);
-			this.data = new float[pageArea()];
-			for (int i = 0; i < this.data.length; i++) {
-				this.data[i] = Float.NaN;
+			if (!virtual) {
+				this.data = new float[pageArea()];
+				for (int i = 0; i < this.data.length; i++) {
+					this.data[i] = Float.NaN;
+				}
 			}
 		}
 		
@@ -66,21 +74,48 @@ public class PagedElevGrid implements IMesh {
 		}
 				
 		public Iterable<DEMFile.Sample> samples() {
-			// somewhat memory inefficient; if we only do this for max one page at a time, should be ok
-			List<DEMFile.Sample> samples = new ArrayList<DEMFile.Sample>();
-			for (int x = 0; x < pageDim(); x++) {
-				for (int y = 0; y < pageDim(); y++) {
-					long ix = PointIndex.make(pbase[0], pbase[1] + x, pbase[2] + y);
-					float elev = get(ix);
-					if (!Float.isNaN(elev)) {
-						samples.add(new DEMFile.Sample(ix, elev));
+			return new SaneIterable<DEMFile.Sample>() {
+				int x = pageDim() - 1;
+				int y = -1;
+				
+				public DEMFile.Sample genNext() {
+					while (true) {
+						x++;
+						if (x == pageDim()) {
+							x = 0;
+							y++;
+							if (y == pageDim()) {
+								throw new NoSuchElementException();
+							}
+						}
+
+						long ix = PointIndex.make(pbase[0], pbase[1] + x, pbase[2] + y);
+						float elev = get(ix);
+						if (!Float.isNaN(elev)) {
+							return new DEMFile.Sample(ix, elev);
+						}
 					}
 				}
-			}
-			return samples;
+			};
 		}
 	}
 	
+	// a segment that we know has no data -- we still want to 'load' it so that it may
+	// be queried, but don't want to use any memory
+	static class EmptySegment extends Segment {
+		public EmptySegment(Prefix p) {
+			super(p, true);
+		}
+		
+		public float get(long ix) {
+			return Float.NaN;
+		}
+		
+		public void set(long ix, float elev) {
+			throw new UnsupportedOperationException();
+		}
+	}
+
 	public static Map<Prefix, Set<DEMFile>> partitionDEM(List<DEMFile> DEMs) {
 		class PartitionMap extends DefaultMap<Prefix, Set<DEMFile>> {
 			@Override
@@ -120,7 +155,7 @@ public class PagedElevGrid implements IMesh {
 	public Iterable<DEMFile.Sample> bulkLoadPrefixData(Set<Prefix> prefixes) {
 		for (Prefix prefix : prefixes) {
 			Logging.log(String.format("loading segment %s...", prefix));
-			Segment seg = new Segment(prefix);
+			Segment seg = (coverage.containsKey(prefix) ? new Segment(prefix) : new EmptySegment(prefix));
 			segments.put(prefix, seg);
 		}
 			
