@@ -54,5 +54,5 @@ if __name__ == "__main__":
         if not os.path.exists(path):
             os.popen('curl -s "%s" | gunzip > %s' % (s3url('%s.hgt.gz' % tag), path))
             sys.stderr.write('downloaded %s\n' % tag)
-        print 'srtm,%s,1201,1201,%s,%s,1' % (path, lat, lon)
+        print 'srtm,%s,1201,1201,%s,%s,3' % (path, lat, lon)
 

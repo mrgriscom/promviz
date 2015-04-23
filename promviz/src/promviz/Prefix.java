@@ -26,6 +26,10 @@ class Prefix implements Comparable<Prefix> {
 	}
 	
 	public Prefix[] children(int level) {
+		return children(level, 0);
+	}
+	
+	public Prefix[] children(int level, int fringe) {
 		if (level <= 0) {
 			level = 1;
 		}
@@ -36,17 +40,29 @@ class Prefix implements Comparable<Prefix> {
 		}
 		
 		int[] p = PointIndex.split(prefix);
-		Prefix[] ch = new Prefix[1 << (2*level)];
-		for (int i = 0; i < (1<<level); i++) {
-			for (int j = 0; j < (1<<level); j++) {
-				ch[(i << level) + j] = new Prefix(PointIndex.make(
-							p[0],
-							p[1] + (i << chRes),
-							p[2] + (j << chRes)
-						), chRes);
+		int _dim = (1 << level) + 2 * fringe;
+		return tile(p[0], p[1], p[2], _dim, _dim, -fringe, -fringe, chRes);
+	}
+	
+	public static Prefix[] tile(int proj, int x0, int y0, int width, int height, int xo, int yo, int res) {
+		Prefix[] pp = new Prefix[width * height];
+		int n = 0;
+		for (int i = 0; i < width; i++) {
+			for (int j = 0; j < height; j++) {
+				pp[n++] = new Prefix(PointIndex.make(
+						proj,
+						x0 + ((i + xo) << res),
+						y0 + ((j + yo) << res)
+					), res);
 			}
 		}
-		return ch;
+		return pp;
+	}
+	
+	public static Prefix[] tileInclusive(int proj, int x0, int y0, int x1, int y1, int res) {
+		int width = ((x1 - x0) >> res) + 1;
+		int height = ((y1 - y0) >> res) + 1;
+		return tile(proj, x0, y0, width, height, 0, 0, res);
 	}
 	
 	public boolean equals(Object o) {

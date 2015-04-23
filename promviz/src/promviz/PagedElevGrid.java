@@ -1,6 +1,7 @@
 package promviz;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -77,7 +78,7 @@ public class PagedElevGrid implements IMesh {
 			return new SaneIterable<DEMFile.Sample>() {
 				int x = pageDim() - 1;
 				int y = -1;
-				
+
 				public DEMFile.Sample genNext() {
 					while (true) {
 						x++;
@@ -123,15 +124,17 @@ public class PagedElevGrid implements IMesh {
 				return new HashSet<DEMFile>();
 			}
 		};
-		
-		// TODO this could be made much faster
 		PartitionMap partitions = new PartitionMap();
+
 		for (DEMFile dem : DEMs) {
-			for (long ix : dem.coords()) {
-				partitions.get(segmentPrefix(ix)).add(dem);
+			int[] pmin = PointIndex.split(segmentPrefix(dem.genIx(0, 0)).prefix);
+			int[] pmax = PointIndex.split(segmentPrefix(dem.genAbsIx(dem.xmax(), dem.ymax())).prefix);
+			int proj = pmin[0], x0 = pmin[1], y0 = pmin[2], x1 = pmax[1], y1 = pmax[2];
+			Prefix[] pages = Prefix.tileInclusive(proj, x0, y0, x1, y1, PAGE_SIZE_EXP);
+			for (Prefix page : pages) {
+				partitions.get(page).add(dem);
 			}
 		}
-
 		return partitions;
 	}
 	
@@ -213,6 +216,11 @@ public class PagedElevGrid implements IMesh {
 		}
 		trimPages(prefixes.size());
 		return bulkLoadPrefixData(prefixes);
+	}
+	
+	public Iterable<DEMFile.Sample> loadForPrefix(Prefix p, int fringe) {
+		Prefix[] prefixes = p.children(p.res - PAGE_SIZE_EXP, fringe);
+		return bulkLoadPage(new HashSet<Prefix>(Arrays.asList(prefixes)));
 	}
 	
 	public void trimPages(int headroom) {

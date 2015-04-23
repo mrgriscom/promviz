@@ -42,15 +42,19 @@ public abstract class DEMFile {
 		return y0 + height - 1;
 	}
 	
+	public long genIx(int x, int y) {
+		return genAbsIx(x0 + x, y0 + y);
+	}
+	
+	public long genAbsIx(int x, int y) {
+		return PointIndex.make(proj.refID, x, y);		
+	}
+	
 	class CoordsIterator implements Iterator<Long> {
-		int r0;
-		int c0;
 		int r;
 		int c;
 		
 		public CoordsIterator() {
-			r0 = y0;
-			c0 = x0;
 			r = 0;
 			c = 0;
 		}
@@ -62,7 +66,7 @@ public abstract class DEMFile {
 
 		@Override
 		public Long next() {
-			long ix = PointIndex.make(proj.refID, c0 + c, r0 + height - 1 - r);
+			long ix = genIx(c, height - 1 - r);
 			
 			c++;
 			if (c == width) {

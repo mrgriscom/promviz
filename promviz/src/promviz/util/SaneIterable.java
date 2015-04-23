@@ -6,22 +6,32 @@ import java.util.NoSuchElementException;
 public abstract class SaneIterable<K> implements Iterator<K>, Iterable<K> {
 
 	K nextItem;
+	boolean dispensed = true;
 	boolean complete = false;
 	
 	public abstract K genNext();
 	
 	@Override
 	public boolean hasNext() {
-		try {
-			nextItem = genNext();
-		} catch (NoSuchElementException nsee) {
-			complete = true;
+		if (dispensed) {
+			try {
+				nextItem = genNext();
+				dispensed = false;
+			} catch (NoSuchElementException nsee) {
+				complete = true;
+			}
 		}
 		return !complete;
 	}
 
 	@Override
 	public K next() {
+		if (dispensed) {
+			if (!hasNext()) {
+				throw new NoSuchElementException();
+			}
+		}
+		dispensed = true;
 		return nextItem;
 	}
 
