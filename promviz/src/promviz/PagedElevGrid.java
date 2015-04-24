@@ -157,7 +157,7 @@ public class PagedElevGrid implements IMesh {
 	
 	public Iterable<DEMFile.Sample> bulkLoadPrefixData(Set<Prefix> prefixes) {
 		for (Prefix prefix : prefixes) {
-			Logging.log(String.format("loading segment %s...", prefix));
+			//Logging.log(String.format("loading segment %s...", prefix));
 			Segment seg = (coverage.containsKey(prefix) ? new Segment(prefix) : new EmptySegment(prefix));
 			segments.put(prefix, seg);
 		}
@@ -191,7 +191,7 @@ public class PagedElevGrid implements IMesh {
 					segments.get(p).set(s.ix, s.elev);
 				}
 			}
-			Logging.log(String.format("  scanned DEM %s", dem.path));
+			//Logging.log(String.format("  scanned DEM %s", dem.path));
 		}
 		Logging.log(String.format("loading complete, %d pages", segments.size()));
 		
@@ -245,7 +245,7 @@ public class PagedElevGrid implements IMesh {
 			}
 	
 			segments.remove(toEject.getKey());
-			Logging.log("booting " + toEject.getKey());
+			//Logging.log("booting " + toEject.getKey());
 		}
 	}
 	

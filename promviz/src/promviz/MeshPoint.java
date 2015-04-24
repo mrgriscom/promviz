@@ -9,7 +9,7 @@ import java.util.NoSuchElementException;
  */
 public class MeshPoint extends Point {
 
-	public static final int CLASS_OTHER = 0;
+	public static final int CLASS_SLOPE = 0;
 	public static final int CLASS_SUMMIT = 1;
 	public static final int CLASS_PIT = 2;
 	public static final int CLASS_SADDLE = 3;
@@ -48,7 +48,7 @@ public class MeshPoint extends Point {
 		boolean is_pit = true;
 
 		if (this.adjIx().length == 0) {
-			return CLASS_OTHER; // or indet?
+			return CLASS_INDETERMINATE;
 		}
 		
 		List<MeshPoint> adjacent = this.adjacent(m);
@@ -83,35 +83,43 @@ public class MeshPoint extends Point {
 			return CLASS_SADDLE;
 		}
 		
-		return CLASS_OTHER;
+		return CLASS_SLOPE;
 	}
 	
 	static class Lead {
 		MeshPoint p0;
 		MeshPoint p;
 		int i;
+		boolean up;
+		int len;
 		
-		public Lead(MeshPoint p0, MeshPoint p, int i) {
+		public Lead(boolean up, MeshPoint p0, MeshPoint p, int i) {
+			this.up = up; // currently the tag 'i' is different for up and down, but best to be explicit
 			this.p0 = p0;
 			this.p = p;
 			this.i = i;
+			this.len = 0;
+		}
+
+		public Lead follow(IMesh mesh) {
+			return this.p.leads(mesh)[this.up ? 0 : 1][0];
 		}
 		
 		public boolean equals(Object o) {
 			if (o instanceof Lead) {
 				Lead l = (Lead)o;
-				return this.p0.equals(l.p0) && this.i == l.i;
+				return this.p0.equals(l.p0) && this.i == l.i && this.up == l.up;
 			} else {
 				return false;
 			}
 		}
 		
 		public int hashCode() {
-			return this.p0.hashCode() | Integer.valueOf(this.i).hashCode();
+			return this.p0.hashCode() | Integer.valueOf(this.i).hashCode() | Boolean.valueOf(this.up).hashCode();
 		}
 	}
 	
-	List<Lead> leads(IMesh m, boolean up) {
+	Lead[][] leads(IMesh m) {
 		List<MeshPoint> adjacent = this.adjacent(m);
 		int[] cohort = new int[adjacent.size()];
 		int current_cohort = 0;
@@ -129,7 +137,7 @@ public class MeshPoint extends Point {
 			cohort[i] = (cohort[i] + (startsUp ? 0 : 1)) % num_cohorts; // 'up' cohorts must be even-numbered
 		}
 		
-		List<Lead> L = new ArrayList<Lead>();
+		Lead[][] L = {new Lead[num_cohorts / 2], new Lead[num_cohorts / 2]};
 		for (int cur_cohort = 0; cur_cohort < num_cohorts; cur_cohort++) {
 			MeshPoint best = null;
 			for (int i = 0; i < adjacent.size(); i++) {
@@ -142,9 +150,8 @@ public class MeshPoint extends Point {
 					best = p;
 				}
 			}
-			if (this.compareElev(best) == (up ? -1 : 1)) {
-				L.add(new Lead(this, best, cur_cohort));
-			}
+			boolean up = (this.compareElev(best) < 0);
+			L[up ? 0 : 1][cur_cohort / 2] = new Lead(up, this, best, cur_cohort);
 		}
 		return L;
 	}

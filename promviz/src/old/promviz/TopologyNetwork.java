@@ -60,43 +60,6 @@ public class TopologyNetwork implements IMesh {
 		}		
 	}
 	
-//	public static TopologyNetwork load(boolean up, DEMManager dm) {
-//		TopologyNetwork tn = new TopologyNetwork(up, dm);
-//		PagedMesh m = new PagedMesh(dm.partitionDEM(), dm.MESH_MAX_POINTS);
-//		try {
-//			DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(DEMManager.props.getProperty("dir_netdump") + "/" + (up ? "up" : "down"))));
-//			try {
-//				while (true) {
-//					long[] ix = {in.readLong(), in.readLong()};
-//					Point[] p = new Point[2];
-//					for (int i = 0; i < 2; i++) {
-//						long _ix = ix[i];
-//						if (_ix == 0xFFFFFFFFFFFFFFFFL) {
-//							continue;
-//						}
-//						Point _p = tn.get(_ix);
-//						if (_p == null) {
-//							_p = m.get(_ix);
-//						}
-//						if (_p == null) {
-//							m.loadPage(new DEMManager.Prefix(_ix, DEMManager.GRID_TILE_SIZE));
-//							_p = m.get(_ix);
-//						}
-//						p[i] = _p;
-//					}
-//					if (ix[1] == 0xFFFFFFFFFFFFFFFFL) {
-//						tn.pending.put(tn.getPoint(p[0]), null);
-//					} else {
-//						tn.addEdge(tn.getPoint(p[0]), tn.getPoint(p[1]));
-//					}
-//				}
-//			} catch (EOFException eof) {}		
-//		} catch (IOException ioe) {
-//			throw new RuntimeException();
-//		}
-//		return tn;
-//	}
-	
 	public Point get(long ix) {
 		return points.get(ix);
 	}
@@ -166,88 +129,8 @@ public class TopologyNetwork implements IMesh {
 		pendingSaddles.add(lead.p0);
 	}
 	
-	public void build(IMesh m, Iterable<DEMFile.Sample> points) {
-		long start = System.currentTimeMillis();
-		
-		for (DEMFile.Sample s : points) {
-			Point p = new GridPoint(s);
-			int pointClass = p.classify(m);
-			if (pointClass == Point.CLASS_SADDLE) {
-				processSaddle(m, p);
-			} else if (pointClass == Point.CLASS_INDETERMINATE) {
-				unprocessedFringe.add(p.ix);
-			}
-		}
-		
-		Logging.log("@build new page " + (System.currentTimeMillis() - start));
-	}
-
-	void processSaddle(IMesh m, Point p) {
-		for (Lead lead : p.leads(m, up)) {
-			processLead(m, lead);
-		}
-	}
-	
-	ChaseResult processLead(IMesh m, Lead lead) {
-		ChaseResult result = chase(m, lead, up);
-		lead = result.lead;
-		if (!result.indeterminate) {
-			addEdge(lead);
-		} else {
-			addPending(lead);
-		}
-		return result;
-	}
 	
 	public void buildPartial(PagedElevGrid m, Iterable<DEMFile.Sample> newPage) {
-		Set<Lead> oldPending = pendingLeads;
-		pendingLeads = new HashSet<Lead>();
-		pendingSaddles = new HashSet<Point>();
-		for (Lead lead : oldPending) {
-			Point saddle = lead.p0;
-			Point head = m.get(lead.p.ix);
-			if (head == null) {
-				// point not loaded -- effectively indeterminate
-				addPending(lead); // replicate entry in new map
-			} else {
-				processLead(m, lead);
-			}
-		}
-		
-		Logging.log("# pending: " + oldPending.size() + " -> " + pendingLeads.size());
-		Set<Long> fringeNowProcessed = new HashSet<Long>();
-		for (long ix : unprocessedFringe) {
-			// TODO don't reprocess points that were also pending leads?
-			// arises when a saddle leads to another saddle
-			Point p = m.get(ix);
-			int pointClass = (p != null ? p.classify(m) : Point.CLASS_INDETERMINATE);
-			if (pointClass != Point.CLASS_INDETERMINATE) {
-				fringeNowProcessed.add(ix);
-				if (pointClass == Point.CLASS_SADDLE) {
-					processSaddle(m, p);
-				}
-			}
-		}
-		unprocessedFringe.removeAll(fringeNowProcessed);
-		Logging.log("# fringe: " + (unprocessedFringe.size() + fringeNowProcessed.size()) + " -> " + unprocessedFringe.size());
-
-		if (newPage != null) {
-			build(m, newPage);
-		}
-		
-		trimNetwork();
-	}
-	
-	void trimNetwork() {
-		List<Point> toRemove = new ArrayList<Point>();
-		for (Point p : points.values()) {
-			if (!pendingSaddles.contains(p)) {
-				toRemove.add(p);
-			}
-		}
-		for (Point p : toRemove) {
-			points.remove(p);
-		}
 	}
 	
 	public boolean complete(Set<Prefix> allPrefixes, Set<Prefix> unprocessed) {
@@ -274,96 +157,6 @@ public class TopologyNetwork implements IMesh {
 		return frontierTotals;
 	}
 	
-	public void tallyPending(Set<Prefix> allPrefixes, Map<Set<Prefix>, Integer> frontierTotals) {
-		for (Lead lead : pendingLeads) {
-			long term = lead.p.ix;
-			boolean interior = tallyAdjacency(term, allPrefixes, frontierTotals);
-			if (interior) {
-				pendInterior.add(term);
-			} else {
-				writePendingLead(lead);
-			}
-		}
-		
-		List<Long> edgeFringe = new ArrayList<Long>();
-		for (long fringe : unprocessedFringe) {
-			boolean interior = tallyAdjacency(fringe, allPrefixes, frontierTotals);
-			if (interior) {
-				pendInterior.add(fringe);
-			} else {
-				edgeFringe.add(fringe);
-			}
-		}
-		unprocessedFringe.removeAll(edgeFringe);
-
-		// trim pendInterior to only what is still relevant
-		Set<Long> newPendInterior = new HashSet<Long>();
-		for (Lead lead : pendingLeads) {
-			long term = lead.p.ix;
-			if (pendInterior.contains(term)) {
-				newPendInterior.add(term);
-			}
-		}
-		for (long fringe : unprocessedFringe) {
-			if (pendInterior.contains(fringe)) {
-				newPendInterior.add(fringe);
-			}
-		}
-		pendInterior = newPendInterior;
-	}
-
-	Prefix matchPrefix(long ix, Set<Prefix> prefixes) {
-		Prefix p = new Prefix(ix, DEMManager.GRID_TILE_SIZE);
-		return (prefixes.contains(p) ? p : null);
-	}
-	
-	boolean tallyAdjacency(long ix, Set<Prefix> allPrefixes, Map<Set<Prefix>, Integer> totals) {
-		Set<Prefix> frontiers = new HashSet<Prefix>();
-		frontiers.add(matchPrefix(ix, allPrefixes));
-		for (long adj : DEMManager.adjacency(ix)) {
-			// find the parititon the adjacent point lies in
-			Prefix partition = matchPrefix(adj, allPrefixes);
-
-			if (!pendInterior.contains(ix)) {
-				if (partition == null) {
-					// point is adjacent to a point that will never be loaded, i.e., on the edge of the
-					// entire region of interest; it will be indeterminate forever
-					return false;
-				}
-				if (!dm.inScope(adj)) {
-				//i think this is the only required check; the prefix-matching above can be discarded
-					return false;
-				}
-			}
-				
-			frontiers.add(partition);
-		}
-		
-		totals.put(frontiers, totals.get(frontiers) + 1);
-		return true;
-	}
-	
-	class ChaseResult {
-		Lead lead;
-		boolean indeterminate;
-		
-		public ChaseResult(Lead lead, Point term, boolean indeterminate) {
-			this.lead = new Lead(lead.p0, term, lead.i);
-			this.indeterminate = indeterminate;
-		}
-	}
-	
-	ChaseResult chase(IMesh m, Lead lead, boolean up) {
-		Point p = lead.p;
-		while (p.classify(m) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
-			if (p.classify(m) == Point.CLASS_INDETERMINATE) {
-				return new ChaseResult(lead, p, true);
-			}
-		
-			p = p.leads(m, up).get(0).p;
-		}
-		return new ChaseResult(lead, p, false);
-	}
 		
 	Set<Point> adjacent(Point p) {
 		Point match = getPoint(p);

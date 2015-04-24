@@ -61,6 +61,7 @@ public abstract class WorkerPool <I, O> {
 	}
 	
 	public void launch(Iterable<I> tasks) {
+		// TODO randomize tasks?
 		for (I task : tasks) {
 			threadPool.submit(new Task(task));
 			numTasks++;

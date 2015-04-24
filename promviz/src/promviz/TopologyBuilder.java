@@ -4,16 +4,18 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import old.promviz.util.Logging;
+import promviz.MeshPoint.Lead;
 import promviz.dem.DEMFile;
 import promviz.dem.SRTMDEM;
-import promviz.util.WorkerPoolDebug;
 import promviz.util.WorkerPool;
+import promviz.util.WorkerPoolDebug;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
@@ -21,6 +23,8 @@ import com.google.common.collect.Iterables;
 public class TopologyBuilder {
 
 	static final int CHUNK_SIZE_EXP = 13;
+	static final int CHECKPOINT_FREQ = (1 << 11);
+	static final int CHECKPOINT_LEN = CHECKPOINT_FREQ;
 	
 	static void buildTopology(List<DEMFile> DEMs) {
 		final Map<Prefix, Set<DEMFile>> coverage = PagedElevGrid.partitionDEM(DEMs);
@@ -30,13 +34,13 @@ public class TopologyBuilder {
 			chunks.add(new Prefix(p, CHUNK_SIZE_EXP));
 		}
 
-		WorkerPool<ChunkInput, ChunkOutput> wp = new WorkerPool/*Debug*/<ChunkInput, ChunkOutput>(3) {
-			int i = 1;
-			
+		WorkerPool<ChunkInput, ChunkOutput> wp = new WorkerPoolDebug<ChunkInput, ChunkOutput>(3) {
+//		WorkerPool<ChunkInput, ChunkOutput> wp = new WorkerPool<ChunkInput, ChunkOutput>(3) {
 			public ChunkOutput process(ChunkInput input) {
-				return buildChunk(input.chunkPrefix, coverage);
+				return new ChunkProcessor(input).build();
 			}
 
+			int i = 1;
 			public void postprocess(ChunkOutput output) {
 				Logging.log((i++) + " " + output.chunkPrefix.toString() + " " + output.numPoints);
 			}
@@ -45,16 +49,17 @@ public class TopologyBuilder {
 			public ChunkInput apply(Prefix p) {
 				ChunkInput ci = new ChunkInput();
 				ci.chunkPrefix = p;
+				ci.coverage = (HashMap)((HashMap)coverage).clone();
 				return ci;
 			}
 		}));
 		
-		// start process pool and farm out chunks
 		// handle output (including multiple phases)
 	}
 	
 	static class ChunkInput {
 		Prefix chunkPrefix;
+		Map<Prefix, Set<DEMFile>> coverage;
 	}
 	
 	static class ChunkOutput {
@@ -62,16 +67,146 @@ public class TopologyBuilder {
 		int numPoints;
 	}
 	
-	static ChunkOutput buildChunk(Prefix chunkPrefix, Map<Prefix, Set<DEMFile>> coverage) {
-		PagedElevGrid mesh = new PagedElevGrid(coverage, (int)(1.5 * Math.pow(2, 2 * CHUNK_SIZE_EXP)));
-		Iterable<DEMFile.Sample> points = mesh.loadForPrefix(chunkPrefix, 1);
+	static class ChunkProcessor {
+		Prefix prefix;
+		Map<Prefix, Set<DEMFile>> coverage;
 		
-		ChunkOutput co = new ChunkOutput();
-		co.chunkPrefix = chunkPrefix;
-		for (DEMFile.Sample s : points) {
-			co.numPoints++;
+		PagedElevGrid mesh;
+		List<ChaseResult> processed;
+		List<ChaseResult> pending;
+		Set<Long> checkpoints;
+		
+		public ChunkProcessor(ChunkInput input) {
+			this.prefix = input.chunkPrefix;
+			this.coverage = input.coverage;
+			
+			processed = new ArrayList<ChaseResult>();
+			pending = new ArrayList<ChaseResult>();
+			checkpoints = new HashSet<Long>();
 		}
-		return co;
+		
+		public ChunkOutput build() {
+			mesh = new PagedElevGrid(coverage, (int)(1.5 * Math.pow(2, 2 * CHUNK_SIZE_EXP)));
+			Iterable<DEMFile.Sample> points = mesh.loadForPrefix(prefix, 1);
+			
+			for (DEMFile.Sample s : points) {
+				if (!prefix.isParent(s.ix)) {
+					// don't process the fringe
+					continue;
+				}
+				
+				MeshPoint p = new GridPoint(s);
+				int pointClass = p.classify(mesh);
+				if (pointClass != MeshPoint.CLASS_SADDLE) {
+					continue;
+				}
+				
+				processSaddle(p);
+			}
+			
+			Logging.log(prefix + " " + processed.size() + " " + pending.size());
+			
+			ChunkOutput output = new ChunkOutput();
+			output.chunkPrefix = prefix;
+			return output;
+		}
+		
+		void processSaddle(MeshPoint saddle) {
+			for (Lead[] dirLeads : saddle.leads(mesh)) {				
+				for (Lead lead : dirLeads) {
+					processLead(lead);
+				}
+			}
+		}
+		
+		void processLead(Lead lead) {
+			ChaseResult result = chase(lead);
+			if (result.status != ChaseResult.STATUS_PENDING) {
+				processed.add(result);
+				if (result.status == ChaseResult.STATUS_INTERIM) {
+					MeshPoint chk = result.lead.p;
+					if (!checkpointExists(chk)) {
+						checkpoints.add(chk.ix);
+						processLead(result.lead.follow(mesh));
+					}
+				}
+			} else {
+				// pending
+				pending.add(result);
+			}
+		}
+		
+		class ChaseResult {
+			static final int STATUS_FINAL = 1;          // successfully found a local max(min)ima
+			static final int STATUS_INDETERMINATE = 2;  // reached edge of data area
+			static final int STATUS_PENDING = 3;        // reached edge of *loaded* data area; further processing once adjacent area is loaded
+			static final int STATUS_INTERIM = 4;        // reached a 'checkpoint' due to excessive chase length
+			
+			Lead lead;
+			int status;
+			
+			public ChaseResult(Lead lead, int status) {
+				this.lead = lead;
+				this.status = status;
+			}
+		}
+		
+		ChaseResult chase(Lead lead) {
+			int status;
+			int loopFailsafe = 0;
+			while (true) {
+				status = chaseStatus(lead);
+				if (status != 0) {
+					break;
+				}
+				
+				lead.p = lead.follow(mesh).p;
+				lead.len++;
+
+				if (loopFailsafe++ > 2 * CHECKPOINT_LEN) {
+					throw new RuntimeException("infinite loop");
+				}
+			}
+			return new ChaseResult(lead, status);	
+		}
+		
+		int chaseStatus(Lead lead) {
+			int pClass;
+			try {
+				pClass = lead.p.classify(mesh);
+			} catch (IndexOutOfBoundsException e) {
+				return ChaseResult.STATUS_PENDING;
+			}
+			if (pClass == (lead.up ? MeshPoint.CLASS_SUMMIT : MeshPoint.CLASS_PIT)) {
+				return ChaseResult.STATUS_FINAL;
+			} else if (pClass == MeshPoint.CLASS_INDETERMINATE) {
+				return ChaseResult.STATUS_INDETERMINATE;
+			} else if (shouldCheckpoint(lead)) {
+				if (pClass == MeshPoint.CLASS_SLOPE) { // avoid confusion until we've better thought through saddles leading to saddles
+					return ChaseResult.STATUS_INTERIM;
+				}
+			}
+			return 0;
+		}
+		
+		boolean shouldCheckpoint(Lead lead) {
+			return potentialCheckpoint(lead.p) && (checkpointExists(lead.p) || lead.len >= CHECKPOINT_LEN);
+			// TODO when we start chasing leads using a surface model, only checkpoint at vertices
+		}
+		
+		boolean potentialCheckpoint(Point p) {
+			int[] pf = PointIndex.split(p.ix);
+			return _chkpointIx(pf[1]) || _chkpointIx(pf[2]);
+		}
+		
+		boolean _chkpointIx(int k) {
+			return (k + CHECKPOINT_FREQ / 2) % CHECKPOINT_FREQ == 0;
+		}
+		
+		boolean checkpointExists(Point p) {
+			return !prefix.isParent(p.ix) || checkpoints.contains(p.ix);
+		}
+		
 	}
 	
 	
@@ -79,8 +214,139 @@ public class TopologyBuilder {
 		Logging.init();
 		buildTopology(loadDEMs(args[0]));
 	}
+
 	
 	
+//
+//	public void tallyPending(Set<Prefix> allPrefixes, Map<Set<Prefix>, Integer> frontierTotals) {
+//		for (Lead lead : pendingLeads) {
+//			long term = lead.p.ix;
+//			boolean interior = tallyAdjacency(term, allPrefixes, frontierTotals);
+//			if (interior) {
+//				pendInterior.add(term);
+//			} else {
+//				writePendingLead(lead);
+//			}
+//		}
+//		
+//		List<Long> edgeFringe = new ArrayList<Long>();
+//		for (long fringe : unprocessedFringe) {
+//			boolean interior = tallyAdjacency(fringe, allPrefixes, frontierTotals);
+//			if (interior) {
+//				pendInterior.add(fringe);
+//			} else {
+//				edgeFringe.add(fringe);
+//			}
+//		}
+//		unprocessedFringe.removeAll(edgeFringe);
+//
+//		// trim pendInterior to only what is still relevant
+//		Set<Long> newPendInterior = new HashSet<Long>();
+//		for (Lead lead : pendingLeads) {
+//			long term = lead.p.ix;
+//			if (pendInterior.contains(term)) {
+//				newPendInterior.add(term);
+//			}
+//		}
+//		for (long fringe : unprocessedFringe) {
+//			if (pendInterior.contains(fringe)) {
+//				newPendInterior.add(fringe);
+//			}
+//		}
+//		pendInterior = newPendInterior;
+//	}
+//
+//	Prefix matchPrefix(long ix, Set<Prefix> prefixes) {
+//		Prefix p = new Prefix(ix, DEMManager.GRID_TILE_SIZE);
+//		return (prefixes.contains(p) ? p : null);
+//	}
+//	
+//	boolean tallyAdjacency(long ix, Set<Prefix> allPrefixes, Map<Set<Prefix>, Integer> totals) {
+//		Set<Prefix> frontiers = new HashSet<Prefix>();
+//		frontiers.add(matchPrefix(ix, allPrefixes));
+//		for (long adj : DEMManager.adjacency(ix)) {
+//			// find the parititon the adjacent point lies in
+//			Prefix partition = matchPrefix(adj, allPrefixes);
+//
+//			if (!pendInterior.contains(ix)) {
+//				if (partition == null) {
+//					// point is adjacent to a point that will never be loaded, i.e., on the edge of the
+//					// entire region of interest; it will be indeterminate forever
+//					return false;
+//				}
+//				if (!dm.inScope(adj)) {
+//				//i think this is the only required check; the prefix-matching above can be discarded
+//					return false;
+//				}
+//			}
+//				
+//			frontiers.add(partition);
+//		}
+//		
+//		totals.put(frontiers, totals.get(frontiers) + 1);
+//		return true;
+//	}
+//	
+//
+//		
+//		
+//		Set<Lead> oldPending = pendingLeads;
+//		pendingLeads = new HashSet<Lead>();
+//		pendingSaddles = new HashSet<Point>();
+//		for (Lead lead : oldPending) {
+//			Point saddle = lead.p0;
+//			Point head = m.get(lead.p.ix);
+//			if (head == null) {
+//				// point not loaded -- effectively indeterminate
+//				addPending(lead); // replicate entry in new map
+//			} else {
+//				processLead(m, lead);
+//			}
+//		}
+//		
+//		Logging.log("# pending: " + oldPending.size() + " -> " + pendingLeads.size());
+//		Set<Long> fringeNowProcessed = new HashSet<Long>();
+//		for (long ix : unprocessedFringe) {
+//			// TODO don't reprocess points that were also pending leads?
+//			// arises when a saddle leads to another saddle
+//			Point p = m.get(ix);
+//			int pointClass = (p != null ? p.classify(m) : Point.CLASS_INDETERMINATE);
+//			if (pointClass != Point.CLASS_INDETERMINATE) {
+//				fringeNowProcessed.add(ix);
+//				if (pointClass == Point.CLASS_SADDLE) {
+//					processSaddle(m, p);
+//				}
+//			}
+//		}
+//		unprocessedFringe.removeAll(fringeNowProcessed);
+//		Logging.log("# fringe: " + (unprocessedFringe.size() + fringeNowProcessed.size()) + " -> " + unprocessedFringe.size());
+//
+//		if (newPage != null) {
+//			build(m, newPage);
+//		}
+//		
+//		trimNetwork();
+//	}
+//	
+//	void trimNetwork() {
+//		List<Point> toRemove = new ArrayList<Point>();
+//		for (Point p : points.values()) {
+//			if (!pendingSaddles.contains(p)) {
+//				toRemove.add(p);
+//			}
+//		}
+//		for (Point p : toRemove) {
+//			points.remove(p);
+//		}
+//
+//		
+//		
+//		
+//		
+//	
+//	
+//	
+//	
 	public static List<DEMFile> loadDEMs(String region) {
 		List<DEMFile> dems = new ArrayList<DEMFile>();
 		try {
@@ -122,6 +388,12 @@ for all points in chunk, identify saddles
 for any saddles, for each lead (up+down) trace until local max/min. checkpointing rules in effect.
 if hit edge of loaded area, pend
 pend is uniq by lead (multiple pending saddles for same lead, potentially)
+
+we only bulk process initially loaded area
+once pages are being loaded on-demand, it is to only chase down pending leads
+
+		 * 
+		 * 
 		 * 
 	 */
 }
