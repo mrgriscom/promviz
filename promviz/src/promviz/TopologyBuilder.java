@@ -1,6 +1,5 @@
 package promviz;
 
-import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -40,6 +39,8 @@ public class TopologyBuilder {
 			chunks.add(new Prefix(p, CHUNK_SIZE_EXP));
 		}
 
+		FileUtil.ensureEmpty(FileUtil.PHASE_RAW);
+		
 		WorkerPool<ChunkInput, ChunkOutput> wp = new WorkerPoolDebug<ChunkInput, ChunkOutput>(3) {
 //		WorkerPool<ChunkInput, ChunkOutput> wp = new WorkerPool<ChunkInput, ChunkOutput>(3) {
 			public ChunkOutput process(ChunkInput input) {
@@ -59,7 +60,7 @@ public class TopologyBuilder {
 			}
 		}));
 		
-		// handle output (including multiple phases)
+		// handle multiple phases
 	}
 	
 	static class ChunkInput {
@@ -80,7 +81,7 @@ public class TopologyBuilder {
 		Map<Prefix, Set<DEMFile>> coverage;
 		
 		PagedElevGrid mesh;
-		Map<SaddleAndDir, List<SummitAndTag>> processedBySaddle;
+		Map<SaddleAndDir, Set<SummitAndTag>> processedBySaddle;
 		List<Lead> pending; // TODO group by common (term, up)?
 		Set<Long> upCheckpoints;
 		Set<Long> downCheckpoints;
@@ -89,9 +90,9 @@ public class TopologyBuilder {
 			this.prefix = input.chunkPrefix;
 			this.coverage = input.coverage;
 			
-			processedBySaddle = new DefaultMap<SaddleAndDir, List<SummitAndTag>>() {
-				public List<SummitAndTag> defaultValue(SaddleAndDir key) {
-					return new ArrayList<SummitAndTag>();
+			processedBySaddle = new DefaultMap<SaddleAndDir, Set<SummitAndTag>>() {
+				public Set<SummitAndTag> defaultValue(SaddleAndDir key) {
+					return new HashSet<SummitAndTag>();
 				}
 			};
 			pending = new ArrayList<Lead>();
@@ -345,8 +346,14 @@ public class TopologyBuilder {
 				this.tag = tag;
 			}
 			
-			public boolean equals(Object o) { throw new UnsupportedOperationException(); }
-			public int hashCode() { throw new UnsupportedOperationException(); }
+			public boolean equals(Object o) {
+				SummitAndTag st = (SummitAndTag)o;
+				return this.summit == st.summit && this.tag == st.tag;
+			}
+			
+			public int hashCode() {
+				return Long.valueOf(summit).hashCode() ^ Integer.valueOf(tag).hashCode();
+			}
 		}
 
 		static class PseudoEdge {
@@ -367,7 +374,9 @@ public class TopologyBuilder {
 		}
 		
 		interface TopologyCleaner {
-			List<PseudoEdge> clean(SaddleAndDir k, List<SummitAndTag> v);
+			// add modifications to 'edges', return true to remove the original entry (which
+			// you almost certainly want to do if you add anything)
+			boolean clean(List<PseudoEdge> additions, SaddleAndDir k, Set<SummitAndTag> v);
 		}
 		
 		public Map<Boolean, List<Edge>> normalizeTopology() {
@@ -376,7 +385,7 @@ public class TopologyBuilder {
 						
 			// define several cleaning operations
 			TopologyCleaner unconnected = new TopologyCleaner() {
-				public List<PseudoEdge> clean(SaddleAndDir k, List<SummitAndTag> v) {
+				public boolean clean(List<PseudoEdge> additions, SaddleAndDir k, Set<SummitAndTag> v) {
 					// remove saddles that are unconnected to the rest of the network
 					boolean allPending = true;
 					for (SummitAndTag st : v) {
@@ -385,23 +394,23 @@ public class TopologyBuilder {
 							break;
 						}
 					}
-					return (allPending ? new ArrayList<PseudoEdge>() : null);
+					return allPending;
 				}
 			};
 			TopologyCleaner multisaddle = new TopologyCleaner() {
-				public List<PseudoEdge> clean(SaddleAndDir k, List<SummitAndTag> v) {
+				public boolean clean(List<PseudoEdge> additions, SaddleAndDir k, Set<SummitAndTag> vset) {
 					// break up multisaddles
-					if (v.size() <= 2) {
-						return null;
+					if (vset.size() <= 2) {
+						return false;
 					}
 					
+					List<SummitAndTag> v = new ArrayList<SummitAndTag>(vset);
 					Collections.sort(v, new Comparator<SummitAndTag>() {
 						public int compare(SummitAndTag a, SummitAndTag b) {
 							return Integer.compare(a.tag, b.tag);
 						}
 					});
 		
-					List<PseudoEdge> edges = new ArrayList<PseudoEdge>();
 					long vPeak = PointIndex.clone(k.saddle, 1);
 					for (int i = 0; i < v.size(); i++) {
 						SummitAndTag st = v.get(i);
@@ -410,53 +419,50 @@ public class TopologyBuilder {
 						// the disambiguation pattern is not symmetrical between the 'up' and 'down' networks;
 						// this is the cost of making them consistent with each other
 						if (k.up) {
-							edges.add(new PseudoEdge(vSaddle, st.summit, k.up, st.tag));
-							edges.add(new PseudoEdge(vSaddle, vPeak, k.up, Edge.TAG_NULL));
+							additions.add(new PseudoEdge(vSaddle, st.summit, k.up, st.tag));
+							additions.add(new PseudoEdge(vSaddle, vPeak, k.up, Edge.TAG_NULL));
 						} else {
 							SummitAndTag st_prev = v.get(Util.mod(i - 1, v.size()));
-							edges.add(new PseudoEdge(vSaddle, st.summit, k.up, st.tag));
-							edges.add(new PseudoEdge(vSaddle, st_prev.summit, k.up, st_prev.tag));
+							additions.add(new PseudoEdge(vSaddle, st.summit, k.up, st.tag));
+							additions.add(new PseudoEdge(vSaddle, st_prev.summit, k.up, st_prev.tag));
 						}
 					}
-					return edges;
+					return true;
 				}
 			};
 			TopologyCleaner ring = new TopologyCleaner() {
-				public List<PseudoEdge> clean(SaddleAndDir k, List<SummitAndTag> v) {
+				public boolean clean(List<PseudoEdge> additions, SaddleAndDir k, Set<SummitAndTag> vset) {
 					// split rings (both saddle edges lead to same point)
-					assert v.size() == 2;
-					if (v.get(0).summit != v.get(1).summit) {
-						return null;
+					SummitAndTag[] v = unpackForSaddle(vset, 2);
+					if (v[0].summit != v[1].summit) {
+						return false;
 					}
-					List<PseudoEdge> edges = new ArrayList<PseudoEdge>();
 
-					long summit = v.get(0).summit;
+					long summit = v[0].summit;
 					if (summit == PointIndex.NULL) {
-						// although the first cleaner checked this, it can crop up again
-						// in the 'down' network for multisaddles with 2 leads indeterminate
-						return edges; // return empty to remove this entry
+						// this situation was caught by the 'unconnected' cleaner, but it can crop up
+						// again in the 'down' network for multisaddles with >1 indeterminate lead
+						return true; // return empty to remove this entry
 					}
 					
-					long altSummit = PointIndex.clone(summit, k.up ? 1 : -1);
+					int seq = PointIndex.split(summit)[3]; // checkpoints may already have a seq# set
+					long altSummit = PointIndex.clone(summit, (k.up ? 1 : -1) * (seq + 1));
 					long altSaddle = PointIndex.clone(summit, k.up ? -1 : 1);
 					
-					edges.add(new PseudoEdge(k.saddle, summit, k.up, v.get(0).tag));
-					edges.add(new PseudoEdge(k.saddle, altSummit, k.up, v.get(1).tag));
-					edges.add(new PseudoEdge(altSaddle, summit, k.up, Edge.TAG_NULL));
-					edges.add(new PseudoEdge(altSaddle, altSummit, k.up, Edge.TAG_NULL));
-					return edges;
+					additions.add(new PseudoEdge(k.saddle, summit, k.up, v[0].tag));
+					additions.add(new PseudoEdge(k.saddle, altSummit, k.up, v[1].tag));
+					additions.add(new PseudoEdge(altSaddle, summit, k.up, Edge.TAG_NULL));
+					additions.add(new PseudoEdge(altSaddle, altSummit, k.up, Edge.TAG_NULL));
+					return true;
 				}
 			};
 
 			// perform each cleaning operation in sequence (one full pass each); ordering is important!
 			for (TopologyCleaner cleaner : new TopologyCleaner[] {unconnected, multisaddle, ring}) {
 				List<PseudoEdge> additions = new ArrayList<PseudoEdge>();
-				for (Iterator<Map.Entry<SaddleAndDir, List<SummitAndTag>>> it = processedBySaddle.entrySet().iterator(); it.hasNext(); ) {
-					Map.Entry<SaddleAndDir, List<SummitAndTag>> e = it.next();
-					List<PseudoEdge> changes = cleaner.clean(e.getKey(), e.getValue());
-					
-					if (changes != null) {
-						additions.addAll(changes);
+				for (Iterator<Map.Entry<SaddleAndDir, Set<SummitAndTag>>> it = processedBySaddle.entrySet().iterator(); it.hasNext(); ) {
+					Map.Entry<SaddleAndDir, Set<SummitAndTag>> e = it.next();
+					if (cleaner.clean(additions, e.getKey(), e.getValue())) {
 						it.remove();
 					}
 				}
@@ -467,21 +473,23 @@ public class TopologyBuilder {
 			
 			List<Edge> upEdges = new ArrayList<Edge>();
 			List<Edge> downEdges = new ArrayList<Edge>();
-			for (Iterator<Map.Entry<SaddleAndDir, List<SummitAndTag>>> it = processedBySaddle.entrySet().iterator(); it.hasNext(); ) {
-				Map.Entry<SaddleAndDir, List<SummitAndTag>> e = it.next();
+			for (Iterator<Map.Entry<SaddleAndDir, Set<SummitAndTag>>> it = processedBySaddle.entrySet().iterator(); it.hasNext(); ) {
+				Map.Entry<SaddleAndDir, Set<SummitAndTag>> e = it.next();
 				it.remove();
 				
 				SaddleAndDir k = e.getKey();
-				List<SummitAndTag> v = e.getValue();
-				assert v.size() == 2;
-				SummitAndTag a = v.get(0);
-				SummitAndTag b = v.get(1);
-				(k.up ? upEdges : downEdges).add(new Edge(a.summit, b.summit, k.saddle, a.tag, b.tag));
+				SummitAndTag[] v = unpackForSaddle(e.getValue(), 2);
+				(k.up ? upEdges : downEdges).add(new Edge(v[0].summit, v[1].summit, k.saddle, v[0].tag, v[1].tag));
 			}
 			Map<Boolean, List<Edge>> allEdges = new HashMap<Boolean, List<Edge>>();
 			allEdges.put(true, upEdges);
 			allEdges.put(false, downEdges);
 			return allEdges;
+		}
+		
+		SummitAndTag[] unpackForSaddle(Set<SummitAndTag> sts, int n) {
+			assert sts.size() == n;
+			return sts.toArray(new SummitAndTag[n]);
 		}
 	}
 

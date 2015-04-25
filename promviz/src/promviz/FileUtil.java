@@ -23,7 +23,8 @@ public class FileUtil {
 	}
 	
 	static String fmtOffset(int k) {
-		return String.format("%06x", k).substring(0, 6);
+		String s = String.format("%06x", k);
+		return s.substring(s.length() - 6);
 		//return (k < 0 ? "-" : "") + String.format("%06x", Math.abs(k));
 	}
 	

@@ -115,7 +115,7 @@ public class PointIndex {
 	
 	public static String toString(long ix) {
 		if (ix == -1) {
-			return "---";
+			return "~";
 		}
 		
 		int[] c = split(ix);
