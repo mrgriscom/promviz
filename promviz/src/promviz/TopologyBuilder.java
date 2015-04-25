@@ -47,7 +47,7 @@ public class TopologyBuilder {
 
 			int i = 1;
 			public void postprocess(ChunkOutput output) {
-				Logging.log((i++) + " " + output.chunkPrefix.toString() + " " + output.numPoints);
+				Logging.log((i++) + " " + output.chunkPrefix.toString() + " " + output.upNetwork.size() + " " + output.downNetwork.size());
 			}
 		};
 		wp.launch(Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
@@ -69,7 +69,10 @@ public class TopologyBuilder {
 	
 	static class ChunkOutput {
 		Prefix chunkPrefix;
-		int numPoints;
+		List<Edge> upNetwork;
+		List<Edge> downNetwork;
+		Set<Long> upCheckpoint;
+		Set<Long> downCheckpoint;
 	}
 	
 	static class ChunkProcessor {
@@ -79,7 +82,8 @@ public class TopologyBuilder {
 		PagedElevGrid mesh;
 		List<ChaseResult> processed;
 		List<Lead> pending; // TODO group by common (term, up)?
-		Set<Long> checkpoints;
+		Set<Long> upCheckpoints;
+		Set<Long> downCheckpoints;
 		
 		public ChunkProcessor(ChunkInput input) {
 			this.prefix = input.chunkPrefix;
@@ -87,7 +91,8 @@ public class TopologyBuilder {
 			
 			processed = new ArrayList<ChaseResult>();
 			pending = new ArrayList<Lead>();
-			checkpoints = new HashSet<Long>(); // need to split up/down?
+			upCheckpoints = new HashSet<Long>();
+			downCheckpoints = new HashSet<Long>();
 		}
 		
 		public ChunkOutput build() {
@@ -115,11 +120,12 @@ public class TopologyBuilder {
 			
 			Map<Boolean, List<Edge>> topology = normalizeTopology();
 			
-			Logging.log(prefix + " " + topology.get(true).size() + " " + topology.get(false).size());
-			
 			ChunkOutput output = new ChunkOutput();
 			output.chunkPrefix = prefix;
-			// return traces and checkpoints
+			output.upNetwork = topology.get(true);
+			output.downNetwork = topology.get(false);
+			output.upCheckpoint = upCheckpoints;
+			output.downCheckpoint = downCheckpoints;
 			return output;
 		}
 		
@@ -136,9 +142,9 @@ public class TopologyBuilder {
 			if (result.status != ChaseResult.STATUS_PENDING) {
 				processed.add(result);
 				if (result.status == ChaseResult.STATUS_INTERIM) {
-					MeshPoint chk = result.lead.p;
-					if (!checkpointExists(chk)) {
-						checkpoints.add(chk.ix);
+					if (!checkpointExists(result.lead)) {
+						MeshPoint chk = result.lead.p;
+						(lead.up ? upCheckpoints : downCheckpoints).add(chk.ix);
 						Lead resume = result.lead.follow(mesh);
 						resume.fromCheckpoint = true;
 						processLead(resume);
@@ -213,7 +219,7 @@ public class TopologyBuilder {
 		}
 		
 		boolean shouldCheckpoint(Lead lead) {
-			return potentialCheckpoint(lead.p) && (checkpointExists(lead.p) || lead.len >= CHECKPOINT_LEN);
+			return potentialCheckpoint(lead.p) && (checkpointExists(lead) || lead.len >= CHECKPOINT_LEN);
 			// TODO when we start chasing leads using a surface model, only checkpoint at vertices
 		}
 		
@@ -228,9 +234,13 @@ public class TopologyBuilder {
 			return (k + CHECKPOINT_FREQ / 2) % CHECKPOINT_FREQ == 0;
 		}
 		
-		boolean checkpointExists(Point p) {
-			return !prefix.isParent(p.ix) // assume checkpointing outside current chunk area is handled externally 
-					|| checkpoints.contains(p.ix);
+		boolean checkpointExists(Lead lead) {
+			return checkpointExists(lead.p.ix, lead.up);
+		}
+		
+		boolean checkpointExists(long ix, boolean up) {
+			return !prefix.isParent(ix) // assume checkpointing outside current chunk area is handled externally 
+					|| (up ? upCheckpoints : downCheckpoints).contains(ix);
 		}
 		
 		Prefix bestNextPage() {
@@ -509,21 +519,6 @@ public class TopologyBuilder {
 		return dems;
 	}
 	
-		/*
-		 * 
-		 * 
-		 * 
-		 * 
-output:
-saddle->summit pairs for all saddles within chunk boundary. summit may be inside/outside/null
-list of checkpoints created inside chunk boundary
-list of checkpoints terminated at outside chunk boundary
-
-
-		 * 
-		 * 
-		 * 
-	 */
 }
 	
 	

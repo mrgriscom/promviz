@@ -18,6 +18,8 @@ public class Edge {
 	int tagB;
 	
 	public Edge(long a, long b, long saddle, int tagA, int tagB) {
+		assert (a != b && a != saddle && b != saddle);
+		
 		this.a = a;
 		this.b = b;
 		this.saddle = saddle;
@@ -26,7 +28,6 @@ public class Edge {
 		
 		if (this.a == PointIndex.NULL) {
 			reverse();
-			assert a != PointIndex.NULL;
 		}
 	}
 	
