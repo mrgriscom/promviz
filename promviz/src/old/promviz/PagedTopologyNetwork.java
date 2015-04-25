@@ -18,9 +18,9 @@ import java.util.Set;
 
 import old.promviz.PreprocessNetwork.Edge;
 import old.promviz.PreprocessNetwork.EdgeIterator;
-import old.promviz.util.Logging;
 import promviz.PagedElevGrid;
 import promviz.Prefix;
+import promviz.util.Logging;
 
 import com.google.common.collect.Lists;
 

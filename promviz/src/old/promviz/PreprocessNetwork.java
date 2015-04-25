@@ -23,11 +23,11 @@ import java.util.Set;
 
 import old.promviz.PromNetwork.MSTFront;
 import old.promviz.PromNetwork.MSTWriter;
-import old.promviz.util.Logging;
 import old.promviz.util.Util;
 import promviz.PagedElevGrid;
 import promviz.Prefix;
 import promviz.util.DefaultMap;
+import promviz.util.Logging;
 
 import com.google.common.collect.Lists;
 

@@ -18,7 +18,8 @@ public class Edge {
 	int tagB;
 	
 	public Edge(long a, long b, long saddle, int tagA, int tagB) {
-		assert (a != b && a != saddle && b != saddle);
+		assert (a != b && a != saddle && b != saddle) : String.format("%s %s %s", Util.print(a), Util.print(b), Util.print(saddle));
+		assert (saddle != PointIndex.NULL);
 		
 		this.a = a;
 		this.b = b;
@@ -83,7 +84,11 @@ public class Edge {
 		return Long.valueOf(this.a).hashCode() ^ Long.valueOf(this.b).hashCode() ^ Long.valueOf(this.saddle).hashCode();
 	}
 	
+	public String _fmtTag(int tag) {
+		return (tag != TAG_NULL ? "(" + tag + ")" : "");
+	}
+	
 	public String toString() {
-		return String.format("%s <=(%d) %s (%d)=> %s", Util.print(a), tagA, Util.print(saddle), tagB, Util.print(b));
+		return String.format("%s <=%s %s %s=> %s", Util.print(a), _fmtTag(tagA), Util.print(saddle), _fmtTag(tagB), Util.print(b));
 	}
 }

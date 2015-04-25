@@ -9,4 +9,10 @@ for ln in data:
         continue
 
     key, value = ln.split('=')
-    globals()[key.strip()] = value.strip()
+    key = key.strip()
+    value = value.strip()
+
+    if key.startswith('dir_') and not key.endswith('_root'):
+        value = os.path.join(dir_root, value)
+
+    globals()[key] = value

@@ -1,4 +1,4 @@
-package old.promviz.util;
+package promviz.util;
 
 public class Logging {
 	

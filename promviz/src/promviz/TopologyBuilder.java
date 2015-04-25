@@ -1,8 +1,10 @@
 package promviz;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -13,11 +15,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import old.promviz.util.Logging;
 import promviz.MeshPoint.Lead;
 import promviz.dem.DEMFile;
-import promviz.dem.SRTMDEM;
 import promviz.util.DefaultMap;
+import promviz.util.Logging;
 import promviz.util.Util;
 import promviz.util.WorkerPool;
 import promviz.util.WorkerPoolDebug;
@@ -427,12 +428,18 @@ public class TopologyBuilder {
 					if (v.get(0).summit != v.get(1).summit) {
 						return null;
 					}
+					List<PseudoEdge> edges = new ArrayList<PseudoEdge>();
 
 					long summit = v.get(0).summit;
+					if (summit == PointIndex.NULL) {
+						// although the first cleaner checked this, it can crop up again
+						// in the 'down' network for multisaddles with 2 leads indeterminate
+						return edges; // return empty to remove this entry
+					}
+					
 					long altSummit = PointIndex.clone(summit, k.up ? 1 : -1);
 					long altSaddle = PointIndex.clone(summit, k.up ? -1 : 1);
 					
-					List<PseudoEdge> edges = new ArrayList<PseudoEdge>();
 					edges.add(new PseudoEdge(k.saddle, summit, k.up, v.get(0).tag));
 					edges.add(new PseudoEdge(k.saddle, altSummit, k.up, v.get(1).tag));
 					edges.add(new PseudoEdge(altSaddle, summit, k.up, Edge.TAG_NULL));
@@ -478,126 +485,53 @@ public class TopologyBuilder {
 		}
 	}
 
-	static int i = 0;
+	static int i = 1;
 	public static void postprocessChunk(ChunkOutput output) {
+		writeEdges(output.upNetwork, true);
+		writeEdges(output.downNetwork, false);
+		
 		Logging.log((i++) + " " + output.chunkPrefix.toString() + " " + output.upNetwork.size() + " " + output.downNetwork.size());
+		
+		// for each edge in up/down networks
+		// write each edge to chunkfile for each summit (only once if in same chunk)
+		
 	}
 	
-	
-	
-	
-	
-	
-	
-	
-	public static void main(String[] args) {
-		Logging.init();
-		buildTopology(loadDEMs(args[0]));
+	public static void writeEdges(List<Edge> edges, final boolean up) {
+		Map<Prefix, DataOutputStream> f = new DefaultMap<Prefix, DataOutputStream>() {
+			public DataOutputStream defaultValue(Prefix prefix) {
+				try {
+					return new DataOutputStream(new FileOutputStream(FileUtil.segmentPath(up, prefix, FileUtil.PHASE_RAW), true));
+				} catch (IOException ioe) {
+					throw new RuntimeException(ioe);
+				}
+			}
+		};
+
+		for (Edge e : edges) {
+			Prefix bucket1 = new Prefix(e.a, CHUNK_SIZE_EXP);
+			Prefix bucket2 = (e.pending() ? null : new Prefix(e.b, CHUNK_SIZE_EXP));
+			
+			e.write(f.get(bucket1));
+			if (!bucket1.equals(bucket2) && bucket2 != null) {
+				e.write(f.get(bucket2));
+			}
+		}
+
+		for (OutputStream o : f.values()) {
+			try {
+				o.close();
+			} catch (IOException ioe) {
+				throw new RuntimeException(ioe);
+			}				
+		}
 	}
-	
-	public static List<DEMFile> loadDEMs(String region) {
-		List<DEMFile> dems = new ArrayList<DEMFile>();
-		try {
-	        Process proc = new ProcessBuilder(new String[] {"python", "/home/drew/dev/pv2/script/demregion.py", region}).start();
-	        BufferedReader stdin = new BufferedReader(new InputStreamReader(proc.getInputStream()));
-	        
-	        String s = null;
-	        while ((s = stdin.readLine()) != null) {
-	        	String[] parts = s.split(",");
-	        	String type = parts[0];
-	        	String path = parts[1];
-	        	int w = Integer.parseInt(parts[2]);
-	        	int h = Integer.parseInt(parts[3]);
-	        	double lat = Double.parseDouble(parts[4]);
-	        	double lon = Double.parseDouble(parts[5]);
-	        	int res = Integer.parseInt(parts[6]);
-	        	
-	        	DEMFile dem = new SRTMDEM(path, w, h, lat, lon, res);
-	        	dems.add(dem);
-	        }
-	    } catch (IOException e) {
-	        throw new RuntimeException();
-	    }		
-		return dems;
-	}
-	
+
 }
 	
-	
-//
-
-	
-	
-//	static void _verifyNetwork(TopologyNetwork tn) {
-//		int peakClass = (tn.up ? Point.CLASS_SUMMIT : Point.CLASS_PIT);
-//		int saddleClass = (tn.up ? Point.CLASS_PIT : Point.CLASS_SADDLE);
-//		
-//		for (Point p : tn.allPoints()) {
-//			boolean refersToSelf = false;
-//			for (long adj : p.adjIx()) {
-//				if (adj == p.ix) {
-//					refersToSelf = true;
-//					break;
-//				}
-//			}
-//			if (refersToSelf) {
-//				Logging.log("verify: " + p + " refers to self");
-//				continue;
-//			}
-//			
-//			int pClass = p.classify(tn);
-//			if (pClass != Point.CLASS_SUMMIT && pClass != Point.CLASS_PIT) {
-//				if (pClass == Point.CLASS_OTHER && tn.pendingSaddles.contains(p)) {
-//					// fringe saddle whose leads are all pending -- not connected to rest of network
-//					// note: these are now filtered out by pagedtoponetwork.load()
-//					Logging.log("verify: fringe saddle (ok, but should have been pruned)");
-//					continue;
-//				}
-//				
-//				Logging.log("verify: " + p + " unexpected class " + pClass);
-//				continue;
-//			}
-//			boolean topologyViolation = false;
-//			for (Point adj : p.adjacent(tn)) {
-//				if (p == adj) {
-//					continue;
-//				}
-//				
-//				int adjClass = adj.classify(tn);
-//				if (adjClass != Point.CLASS_SUMMIT && adjClass != Point.CLASS_PIT) {
-//					Logging.log("verify: " + p + " adj " + adj + " unexpected class " + adjClass);
-//					continue;
-//				}
-//				if (adjClass == pClass) {
-//					topologyViolation = true;
-//					break;
-//				}
-//			}
-//			if (topologyViolation) {
-//				Logging.log("verify: " + p + " adjacent to same type " + pClass);					
-//				continue;
-//			}
-//
-//			boolean isSaddle = (pClass == saddleClass);
-//			boolean connected;
-//			if (isSaddle) {
-//				int numAdj = (p.adjIx().length + (tn.pendingSaddles.contains(p) ? 1 : 0));
-//				connected = (numAdj == 2);
-//			} else {
-//				// redundant, since if this were false, point would have been flagged above
-//				connected = (p.adjIx().length >= 1);
-//			}
-//			if (!connected) {
-//				Logging.log("verify: " + p + " [" + pClass + "] insufficiently connected (" + p.adjIx().length + ")");					
-//				continue;
-//			}
-//
-//			// check pending too?
-//		}
-//	}
-//
-//		
-//
-//
-//	}
-//
+// verifications:	
+// does not refer to self (handled by assert in Edge)
+// only saddles can connect to null (handled by assert in Edge)
+// every saddle listed must be unique
+// peak must be higher than all connecting saddles
+// saddle must be lower than two connecting peaks

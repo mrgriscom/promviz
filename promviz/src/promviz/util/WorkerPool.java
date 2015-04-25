@@ -6,8 +6,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import old.promviz.util.Logging;
-
 public abstract class WorkerPool <I, O> {
 
 	ExecutorService threadPool;

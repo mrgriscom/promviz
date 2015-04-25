@@ -11,9 +11,9 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 
-import old.promviz.util.Logging;
 import promviz.dem.DEMFile;
 import promviz.util.DefaultMap;
+import promviz.util.Logging;
 import promviz.util.SaneIterable;
 
 import com.google.common.collect.Iterables;
