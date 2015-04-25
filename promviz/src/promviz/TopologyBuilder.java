@@ -26,37 +26,44 @@ import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 
 public class TopologyBuilder {
+
+	static final int NUM_WORKERS = 3;
 	
 	static final int CHUNK_SIZE_EXP = 13;
 	static final int CHECKPOINT_FREQ = (1 << 11);
 	static final int CHECKPOINT_LEN = CHECKPOINT_FREQ;
 	
+	static Prefix _chunk(long ix) {
+		return new Prefix(ix, CHUNK_SIZE_EXP);
+	}
+	
 	static void buildTopology(List<DEMFile> DEMs) {
-		final Map<Prefix, Set<DEMFile>> coverage = PagedElevGrid.partitionDEM(DEMs);
+		Map<Prefix, Set<DEMFile>> coverage = PagedElevGrid.partitionDEM(DEMs);
 		
-		Set<Prefix> chunks = new HashSet<Prefix>();
-		for (Prefix p : coverage.keySet()) {
-			chunks.add(new Prefix(p, CHUNK_SIZE_EXP));
-		}
-
 		FileUtil.ensureEmpty(FileUtil.PHASE_RAW);
 		
-		Builder builder = new Builder();
-		builder.launch(3, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
-			public ChunkInput apply(Prefix p) {
-				ChunkInput ci = new ChunkInput();
-				ci.chunkPrefix = p;
-				ci.coverage = (HashMap)((HashMap)coverage).clone();
-				return ci;
-			}
-		}));
+		Builder builder = new Builder(NUM_WORKERS, coverage);
+		builder.firstRound();
 		
-		// handle multiple phases
+		int round = 0;
+		while (builder.needsAnotherRound()) {
+			round++;
+			Logging.log("round " + round);
+			
+			builder.nextRound();
+		}
 	}
 	
 	static class ChunkInput {
 		Prefix chunkPrefix;
 		Map<Prefix, Set<DEMFile>> coverage;
+		boolean fullMode;
+		ChunkInputForDir[] byDir;
+	}
+	
+	static class ChunkInputForDir {
+		Set<Long> internalCheckpoints; // known checkpoints inside the current chunk
+		List<Long> pendingCheckpoints; // unresolved checkpoints in this chunk that we must process
 	}
 	
 	static class ChunkOutput {
@@ -67,20 +74,26 @@ public class TopologyBuilder {
 	static class ChunkOutputForDir {
 		boolean up;
 		List<Edge> network;
-		Set<Long> checkpoints;
+		Set<Long> internalCheckpoints; // known checkpoints inside the current chunk
+		Set<Long> pendingCheckpoints;  // pending checkpoints outside this chunk to be processed in the next round
 	}
 	
 	static class ChunkProcessor {
 		Prefix prefix;
 		Map<Prefix, Set<DEMFile>> coverage;
+		ChunkInput input;
 		
 		PagedElevGrid mesh;
 		Map<SaddleAndDir, Set<SummitAndTag>> processedBySaddle;
 		List<Lead> pending; // TODO group by common (term, up)?
-		Set<Long> upCheckpoints;
-		Set<Long> downCheckpoints;
+
+		Set<Long> internalCheckpointsUp;
+		Set<Long> internalCheckpointsDown;
+		Set<Long> pendingCheckpointsUp;
+		Set<Long> pendingCheckpointsDown;
 		
 		public ChunkProcessor(ChunkInput input) {
+			this.input = input;
 			this.prefix = input.chunkPrefix;
 			this.coverage = input.coverage;
 			
@@ -90,35 +103,53 @@ public class TopologyBuilder {
 				}
 			};
 			pending = new ArrayList<Lead>();
-			upCheckpoints = new HashSet<Long>();
-			downCheckpoints = new HashSet<Long>();
+			internalCheckpointsUp = input.byDir[0].internalCheckpoints;
+			internalCheckpointsDown = input.byDir[1].internalCheckpoints;
+			pendingCheckpointsUp = new HashSet<Long>();
+			pendingCheckpointsDown = new HashSet<Long>();
 		}
 		
 		boolean inChunk(long ix) {
 			return prefix.isParent(ix);	
 		}
 		
-		Set<Long> checkpoints(boolean up) {
-			return (up ? upCheckpoints : downCheckpoints);
+		Set<Long> internalCheckpoints(boolean up) {
+			return (up ? internalCheckpointsUp : internalCheckpointsDown);
+		}
+		Set<Long> pendingCheckpoints(boolean up) {
+			return (up ? pendingCheckpointsUp : pendingCheckpointsDown);
 		}
 		
 		public ChunkOutput build() {
 			mesh = new PagedElevGrid(coverage, (int)(1.5 * Math.pow(2, 2 * CHUNK_SIZE_EXP)));
-			Iterable<DEMFile.Sample> points = mesh.loadForPrefix(prefix, 1);
 			
-			for (DEMFile.Sample s : points) {
-				if (!inChunk(s.ix)) {
-					// don't process the fringe
-					continue;
-				}
+			if (input.fullMode) {
+				// process entire chunk
+				Iterable<DEMFile.Sample> points = mesh.loadForPrefix(prefix, 1);
 				
-				MeshPoint p = new GridPoint(s);
-				int pointClass = p.classify(mesh);
-				if (pointClass != MeshPoint.CLASS_SADDLE) {
-					continue;
+				for (DEMFile.Sample s : points) {
+					if (!inChunk(s.ix)) {
+						// don't process the fringe
+						continue;
+					}
+					
+					MeshPoint p = new GridPoint(s);
+					int pointClass = p.classify(mesh);
+					if (pointClass != MeshPoint.CLASS_SADDLE) {
+						continue;
+					}
+					
+					processSaddle(p);
 				}
+			} else {
+				// only process pending leads from previous round
+				mesh.loadForPrefix(prefix, 0);
 				
-				processSaddle(p);
+				for (boolean up : new boolean[] {true, false}) {
+					for (long ix : input.byDir[up ? 0 : 1].pendingCheckpoints) {
+						resumeFromCheckpoint(ix, up);
+					}
+				}
 			}
 			
 			while (pending.size() > 0) {
@@ -135,7 +166,8 @@ public class TopologyBuilder {
 				output.byDir[i] = o;
 				o.up = (i == 0);
 				o.network = topology.get(o.up);
-				o.checkpoints = checkpoints(o.up);
+				o.internalCheckpoints = internalCheckpoints(o.up);
+				o.pendingCheckpoints = pendingCheckpoints(o.up);
 			}
 			return output;
 		}
@@ -153,18 +185,29 @@ public class TopologyBuilder {
 			if (result.status != ChaseResult.STATUS_PENDING) {
 				processResult(result);
 				if (result.status == ChaseResult.STATUS_INTERIM) {
+					long chk = result.lead.p.ix;
 					if (!checkpointExists(result.lead)) {
-						Lead resume = result.lead.follow(mesh);
-						resume.fromCheckpoint = true;
-						processLead(resume);
+						internalCheckpoints(lead.up).add(chk);
+						resumeFromCheckpoint(result.lead);
+					} else if (!inChunk(chk)) {
+						pendingCheckpoints(lead.up).add(chk);
 					}
-					checkpoints(lead.up).add(result.lead.p.ix);
 				}
 			} else {
 				pending.add(result.lead);
 			}
 		}
-	
+
+		void resumeFromCheckpoint(long ix, boolean up) {
+			resumeFromCheckpoint(new Lead(up, null, mesh.get(ix), -1));
+		}
+		
+		void resumeFromCheckpoint(Lead lead) {
+			Lead resume = lead.follow(mesh);
+			resume.fromCheckpoint = true;
+			processLead(resume);			
+		}
+		
 		void processPending() {
 			mesh.loadPage(bestNextPage());
 			
@@ -252,7 +295,7 @@ public class TopologyBuilder {
 		
 		boolean checkpointExists(long ix, boolean up) {
 			return !inChunk(ix) // assume checkpointing outside current chunk area is handled externally 
-					|| checkpoints(up).contains(ix);
+					|| internalCheckpoints(up).contains(ix);
 		}
 		
 		Prefix bestNextPage() {
@@ -503,17 +546,40 @@ public class TopologyBuilder {
 
 	static class Builder extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
 //	static class Builder extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
-		
+
+		int numWorkers;
+		Map<Prefix, Set<DEMFile>> coverage;
+		Map<Boolean, Map<Prefix, Set<Long>>> internalCheckpoints; // warning: we keep this always in memory and never purge
 		Map<Boolean, Set<Long>> pendingCheckpoints;
-		Map<Boolean, Set<Long>> resolvedCheckpoints;
 		
-		public Builder() {
+		public Builder(int numWorkers, Map<Prefix, Set<DEMFile>> coverage) {
+			this.numWorkers = numWorkers;
+			this.coverage = coverage;
+			
 			pendingCheckpoints = new HashMap<Boolean, Set<Long>>();
-			resolvedCheckpoints = new HashMap<Boolean, Set<Long>>();
+			internalCheckpoints = new HashMap<Boolean, Map<Prefix, Set<Long>>>();
 			for (boolean up : new boolean[] {true, false}) {
 				pendingCheckpoints.put(up, new HashSet<Long>());
-				resolvedCheckpoints.put(up, new HashSet<Long>());
+				internalCheckpoints.put(up, new HashMap<Prefix, Set<Long>>());
 			}
+		}
+
+		public void firstRound() {
+			Set<Prefix> chunks = new HashSet<Prefix>();
+			for (Prefix p : coverage.keySet()) {
+				chunks.add(new Prefix(p, CHUNK_SIZE_EXP));
+			}
+			
+			for (Prefix chunk : chunks) {
+				internalCheckpoints.get(true).put(chunk, new HashSet<Long>());
+				internalCheckpoints.get(false).put(chunk, new HashSet<Long>());
+			}
+			
+			launch(numWorkers, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
+				public ChunkInput apply(Prefix p) {
+					return makeInput(p, null, null);
+				}
+			}));
 		}
 		
 		public ChunkOutput process(ChunkInput input) {
@@ -528,12 +594,11 @@ public class TopologyBuilder {
 		public void postprocessChunk(int i, Prefix prefix, ChunkOutputForDir output) {
 			writeEdges(output.network, output.up);
 			
-			for (long ix : output.checkpoints) {
-				boolean inChunk = prefix.isParent(ix);
-				(inChunk ? resolvedCheckpoints : pendingCheckpoints).get(output.up).add(ix);
-			}
+			internalCheckpoints.get(output.up).put(prefix, output.internalCheckpoints);
+			pendingCheckpoints.get(output.up).addAll(output.pendingCheckpoints);
 
-			Logging.log(String.format("%d %s %s %d %d", i+1, prefix, output.up ? "U" : "D", output.network.size(), output.checkpoints.size()));
+			Logging.log(String.format("%d %s %s %d %d %d", i+1, prefix, output.up ? "U" : "D", output.network.size(),
+					output.internalCheckpoints.size(), output.pendingCheckpoints.size()));
 		}
 		
 		public static void writeEdges(List<Edge> edges, final boolean up) {
@@ -548,8 +613,8 @@ public class TopologyBuilder {
 			};
 		
 			for (Edge e : edges) {
-				Prefix bucket1 = new Prefix(e.a, CHUNK_SIZE_EXP);
-				Prefix bucket2 = (e.pending() ? null : new Prefix(e.b, CHUNK_SIZE_EXP));
+				Prefix bucket1 = _chunk(e.a);
+				Prefix bucket2 = (e.pending() ? null : _chunk(e.b));
 				
 				e.write(f.get(bucket1));
 				if (!bucket1.equals(bucket2) && bucket2 != null) {
@@ -564,6 +629,73 @@ public class TopologyBuilder {
 					throw new RuntimeException(ioe);
 				}				
 			}
+		}
+		
+		public boolean needsAnotherRound() {
+			Logging.log("before " + pendingCheckpoints.get(true).size() + " " + pendingCheckpoints.get(false).size());
+			for (boolean up : new boolean[] {true, false}) {
+				// think i could use set.removeAll(), but not sure if less efficient when set being
+				// removed from is much smaller than set being removed
+				for (Iterator<Long> it = pendingCheckpoints.get(up).iterator(); it.hasNext(); ) {
+					long chk = it.next();
+					if (internalCheckpoints.get(up).get(_chunk(chk)).contains(chk)) {
+						it.remove();
+					}
+				}
+			}
+			Logging.log("after " + pendingCheckpoints.get(true).size() + " " + pendingCheckpoints.get(false).size());
+			return (pendingCheckpoints.get(true).size() + pendingCheckpoints.get(false).size() > 0);
+		}
+		
+		public void nextRound() {
+			final Map<Prefix, List<Long>> upChunks = partitionPending(true);
+			final Map<Prefix, List<Long>> downChunks = partitionPending(false);
+			pendingCheckpoints.put(true, new HashSet<Long>());
+			pendingCheckpoints.put(false, new HashSet<Long>());
+
+			Set<Prefix> chunks = new HashSet<Prefix>();
+			chunks.addAll(upChunks.keySet());
+			chunks.addAll(downChunks.keySet());
+
+			this.launch(NUM_WORKERS, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
+				public ChunkInput apply(Prefix p) {
+					return makeInput(p, upChunks, downChunks);
+				}
+			}));
+		}
+		
+		ChunkInput makeInput(Prefix p, Map<Prefix, List<Long>> pendingUp, Map<Prefix, List<Long>> pendingDown) {
+			ChunkInput ci = new ChunkInput();
+			ci.chunkPrefix = p;
+			ci.fullMode = (pendingUp == null && pendingDown == null);
+			ci.coverage = (HashMap)((HashMap)coverage).clone();
+			ci.byDir = new ChunkInputForDir[] {
+				makeInputDir(p, true, pendingUp),	
+				makeInputDir(p, false, pendingDown)
+			};
+			return ci;
+		}
+		
+		ChunkInputForDir makeInputDir(Prefix p, boolean up, Map<Prefix, List<Long>> pending) {
+			ChunkInputForDir cid = new ChunkInputForDir();
+			cid.internalCheckpoints = internalCheckpoints.get(up).get(p);
+			cid.pendingCheckpoints = (pending != null ? pending.get(p) : null);
+			if (cid.pendingCheckpoints == null) {
+				cid.pendingCheckpoints = new ArrayList<Long>();
+			}
+			return cid;
+		}
+		
+		Map<Prefix, List<Long>> partitionPending(boolean up) {
+			Map<Prefix, List<Long>> byChunk = new DefaultMap<Prefix, List<Long>>() {
+				public List<Long> defaultValue(Prefix key) {
+					return new ArrayList<Long>();
+				}
+			};			
+			for (Long ix : pendingCheckpoints.get(up)) {
+				byChunk.get(_chunk(ix)).add(ix);
+			}
+			return byChunk;
 		}
 	}
 	

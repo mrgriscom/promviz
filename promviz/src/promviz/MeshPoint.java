@@ -95,7 +95,7 @@ public class MeshPoint extends Point {
 		boolean fromCheckpoint; // ie p0 is not a saddle
 		
 		public Lead(boolean up, MeshPoint p0, MeshPoint p, int i) {
-			this.up = up; // currently the tag 'i' is different for up and down, but best to be explicit
+			this.up = up;
 			this.p0 = p0;
 			this.p = p;
 			this.i = i;
