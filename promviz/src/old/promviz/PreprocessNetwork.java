@@ -35,64 +35,7 @@ public class PreprocessNetwork {
 	
 	static final int BASE_RES = 5;
 	static final int BUCKET_MAX_POINTS = 2048;
-	
-	static class Edge {
-		long a;
-		long b;
-		int i;
 		
-		public Edge(long a, long b, int i) {
-			this.a = a;
-			this.b = b;
-			this.i = i;
-		}
-		
-		public Edge(long a, long b) {
-			this(a, b, -1);
-		}
-		
-		public boolean pending() {
-			return b == -1;
-		}
-
-		void write(DataOutputStream out) {
-			try {
-				out.writeLong(this.a);
-				out.writeLong(this.b);
-				out.writeByte(this.i);
-			} catch (IOException ioe) {
-				throw new RuntimeException(ioe);
-			}
-		}
-		
-		static Edge read(DataInputStream in) {
-			try {
-				return new Edge(in.readLong(), in.readLong(), in.readByte());
-			} catch (EOFException eof) {
-				return null;
-			} catch (IOException ioe) {
-				throw new RuntimeException(ioe);
-			}
-		}
-		
-		public boolean equals(Object o) {
-			if (o instanceof Edge) {
-				Edge e = (Edge)o;
-				return this.a == e.a && this.b == e.b;
-			} else {
-				return false;
-			}
-		}
-		
-		public int hashCode() {
-			return Long.valueOf(this.a).hashCode() | Long.valueOf(this.b).hashCode();
-		}
-		
-		public String toString() {
-			return String.format("%s => %s (%d)", PointIndex.print(a), PointIndex.print(b), i);
-		}
-	}
-	
 	static class EdgeIterator implements Iterator<Edge> {
 		DataInputStream in;
 		int count = 0;
