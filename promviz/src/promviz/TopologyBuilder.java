@@ -113,9 +113,9 @@ public class TopologyBuilder {
 				processPending();
 			}
 			
-			normalizeTopology();
+			Map<Boolean, List<Edge>> topology = normalizeTopology();
 			
-			Logging.log(prefix + " " + processed.size() + " " + pending.size());
+			Logging.log(prefix + " " + topology.get(true).size() + " " + topology.get(false).size());
 			
 			ChunkOutput output = new ChunkOutput();
 			output.chunkPrefix = prefix;
@@ -335,15 +335,17 @@ public class TopologyBuilder {
 		}
 		
 		public Map<Boolean, List<Edge>> normalizeTopology() {
+			// note: we try to release memory from the internal data structures as their objects
+			// are consumed, but the memory taken by the container itself does not shrink
+			
 			// map results from 'processed' into graph edges
 			Map<SaddleAndDir, List<SummitAndTag>> bySaddle = new DefaultMap<SaddleAndDir, List<SummitAndTag>>() {
 				public List<SummitAndTag> defaultValue(SaddleAndDir key) {
 					return new ArrayList<SummitAndTag>();
 				}
 			};
-			for (Iterator<ChaseResult> it = processed.iterator(); it.hasNext(); ) {
-				ChaseResult cr = it.next();
-				it.remove();
+			for (int i = processed.size() - 1; i >= 0; i--) {
+				ChaseResult cr = processed.remove(i);
 
 				Lead lead = cr.lead;
 				SaddleAndDir k = new SaddleAndDir(lead.p0.ix, lead.up);
