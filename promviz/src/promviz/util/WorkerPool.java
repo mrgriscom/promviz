@@ -8,25 +8,15 @@ import java.util.concurrent.TimeUnit;
 
 public abstract class WorkerPool <I, O> {
 
-	ExecutorService threadPool;
 	BlockingQueue<Result> results;
-	int numTasks;
-	int numProcessed;
-	
+
 	class Result {
 		O result;
 		Exception e;
 	}
 	
-	public WorkerPool(int numWorkers) {
-		results = new ArrayBlockingQueue<Result>(2 * numWorkers);
-		threadPool = Executors.newFixedThreadPool(numWorkers);
-		numTasks = 0;
-		numProcessed = 0;
-	}
-
 	public abstract O process(I input);
-	public abstract void postprocess(O output);
+	public abstract void postprocess(int i, O output);
 	
 	class Task implements Runnable {
 		I task;
@@ -58,7 +48,12 @@ public abstract class WorkerPool <I, O> {
 		}
 	}
 	
-	public void launch(Iterable<I> tasks) {
+	public void launch(int numWorkers, Iterable<I> tasks) {
+		results = new ArrayBlockingQueue<Result>(2 * numWorkers);
+		ExecutorService threadPool = Executors.newFixedThreadPool(numWorkers);
+		int numTasks = 0;
+		int numProcessed = 0;
+		
 		// TODO randomize tasks?
 		for (I task : tasks) {
 			threadPool.submit(new Task(task));
@@ -78,7 +73,7 @@ public abstract class WorkerPool <I, O> {
 				die(result.e);
 			}
 			
-			postprocess(result.result);
+			postprocess(numProcessed, result.result);
 			numProcessed++;
 		}
 	}

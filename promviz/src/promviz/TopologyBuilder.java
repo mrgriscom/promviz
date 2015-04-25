@@ -26,7 +26,7 @@ import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 
 public class TopologyBuilder {
-
+	
 	static final int CHUNK_SIZE_EXP = 13;
 	static final int CHECKPOINT_FREQ = (1 << 11);
 	static final int CHECKPOINT_LEN = CHECKPOINT_FREQ;
@@ -41,17 +41,8 @@ public class TopologyBuilder {
 
 		FileUtil.ensureEmpty(FileUtil.PHASE_RAW);
 		
-		WorkerPool<ChunkInput, ChunkOutput> wp = new WorkerPoolDebug<ChunkInput, ChunkOutput>(3) {
-//		WorkerPool<ChunkInput, ChunkOutput> wp = new WorkerPool<ChunkInput, ChunkOutput>(3) {
-			public ChunkOutput process(ChunkInput input) {
-				return new ChunkProcessor(input).build();
-			}
-
-			public void postprocess(ChunkOutput output) {
-				postprocessChunk(output);
-			}
-		};
-		wp.launch(Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
+		Builder builder = new Builder();
+		builder.launch(3, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
 			public ChunkInput apply(Prefix p) {
 				ChunkInput ci = new ChunkInput();
 				ci.chunkPrefix = p;
@@ -70,10 +61,13 @@ public class TopologyBuilder {
 	
 	static class ChunkOutput {
 		Prefix chunkPrefix;
-		List<Edge> upNetwork;
-		List<Edge> downNetwork;
-		Set<Long> upCheckpoint;
-		Set<Long> downCheckpoint;
+		ChunkOutputForDir[] byDir;
+	}
+	
+	static class ChunkOutputForDir {
+		boolean up;
+		List<Edge> network;
+		Set<Long> checkpoints;
 	}
 	
 	static class ChunkProcessor {
@@ -100,12 +94,20 @@ public class TopologyBuilder {
 			downCheckpoints = new HashSet<Long>();
 		}
 		
+		boolean inChunk(long ix) {
+			return prefix.isParent(ix);	
+		}
+		
+		Set<Long> checkpoints(boolean up) {
+			return (up ? upCheckpoints : downCheckpoints);
+		}
+		
 		public ChunkOutput build() {
 			mesh = new PagedElevGrid(coverage, (int)(1.5 * Math.pow(2, 2 * CHUNK_SIZE_EXP)));
 			Iterable<DEMFile.Sample> points = mesh.loadForPrefix(prefix, 1);
 			
 			for (DEMFile.Sample s : points) {
-				if (!prefix.isParent(s.ix)) {
+				if (!inChunk(s.ix)) {
 					// don't process the fringe
 					continue;
 				}
@@ -127,10 +129,14 @@ public class TopologyBuilder {
 			
 			ChunkOutput output = new ChunkOutput();
 			output.chunkPrefix = prefix;
-			output.upNetwork = topology.get(true);
-			output.downNetwork = topology.get(false);
-			output.upCheckpoint = upCheckpoints;
-			output.downCheckpoint = downCheckpoints;
+			output.byDir = new ChunkOutputForDir[2];
+			for (int i = 0; i < 2; i++) {
+				ChunkOutputForDir o = new ChunkOutputForDir();
+				output.byDir[i] = o;
+				o.up = (i == 0);
+				o.network = topology.get(o.up);
+				o.checkpoints = checkpoints(o.up);
+			}
 			return output;
 		}
 		
@@ -146,11 +152,13 @@ public class TopologyBuilder {
 			ChaseResult result = chase(lead);
 			if (result.status != ChaseResult.STATUS_PENDING) {
 				processResult(result);
-				if (result.status == ChaseResult.STATUS_INTERIM && !checkpointExists(result.lead)) {
-					(lead.up ? upCheckpoints : downCheckpoints).add(result.lead.p.ix);
-					Lead resume = result.lead.follow(mesh);
-					resume.fromCheckpoint = true;
-					processLead(resume);
+				if (result.status == ChaseResult.STATUS_INTERIM) {
+					if (!checkpointExists(result.lead)) {
+						Lead resume = result.lead.follow(mesh);
+						resume.fromCheckpoint = true;
+						processLead(resume);
+					}
+					checkpoints(lead.up).add(result.lead.p.ix);
 				}
 			} else {
 				pending.add(result.lead);
@@ -243,8 +251,8 @@ public class TopologyBuilder {
 		}
 		
 		boolean checkpointExists(long ix, boolean up) {
-			return !prefix.isParent(ix) // assume checkpointing outside current chunk area is handled externally 
-					|| (up ? upCheckpoints : downCheckpoints).contains(ix);
+			return !inChunk(ix) // assume checkpointing outside current chunk area is handled externally 
+					|| checkpoints(up).contains(ix);
 		}
 		
 		Prefix bestNextPage() {
@@ -308,12 +316,12 @@ public class TopologyBuilder {
 			if (cr.status == ChaseResult.STATUS_INDETERMINATE) {
 				v.summit = PointIndex.NULL;
 			} else if (cr.status == ChaseResult.STATUS_INTERIM) {
-				v.summit = PointIndex.clone(v.summit, lead.up ? 1 : -1);
+				v.summit = PointIndex.clone(v.summit, UD(lead.up));
 			}
 			processedBySaddle.get(k).add(v);
 	
 			if (cr.lead.fromCheckpoint) {
-				long checkpoint = PointIndex.clone(k.saddle, lead.up ? 1 : -1);
+				long checkpoint = PointIndex.clone(k.saddle, UD(lead.up));
 				processedBySaddle.get(k).add(new SummitAndTag(checkpoint, Edge.TAG_NULL));
 			}
 		}
@@ -446,8 +454,8 @@ public class TopologyBuilder {
 					}
 					
 					int seq = PointIndex.split(summit)[3]; // checkpoints may already have a seq# set
-					long altSummit = PointIndex.clone(summit, (k.up ? 1 : -1) * (seq + 1));
-					long altSaddle = PointIndex.clone(summit, k.up ? -1 : 1);
+					long altSummit = PointIndex.clone(summit, seq + UD(k.up));
+					long altSaddle = PointIndex.clone(summit, -UD(k.up));
 					
 					additions.add(new PseudoEdge(k.saddle, summit, k.up, v[0].tag));
 					additions.add(new PseudoEdge(k.saddle, altSummit, k.up, v[1].tag));
@@ -493,48 +501,75 @@ public class TopologyBuilder {
 		}
 	}
 
-	static int i = 1;
-	public static void postprocessChunk(ChunkOutput output) {
-		writeEdges(output.upNetwork, true);
-		writeEdges(output.downNetwork, false);
+	static class Builder extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
+//	static class Builder extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
 		
-		Logging.log((i++) + " " + output.chunkPrefix.toString() + " " + output.upNetwork.size() + " " + output.downNetwork.size());
+		Map<Boolean, Set<Long>> pendingCheckpoints;
+		Map<Boolean, Set<Long>> resolvedCheckpoints;
 		
-		// for each edge in up/down networks
-		// write each edge to chunkfile for each summit (only once if in same chunk)
+		public Builder() {
+			pendingCheckpoints = new HashMap<Boolean, Set<Long>>();
+			resolvedCheckpoints = new HashMap<Boolean, Set<Long>>();
+			for (boolean up : new boolean[] {true, false}) {
+				pendingCheckpoints.put(up, new HashSet<Long>());
+				resolvedCheckpoints.put(up, new HashSet<Long>());
+			}
+		}
 		
-	}
-	
-	public static void writeEdges(List<Edge> edges, final boolean up) {
-		Map<Prefix, DataOutputStream> f = new DefaultMap<Prefix, DataOutputStream>() {
-			public DataOutputStream defaultValue(Prefix prefix) {
-				try {
-					return new DataOutputStream(new FileOutputStream(FileUtil.segmentPath(up, prefix, FileUtil.PHASE_RAW), true));
-				} catch (IOException ioe) {
-					throw new RuntimeException(ioe);
+		public ChunkOutput process(ChunkInput input) {
+			return new ChunkProcessor(input).build();
+		}
+
+		public void postprocess(int i, ChunkOutput output) {
+			postprocessChunk(i, output.chunkPrefix, output.byDir[0]);
+			postprocessChunk(i, output.chunkPrefix, output.byDir[1]);
+		}
+
+		public void postprocessChunk(int i, Prefix prefix, ChunkOutputForDir output) {
+			writeEdges(output.network, output.up);
+			
+			for (long ix : output.checkpoints) {
+				boolean inChunk = prefix.isParent(ix);
+				(inChunk ? resolvedCheckpoints : pendingCheckpoints).get(output.up).add(ix);
+			}
+
+			Logging.log(String.format("%d %s %s %d %d", i+1, prefix, output.up ? "U" : "D", output.network.size(), output.checkpoints.size()));
+		}
+		
+		public static void writeEdges(List<Edge> edges, final boolean up) {
+			Map<Prefix, DataOutputStream> f = new DefaultMap<Prefix, DataOutputStream>() {
+				public DataOutputStream defaultValue(Prefix prefix) {
+					try {
+						return new DataOutputStream(new FileOutputStream(FileUtil.segmentPath(up, prefix, FileUtil.PHASE_RAW), true));
+					} catch (IOException ioe) {
+						throw new RuntimeException(ioe);
+					}
+				}
+			};
+		
+			for (Edge e : edges) {
+				Prefix bucket1 = new Prefix(e.a, CHUNK_SIZE_EXP);
+				Prefix bucket2 = (e.pending() ? null : new Prefix(e.b, CHUNK_SIZE_EXP));
+				
+				e.write(f.get(bucket1));
+				if (!bucket1.equals(bucket2) && bucket2 != null) {
+					e.write(f.get(bucket2));
 				}
 			}
-		};
-
-		for (Edge e : edges) {
-			Prefix bucket1 = new Prefix(e.a, CHUNK_SIZE_EXP);
-			Prefix bucket2 = (e.pending() ? null : new Prefix(e.b, CHUNK_SIZE_EXP));
-			
-			e.write(f.get(bucket1));
-			if (!bucket1.equals(bucket2) && bucket2 != null) {
-				e.write(f.get(bucket2));
+		
+			for (OutputStream o : f.values()) {
+				try {
+					o.close();
+				} catch (IOException ioe) {
+					throw new RuntimeException(ioe);
+				}				
 			}
 		}
-
-		for (OutputStream o : f.values()) {
-			try {
-				o.close();
-			} catch (IOException ioe) {
-				throw new RuntimeException(ioe);
-			}				
-		}
 	}
-
+	
+	static int UD(boolean up) {
+		return (up ? 1 : -1);
+	}
 }
 	
 // verifications:	

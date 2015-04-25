@@ -2,14 +2,11 @@ package promviz.util;
 
 public abstract class WorkerPoolDebug<I, O> extends WorkerPool<I, O> {
 	
-	public WorkerPoolDebug(int numWorkers) {
-		super(numWorkers);
-		threadPool.shutdown();
-	}
-
-	public void launch(Iterable<I> tasks) {
+	public void launch(int numWorkers, Iterable<I> tasks) {
+		int i = 0;
 		for (I task : tasks) {
-			postprocess(process(task));
+			postprocess(i, process(task));
+			i++;
 		}
 	}
 	
