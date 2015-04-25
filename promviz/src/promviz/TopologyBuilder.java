@@ -45,9 +45,8 @@ public class TopologyBuilder {
 				return new ChunkProcessor(input).build();
 			}
 
-			int i = 1;
 			public void postprocess(ChunkOutput output) {
-				Logging.log((i++) + " " + output.chunkPrefix.toString() + " " + output.upNetwork.size() + " " + output.downNetwork.size());
+				postprocessChunk(output);
 			}
 		};
 		wp.launch(Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
@@ -80,7 +79,7 @@ public class TopologyBuilder {
 		Map<Prefix, Set<DEMFile>> coverage;
 		
 		PagedElevGrid mesh;
-		List<ChaseResult> processed;
+		Map<SaddleAndDir, List<SummitAndTag>> processedBySaddle;
 		List<Lead> pending; // TODO group by common (term, up)?
 		Set<Long> upCheckpoints;
 		Set<Long> downCheckpoints;
@@ -89,7 +88,11 @@ public class TopologyBuilder {
 			this.prefix = input.chunkPrefix;
 			this.coverage = input.coverage;
 			
-			processed = new ArrayList<ChaseResult>();
+			processedBySaddle = new DefaultMap<SaddleAndDir, List<SummitAndTag>>() {
+				public List<SummitAndTag> defaultValue(SaddleAndDir key) {
+					return new ArrayList<SummitAndTag>();
+				}
+			};
 			pending = new ArrayList<Lead>();
 			upCheckpoints = new HashSet<Long>();
 			downCheckpoints = new HashSet<Long>();
@@ -140,15 +143,12 @@ public class TopologyBuilder {
 		void processLead(Lead lead) {
 			ChaseResult result = chase(lead);
 			if (result.status != ChaseResult.STATUS_PENDING) {
-				processed.add(result);
-				if (result.status == ChaseResult.STATUS_INTERIM) {
-					if (!checkpointExists(result.lead)) {
-						MeshPoint chk = result.lead.p;
-						(lead.up ? upCheckpoints : downCheckpoints).add(chk.ix);
-						Lead resume = result.lead.follow(mesh);
-						resume.fromCheckpoint = true;
-						processLead(resume);
-					}
+				processResult(result);
+				if (result.status == ChaseResult.STATUS_INTERIM && !checkpointExists(result.lead)) {
+					(lead.up ? upCheckpoints : downCheckpoints).add(result.lead.p.ix);
+					Lead resume = result.lead.follow(mesh);
+					resume.fromCheckpoint = true;
+					processLead(resume);
 				}
 			} else {
 				pending.add(result.lead);
@@ -160,6 +160,8 @@ public class TopologyBuilder {
 			
 			List<Lead> pending_ = pending;
 			pending = new ArrayList<Lead>();
+			// doing this iteratively for each loaded page could be inefficient; maintaining the
+			// necessary indexes seems like a pain though
 			for (Lead pend : pending_) {
 				processLead(pend);
 			}
@@ -297,6 +299,23 @@ public class TopologyBuilder {
 			});
 		}
 		
+		void processResult(ChaseResult cr) {
+			Lead lead = cr.lead;
+			SaddleAndDir k = new SaddleAndDir(lead.p0.ix, lead.up);
+			SummitAndTag v = new SummitAndTag(lead.p.ix, lead.i);
+			if (cr.status == ChaseResult.STATUS_INDETERMINATE) {
+				v.summit = PointIndex.NULL;
+			} else if (cr.status == ChaseResult.STATUS_INTERIM) {
+				v.summit = PointIndex.clone(v.summit, lead.up ? 1 : -1);
+			}
+			processedBySaddle.get(k).add(v);
+	
+			if (cr.lead.fromCheckpoint) {
+				long checkpoint = PointIndex.clone(k.saddle, lead.up ? 1 : -1);
+				processedBySaddle.get(k).add(new SummitAndTag(checkpoint, Edge.TAG_NULL));
+			}
+		}
+		
 		static class SaddleAndDir {
 			long saddle;
 			boolean up;
@@ -324,6 +343,9 @@ public class TopologyBuilder {
 				this.summit = summit;
 				this.tag = tag;
 			}
+			
+			public boolean equals(Object o) { throw new UnsupportedOperationException(); }
+			public int hashCode() { throw new UnsupportedOperationException(); }
 		}
 
 		static class PseudoEdge {
@@ -334,10 +356,13 @@ public class TopologyBuilder {
 				this.k = k;
 				this.v = v;
 			}
-			
-			static PseudoEdge mk(long saddle, long summit, boolean dir, int tag) {
-				return new PseudoEdge(new SaddleAndDir(saddle, dir), new SummitAndTag(summit, tag));
+
+			public PseudoEdge(long saddle, long summit, boolean dir, int tag) {
+				this(new SaddleAndDir(saddle, dir), new SummitAndTag(summit, tag));
 			}
+
+			public boolean equals(Object o) { throw new UnsupportedOperationException(); }
+			public int hashCode() { throw new UnsupportedOperationException(); }
 		}
 		
 		interface TopologyCleaner {
@@ -347,32 +372,7 @@ public class TopologyBuilder {
 		public Map<Boolean, List<Edge>> normalizeTopology() {
 			// note: we try to release memory from the internal data structures as their objects
 			// are consumed, but the memory taken by the container itself does not shrink
-			
-			// map results from 'processed' into graph edges
-			Map<SaddleAndDir, List<SummitAndTag>> bySaddle = new DefaultMap<SaddleAndDir, List<SummitAndTag>>() {
-				public List<SummitAndTag> defaultValue(SaddleAndDir key) {
-					return new ArrayList<SummitAndTag>();
-				}
-			};
-			for (int i = processed.size() - 1; i >= 0; i--) {
-				ChaseResult cr = processed.remove(i);
-
-				Lead lead = cr.lead;
-				SaddleAndDir k = new SaddleAndDir(lead.p0.ix, lead.up);
-				SummitAndTag v = new SummitAndTag(lead.p.ix, lead.i);
-				if (cr.status == ChaseResult.STATUS_INDETERMINATE) {
-					v.summit = PointIndex.NULL;
-				} else if (cr.status == ChaseResult.STATUS_INTERIM) {
-					v.summit = PointIndex.clone(v.summit, lead.up ? 1 : -1);
-				}
-				bySaddle.get(k).add(v);
-
-				if (cr.lead.fromCheckpoint) {
-					long checkpoint = PointIndex.clone(k.saddle, lead.up ? 1 : -1);
-					bySaddle.get(k).add(new SummitAndTag(checkpoint, Edge.TAG_NULL));
-				}				
-			}
-			
+						
 			// define several cleaning operations
 			TopologyCleaner unconnected = new TopologyCleaner() {
 				public List<PseudoEdge> clean(SaddleAndDir k, List<SummitAndTag> v) {
@@ -409,12 +409,12 @@ public class TopologyBuilder {
 						// the disambiguation pattern is not symmetrical between the 'up' and 'down' networks;
 						// this is the cost of making them consistent with each other
 						if (k.up) {
-							edges.add(PseudoEdge.mk(vSaddle, st.summit, k.up, st.tag));
-							edges.add(PseudoEdge.mk(vSaddle, vPeak, k.up, Edge.TAG_NULL));
+							edges.add(new PseudoEdge(vSaddle, st.summit, k.up, st.tag));
+							edges.add(new PseudoEdge(vSaddle, vPeak, k.up, Edge.TAG_NULL));
 						} else {
 							SummitAndTag st_prev = v.get(Util.mod(i - 1, v.size()));
-							edges.add(PseudoEdge.mk(vSaddle, st.summit, k.up, st.tag));
-							edges.add(PseudoEdge.mk(vSaddle, st_prev.summit, k.up, st_prev.tag));
+							edges.add(new PseudoEdge(vSaddle, st.summit, k.up, st.tag));
+							edges.add(new PseudoEdge(vSaddle, st_prev.summit, k.up, st_prev.tag));
 						}
 					}
 					return edges;
@@ -433,10 +433,10 @@ public class TopologyBuilder {
 					long altSaddle = PointIndex.clone(summit, k.up ? -1 : 1);
 					
 					List<PseudoEdge> edges = new ArrayList<PseudoEdge>();
-					edges.add(PseudoEdge.mk(k.saddle, summit, k.up, v.get(0).tag));
-					edges.add(PseudoEdge.mk(k.saddle, altSummit, k.up, v.get(1).tag));
-					edges.add(PseudoEdge.mk(altSaddle, summit, k.up, Edge.TAG_NULL));
-					edges.add(PseudoEdge.mk(altSaddle, altSummit, k.up, Edge.TAG_NULL));
+					edges.add(new PseudoEdge(k.saddle, summit, k.up, v.get(0).tag));
+					edges.add(new PseudoEdge(k.saddle, altSummit, k.up, v.get(1).tag));
+					edges.add(new PseudoEdge(altSaddle, summit, k.up, Edge.TAG_NULL));
+					edges.add(new PseudoEdge(altSaddle, altSummit, k.up, Edge.TAG_NULL));
 					return edges;
 				}
 			};
@@ -444,7 +444,7 @@ public class TopologyBuilder {
 			// perform each cleaning operation in sequence (one full pass each); ordering is important!
 			for (TopologyCleaner cleaner : new TopologyCleaner[] {unconnected, multisaddle, ring}) {
 				List<PseudoEdge> additions = new ArrayList<PseudoEdge>();
-				for (Iterator<Map.Entry<SaddleAndDir, List<SummitAndTag>>> it = bySaddle.entrySet().iterator(); it.hasNext(); ) {
+				for (Iterator<Map.Entry<SaddleAndDir, List<SummitAndTag>>> it = processedBySaddle.entrySet().iterator(); it.hasNext(); ) {
 					Map.Entry<SaddleAndDir, List<SummitAndTag>> e = it.next();
 					List<PseudoEdge> changes = cleaner.clean(e.getKey(), e.getValue());
 					
@@ -454,13 +454,13 @@ public class TopologyBuilder {
 					}
 				}
 				for (PseudoEdge change : additions) {
-					bySaddle.get(change.k).add(change.v);					
+					processedBySaddle.get(change.k).add(change.v);					
 				}
 			}
 			
 			List<Edge> upEdges = new ArrayList<Edge>();
 			List<Edge> downEdges = new ArrayList<Edge>();
-			for (Iterator<Map.Entry<SaddleAndDir, List<SummitAndTag>>> it = bySaddle.entrySet().iterator(); it.hasNext(); ) {
+			for (Iterator<Map.Entry<SaddleAndDir, List<SummitAndTag>>> it = processedBySaddle.entrySet().iterator(); it.hasNext(); ) {
 				Map.Entry<SaddleAndDir, List<SummitAndTag>> e = it.next();
 				it.remove();
 				
@@ -477,22 +477,24 @@ public class TopologyBuilder {
 			return allEdges;
 		}
 	}
+
+	static int i = 0;
+	public static void postprocessChunk(ChunkOutput output) {
+		Logging.log((i++) + " " + output.chunkPrefix.toString() + " " + output.upNetwork.size() + " " + output.downNetwork.size());
+	}
+	
+	
+	
+	
+	
+	
 	
 	
 	public static void main(String[] args) {
 		Logging.init();
 		buildTopology(loadDEMs(args[0]));
 	}
-
 	
-
-	
-
-	
-
-
-
-//	
 	public static List<DEMFile> loadDEMs(String region) {
 		List<DEMFile> dems = new ArrayList<DEMFile>();
 		try {
