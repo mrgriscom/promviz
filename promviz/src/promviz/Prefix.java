@@ -65,6 +65,13 @@ class Prefix implements Comparable<Prefix> {
 		return tile(proj, x0, y0, width, height, 0, 0, res);
 	}
 	
+	public int[] bounds() {
+		int[] k = PointIndex.split(prefix);
+		int x0 = k[1], y0 = k[2];
+		int dim = (1 << res);
+		return new int[] {x0, y0, x0 + dim, y0 + dim};
+	}
+	
 	public boolean equals(Object o) {
 		if (o instanceof Prefix) {
 			Prefix p = (Prefix)o;

@@ -10,7 +10,7 @@ public abstract class DEMFile {
 
 	static final boolean DEBUG_NODATA_IS_OCEAN = true;
 	
-	Projection proj;
+	public Projection proj;
 	int width;
 	int height;
 	int x0; //left

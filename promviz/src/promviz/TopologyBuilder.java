@@ -16,6 +16,7 @@ import java.util.Set;
 
 import promviz.MeshPoint.Lead;
 import promviz.dem.DEMFile;
+import promviz.dem.Projection;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 import promviz.util.Util;
@@ -32,6 +33,7 @@ public class TopologyBuilder {
 	static final int CHUNK_SIZE_EXP = 13;
 	static final int CHECKPOINT_FREQ = (1 << 11);
 	static final int CHECKPOINT_LEN = CHECKPOINT_FREQ;
+	static final int CHECKPOINT_EXCL_BUFFER = PagedElevGrid.pageDim();
 	
 	static Prefix _chunk(long ix) {
 		return new Prefix(ix, CHUNK_SIZE_EXP);
@@ -183,7 +185,7 @@ public class TopologyBuilder {
 				processResult(result);
 				if (result.status == ChaseResult.STATUS_INTERIM) {
 					long chk = result.lead.p.ix;
-					if (!checkpointExists(result.lead)) {
+					if (!checkpointExists(result.lead) && inChunk(chk)) {
 						internalCheckpoints(lead.up).add(chk);
 						resumeFromCheckpoint(result.lead);
 					} else if (!inChunk(chk)) {
@@ -291,10 +293,21 @@ public class TopologyBuilder {
 		}
 		
 		boolean checkpointExists(long ix, boolean up) {
-			return !inChunk(ix) // assume checkpointing outside current chunk area is handled externally 
-					|| internalCheckpoints(up).contains(ix);
+			return (!inChunk(ix) &&	// assume checkpointing outside current chunk area is handled externally
+					!inChunkFringe(ix)) // however require a min dist from the current chunk boundary to avoid trivial checkpoints
+				|| internalCheckpoints(up).contains(ix);
 		}
 		
+		boolean inChunkFringe(long ix) {
+			int[] bounds = prefix.bounds();
+			int x0 = bounds[0], y0 = bounds[1], x1 = bounds[2], y1 = bounds[3];
+			x0 -= CHECKPOINT_EXCL_BUFFER; x1 += CHECKPOINT_EXCL_BUFFER;
+			y0 -= CHECKPOINT_EXCL_BUFFER; y1 += CHECKPOINT_EXCL_BUFFER;
+			int[] k = PointIndex.split(ix);
+			int x = k[1], y = k[2];
+			return (x >= x0 && x < x1 && y >= y0 && y < y1);
+		}
+	
 		Prefix bestNextPage() {
 			final Map<Prefix, Double> opportunity = new DefaultMap<Prefix, Double>() {
 				public Double defaultValue(Prefix key) {
@@ -541,8 +554,8 @@ public class TopologyBuilder {
 		}
 	}
 
-	static class Builder extends WorkerPool<ChunkInput, ChunkOutput> {
-//	static class Builder extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
+//	static class Builder extends WorkerPool<ChunkInput, ChunkOutput> {
+	static class Builder extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
 
 		int numWorkers;
 		Map<Prefix, Set<DEMFile>> coverage;

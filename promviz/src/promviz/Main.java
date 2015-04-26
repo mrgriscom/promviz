@@ -4,10 +4,13 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 import promviz.dem.DEMFile;
+import promviz.dem.Projection;
 import promviz.dem.SRTMDEM;
 import promviz.util.Logging;
 
@@ -54,7 +57,16 @@ public class Main {
 		Logging.init();
 		initProps();
 		
-		TopologyBuilder.buildTopology(loadDEMs(args[0]));
+		List<DEMFile> DEMs = loadDEMs(args[0]);
+		final Map<Integer, Projection> projs = new HashMap<Integer, Projection>();
+		projs.put(0, DEMs.get(0).proj);
+		Projection.authority = new Projection.Authority() {
+			public Projection forRef(int refID) {
+				return projs.get(refID);
+			}
+		};
+		
+		TopologyBuilder.buildTopology(DEMs);
 	}
 
 }

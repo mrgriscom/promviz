@@ -97,6 +97,9 @@ public class PointIndex {
 	}
 	
 	public static double[] toLatLon(long ix) {
+		if (ix == PointIndex.NULL) {
+			return new double[] {Double.NaN, Double.NaN};
+		}
 		int[] _ix = split(ix);
 		return Projection.authority.forRef(_ix[0]).fromGrid(_ix[1], _ix[2]);
 	}
