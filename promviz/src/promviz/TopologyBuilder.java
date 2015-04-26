@@ -541,7 +541,7 @@ public class TopologyBuilder {
 		}
 	}
 
-	static class Builder extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
+	static class Builder extends WorkerPool<ChunkInput, ChunkOutput> {
 //	static class Builder extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
 
 		int numWorkers;
@@ -646,6 +646,14 @@ public class TopologyBuilder {
 		}
 		
 		public void nextRound() {
+			int checkpointsInMemory = 0;
+			for (Map<Prefix, Set<Long>> m : internalCheckpoints.values()) {
+				for (Set<Long> ms : m.values()) {
+					checkpointsInMemory += ms.size();
+				}
+			}
+			Logging.log("INFO: " + checkpointsInMemory + " internal checkpoints cached");
+			
 			final Map<Prefix, List<Long>> upChunks = partitionPending(true);
 			final Map<Prefix, List<Long>> downChunks = partitionPending(false);
 

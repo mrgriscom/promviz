@@ -34,55 +34,6 @@ import com.google.gson.Gson;
 
 public class DEMManager {
 
-	static final int GRID_TILE_SIZE = 11;
-	static long MESH_MAX_POINTS;
-	
-	List<DEMFile> DEMs;
-	List<Projection> projs;
-	static Projection PROJ;
-	
-	static Properties props;
-	
-	public DEMManager() {
-		DEMs = new ArrayList<DEMFile>();
-		projs = new ArrayList<Projection>();
-	}
-	
-
-	public static void loadDEMs(DEMManager dm, String region) {
-		try {
-	        Process proc = new ProcessBuilder(new String[] {"python", "demregion.py", region}).start();
-	        BufferedReader stdin = new BufferedReader(new InputStreamReader(proc.getInputStream()));
-	        
-	        String s = null;
-	        while ((s = stdin.readLine()) != null) {
-	        	String[] parts = s.split(",");
-	        	String type = parts[0];
-	        	String path = parts[1];
-	        	int w = Integer.parseInt(parts[2]);
-	        	int h = Integer.parseInt(parts[3]);
-	        	double lat = Double.parseDouble(parts[4]);
-	        	double lon = Double.parseDouble(parts[5]);
-	        	int res = Integer.parseInt(parts[6]);
-	        	
-	        	DEMFile dem = new SRTMDEM(path, w, h, lat, lon, res);
-	        	dm.DEMs.add(dem);
-	        }
-	    } catch (IOException e) {
-	        throw new RuntimeException();
-	    }		
-		Logging.log("DEMs inventoried");
-	}
-	
-	public static void initProps() {
-		props = new Properties();
-		try {
-			props.load(ClassLoader.getSystemResourceAsStream("config.properties"));
-		} catch (IOException e) {
-			throw new RuntimeException();
-		}		
-	}
-	
 	
 	public static interface OnProm {
 		void onprom(PromNetwork.PromInfo pi);
