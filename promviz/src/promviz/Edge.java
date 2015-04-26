@@ -11,11 +11,11 @@ public class Edge {
 
 	static final int TAG_NULL = -1;
 	
-	long a;
-	long b;
-	long saddle;
-	int tagA;
-	int tagB;
+	public long a;
+	public long b;
+	public long saddle;
+	public int tagA;
+	public int tagB;
 	
 	public Edge(long a, long b, long saddle, int tagA, int tagB) {
 		assert (a != b && a != saddle && b != saddle) : String.format("%s %s %s", Util.print(a), Util.print(b), Util.print(saddle));

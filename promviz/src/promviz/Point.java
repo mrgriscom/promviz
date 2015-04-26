@@ -8,9 +8,9 @@ import promviz.util.Util;
 /* basic representation of a point/elevation sample in isolation */
 public class Point {
 	
-	long ix;      // a PointIndex
-	float elev;   // m
-	int isodist;  // metric representing distance to closest edge of flat region; more specifically:
+	public long ix;      // a PointIndex
+	public float elev;   // m
+	public int isodist;  // metric representing distance to closest edge of flat region; more specifically:
 	/* if p is the closest point on the edge of the flat area (a contiguous set of points all the same elevation),
 	 * and n is the distance to p is some arbitrary unit, then:
 	 * if p is on an upward-curving lip/edge (all points adjacent to p are >= elevation of p), isodist = MAX_INT - n

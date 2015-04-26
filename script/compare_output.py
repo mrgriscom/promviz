@@ -54,6 +54,13 @@ for k in points():
     del cur['_thresh']
     del ref['_thresh']
 
+    def softdel(k):
+        if k in ref:
+            del ref[k]
+    softdel('pthresh')
+    softdel('subsaddles')
+    softdel('children')
+
     if cur != ref:
         diffs = True
         print cur['peak']['prom'], 'mismatch', k

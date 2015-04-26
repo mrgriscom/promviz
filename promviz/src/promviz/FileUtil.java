@@ -14,9 +14,9 @@ import promviz.util.SaneIterable;
 
 public class FileUtil {
 
-	static final int PHASE_RAW = 0;
-	static final int PHASE_MST = 1;
-	static final int PHASE_RMST = 2;
+	public static final int PHASE_RAW = 0;
+	public static final int PHASE_MST = 1;
+	public static final int PHASE_RMST = 2;
 	
 	static String segmentPath(boolean up, Prefix p, int phase) {
 		return prefixPath(up, null, p, phase);
@@ -36,7 +36,7 @@ public class FileUtil {
 				p.res, pp[0], fmtOffset(pp[1]), fmtOffset(pp[2]));		
 	}
 
-	static String dir(int phase) {
+	public static String dir(int phase) {
 		String _d = null;
 		if (phase == PHASE_RAW) {
 			_d = "dir_net";
@@ -50,11 +50,11 @@ public class FileUtil {
 		return new File(root, path).getPath();
 	}
 
-	static SaneIterable<Edge> loadEdges(boolean up, Prefix p, int phase) {
+	public static SaneIterable<Edge> loadEdges(boolean up, Prefix p, int phase) {
 		return loadEdges(segmentPath(up, p, phase));
 	}
 	
-	static SaneIterable<Edge> loadEdges(String path) {
+	public static SaneIterable<Edge> loadEdges(String path) {
 		final DataInputStream in;
 		try {
 			in = new DataInputStream(new BufferedInputStream(new FileInputStream(path)));

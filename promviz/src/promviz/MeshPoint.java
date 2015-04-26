@@ -157,10 +157,10 @@ public class MeshPoint extends Point {
 		return L;
 	}
 	
-	boolean adjAdd(long ixTo) {
+	public boolean adjAdd(long ixTo) {
 		return adjAdd(ixTo, -1, false);
 	}
-	boolean adjAdd(long ixTo, int tag, boolean rev) {
+	public boolean adjAdd(long ixTo, int tag, boolean rev) {
 		// FUCKING JAVA!!
 		// all this does is add the new point's geocode to the adjacency array if it isn't already in there
 		boolean exists = false;
@@ -190,7 +190,7 @@ public class MeshPoint extends Point {
 		return (tag < 0 ? 0 : (rev ? -1 : 1) * (1 + tag));
 	}
 	
-	void setTag(long dst, int tag, boolean rev) {
+	public void setTag(long dst, int tag, boolean rev) {
 		if (tag == -1) {
 			return;
 		}
@@ -207,7 +207,7 @@ public class MeshPoint extends Point {
 	}
 	
 	// returns in 'encoded' format
-	int getTag(long dst) {
+	public int getTag(long dst) {
 		if (_tagging != null) {
 			for (int i = 0; i < _adjacent.length; i++) {
 				if (_adjacent[i] == dst) {
@@ -219,7 +219,7 @@ public class MeshPoint extends Point {
 		return 0;
 	}
 	
-	long getByTag(int tag, boolean rev) {
+	public long getByTag(int tag, boolean rev) {
 		tag = encTag(tag, rev);
 		if (_tagging != null) {
 			for (int i = 0; i < _tagging.length; i++) {

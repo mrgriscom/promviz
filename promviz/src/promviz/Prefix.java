@@ -1,6 +1,6 @@
 package promviz;
 
-class Prefix implements Comparable<Prefix> {
+public class Prefix implements Comparable<Prefix> {
 	long prefix;
 	int res;
 

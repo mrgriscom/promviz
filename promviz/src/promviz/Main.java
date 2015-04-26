@@ -67,6 +67,8 @@ public class Main {
 		};
 		
 		TopologyBuilder.buildTopology(DEMs);
+		//Harness.promSearch(DEMs, true, 20.);
 	}
+	
 
 }
