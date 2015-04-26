@@ -122,11 +122,10 @@ public class TopologyBuilder {
 		
 		public ChunkOutput build() {
 			mesh = new PagedElevGrid(coverage, (int)(1.5 * Math.pow(2, 2 * CHUNK_SIZE_EXP)));
+			Iterable<DEMFile.Sample> points = mesh.loadForPrefix(prefix, 1);
 			
 			if (input.fullMode) {
-				// process entire chunk
-				Iterable<DEMFile.Sample> points = mesh.loadForPrefix(prefix, 1);
-				
+				// process entire chunk				
 				for (DEMFile.Sample s : points) {
 					if (!inChunk(s.ix)) {
 						// don't process the fringe
@@ -143,8 +142,6 @@ public class TopologyBuilder {
 				}
 			} else {
 				// only process pending leads from previous round
-				mesh.loadForPrefix(prefix, 0);
-				
 				for (boolean up : new boolean[] {true, false}) {
 					for (long ix : input.byDir[up ? 0 : 1].pendingCheckpoints) {
 						resumeFromCheckpoint(ix, up);
@@ -644,14 +641,13 @@ public class TopologyBuilder {
 				}
 			}
 			Logging.log("after " + pendingCheckpoints.get(true).size() + " " + pendingCheckpoints.get(false).size());
-			return (pendingCheckpoints.get(true).size() + pendingCheckpoints.get(false).size() > 0);
+			return (pendingCheckpoints.get(true).size() +
+					pendingCheckpoints.get(false).size() > 0);
 		}
 		
 		public void nextRound() {
 			final Map<Prefix, List<Long>> upChunks = partitionPending(true);
 			final Map<Prefix, List<Long>> downChunks = partitionPending(false);
-			pendingCheckpoints.put(true, new HashSet<Long>());
-			pendingCheckpoints.put(false, new HashSet<Long>());
 
 			Set<Prefix> chunks = new HashSet<Prefix>();
 			chunks.addAll(upChunks.keySet());
@@ -686,6 +682,7 @@ public class TopologyBuilder {
 			return cid;
 		}
 		
+		// note: wipes out pending list
 		Map<Prefix, List<Long>> partitionPending(boolean up) {
 			Map<Prefix, List<Long>> byChunk = new DefaultMap<Prefix, List<Long>>() {
 				public List<Long> defaultValue(Prefix key) {
@@ -695,6 +692,7 @@ public class TopologyBuilder {
 			for (Long ix : pendingCheckpoints.get(up)) {
 				byChunk.get(_chunk(ix)).add(ix);
 			}
+			pendingCheckpoints.put(up, new HashSet<Long>());
 			return byChunk;
 		}
 	}
