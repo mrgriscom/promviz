@@ -13,8 +13,11 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 
+import promviz.Front;
 import promviz.MeshPoint;
+import promviz.Path;
 import promviz.Point;
+import promviz.Prominence.PromInfo;
 import promviz.debug.Harness.TopologyNetwork;
 import promviz.debug.PromNetwork.Backtrace.BacktracePruner;
 import promviz.util.Logging;
@@ -49,57 +52,6 @@ public class PromNetwork {
 		}
 	}
 	
-	static class PromInfo {
-		Point p;
-		Point saddle;
-		boolean global_max;
-		boolean min_bound_only;
-		Comparator<Point> c;
-		List<Long> path;
-		boolean forward;
-		double thresholdFactor = -1;
-		
-		public PromInfo(Point p, Comparator<Point> c) {
-			this.p = p;
-			this.c = c;
-		}
-		
-		public float prominence() {
-			return Math.abs(p.elev - saddle.elev);
-		}
-		
-		public void add(Point cur) {
-			if (saddle == null || c.compare(cur, saddle) < 0) {
-				saddle = cur;
-			}
-		}
-		
-		public void finalize(Front f, Point horizon) {
-			if (horizon != null) {
-				Path _ = new Path(f.bt.trace(horizon), this.p);
-				this.path = _.path;
-				this.thresholdFactor = _.thresholdFactor;
-			} else {
-				this.path = new ArrayList<Long>();
-				this.path.add(this.p.ix);
-				this.path.add(this.saddle.ix);
-			}
-//			try {
-//				PrintWriter w = new PrintWriter("/tmp/backtrace");
-//				for (Map.Entry<Point, Point> e : f.backtrace.entrySet()) {
-//					double[] ll0 = PointIndex.toLatLon(e.getKey().ix);
-//					double[] ll1 = PointIndex.toLatLon(e.getValue().ix);
-//					
-//					w.println(ll0[0] + " " + ll0[1]);
-//					w.println(ll1[0] + " " + ll1[1]);
-//					w.println();
-//				}
-//				w.close();
-//			} catch (IOException ioe) {
-//				throw new RuntimeException();
-//			}
-		}
-	}
 	
 	static class Backtrace {
 		Map<Point, Point> backtrace;
@@ -712,68 +664,6 @@ public class PromNetwork {
 //		return pi;
 //	}
 
-	static class PromInfo2 {
-		MeshPoint p;
-		MeshPoint saddle;
-		boolean global_max;
-		boolean min_bound_only;
-		Comparator<Point> c;
-		List<Long> path;
-		boolean forwardSaddle;
-		double thresholdFactor = -1;
-		
-		public PromInfo2(MeshPoint peak, MeshPoint saddle) {
-			this.p = peak;
-			this.saddle = saddle;
-		}
-		
-		public PromInfo2(MeshPoint p, Comparator<Point> c) {
-			this.p = p;
-			this.c = c;
-		}
-		
-		public double prominence() {
-			return Math.abs(p.elev - saddle.elev);
-		}
-		
-		public void add(MeshPoint cur) {
-			if (saddle == null || c.compare(cur, saddle) < 0) {
-				saddle = cur;
-			}
-		}
-		
-		public void finalizeForward(Front front, MeshPoint horizon) {
-			Path _ = new Path(front.bt.getAtoB(horizon, this.p), this.p);
-			this.path = _.path;
-			this.thresholdFactor = _.thresholdFactor;
-			forwardSaddle = true;
-		}
-
-		public void finalizeBackward(Front front) {
-			Point thresh = front.searchThreshold(this.p, this.saddle);			
-			Path _ = new Path(front.bt.getAtoB(thresh, this.p), this.p);
-			this.path = _.path;
-			this.thresholdFactor = _.thresholdFactor;
-			forwardSaddle = false;
-		}
-		
-		public PromInfo toNormal() {
-			PromInfo pi = new PromInfo(this.p, this.c);
-			pi.saddle = this.saddle;
-			pi.global_max = this.global_max;
-			pi.min_bound_only = this.min_bound_only;
-			pi.forward = this.forwardSaddle;
-			if (this.path != null) {
-				pi.path = this.path;
-				pi.thresholdFactor = this.thresholdFactor;
-			} else {
-				pi.path = new ArrayList<Long>();
-				pi.path.add(this.p.ix);
-				pi.path.add(this.saddle.ix);
-			}
-			return pi;
-		}
-	}
 	
 	static interface OnMSTEdge {
 		void addEdge(Point p, Point parent, boolean isSaddle);
@@ -815,6 +705,9 @@ public class PromNetwork {
 //		}
 //	}
 		
+
+
+	
 	public static void bigOlPromSearch(boolean up, MeshPoint root, TopologyNetwork tree, Harness.OnProm onprom, OnMSTEdge onedge, double cutoff) {
 		root = tree.getPoint(root);
 		Comparator<Point> c = Point.cmpElev(up);

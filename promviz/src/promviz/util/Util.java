@@ -5,6 +5,27 @@ import java.util.NoSuchElementException;
 
 public class Util {
 
+	public static int pow2(int exp) {
+		assert exp >= 0 && exp < 31;
+		return (1 << exp);
+	}
+	
+	public static boolean overflowHigh(int n, int bits) {
+		return n >= pow2(bits - 1);
+	}
+
+	public static boolean overflowLow(int n, int bits) {
+		return n < -pow2(bits - 1);
+	}
+	
+	public static boolean inSignedRange(int n, int bits) {
+		return !overflowLow(n, bits) && !overflowHigh(n, bits);
+	}
+
+	public static int toSignedRange(int n, int bits) {
+		return n - (overflowHigh(n, bits) ? pow2(bits) : 0);
+	}
+	
 	public static String print(long L) {
 		return String.format("%016x", L);
 	}

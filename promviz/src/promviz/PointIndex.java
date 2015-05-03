@@ -42,7 +42,7 @@ public class PointIndex {
 	}
 	
 	public static long make(int projId, int x, int y, int seq) {
-		assert seq >= (-1 << (BITS_SEQ - 1)) && seq < (1 << (BITS_SEQ - 1)); 
+		assert Util.inSignedRange(seq, BITS_SEQ);
 		return ((long)(projId & ~(~0 << BITS_PROJ)) << OFFSET_PROJ) |
 			   ((long)(x      & ~(~0 << BITS_X   )) << OFFSET_X   ) |
 			   ((long)(y      & ~(~0 << BITS_Y   )) << OFFSET_Y   ) |
@@ -54,18 +54,12 @@ public class PointIndex {
 		int x =      (int)(ix >>  OFFSET_X    & ~(~0 << BITS_X  ));
 		int y =      (int)(ix >>  OFFSET_Y    & ~(~0 << BITS_Y  ));
 		int seq =    (int)(ix                 & ~(~0 << BITS_SEQ));
-		
-		if (x >= 1 << (BITS_X - 1)) {
-			x -= (1 << BITS_X);
-		}
-		if (y >= 1 << (BITS_Y - 1)) {
-			y -= (1 << BITS_Y);
-		}
-		if (seq >= 1 << (BITS_SEQ - 1)) {
-			seq -= (1 << BITS_SEQ);
-		}
-		
-		return new int[] {projId, x, y, seq};
+
+		return new int[] {projId, 
+			Util.toSignedRange(x, BITS_X),
+			Util.toSignedRange(y, BITS_Y),		
+			Util.toSignedRange(seq, BITS_SEQ)
+		};
 	}
 
 	public static long clone(long ix, int seq) {

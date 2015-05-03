@@ -28,10 +28,8 @@ import com.google.common.collect.Iterables;
 
 public class TopologyBuilder {
 
-	static final int NUM_WORKERS = 3;
-	
-	static final int CHUNK_SIZE_EXP = 13;
-	static final int CHECKPOINT_FREQ = (1 << 11);
+	static final int CHUNK_SIZE_EXP = 11; //13;
+	static final int CHECKPOINT_FREQ = Util.pow2(11);
 	static final int CHECKPOINT_LEN = CHECKPOINT_FREQ;
 	static final int CHECKPOINT_EXCL_BUFFER = PagedElevGrid.pageDim();
 	
@@ -39,18 +37,34 @@ public class TopologyBuilder {
 		return new Prefix(ix, CHUNK_SIZE_EXP);
 	}
 	
+	static Set<Prefix> enumerateChunks(Map<Prefix, Set<DEMFile>> coverage) {
+		Set<Prefix> chunks = new HashSet<Prefix>();
+		for (Prefix p : coverage.keySet()) {
+			chunks.add(new Prefix(p, CHUNK_SIZE_EXP));
+		}
+		return chunks;
+	}
+	
+	static PagedElevGrid _createMesh(Map<Prefix, Set<DEMFile>> coverage) {
+		int maxSize = (int)Math.max(
+				1.5 * Util.pow2(2 * CHUNK_SIZE_EXP),
+				Math.pow(Util.pow2(CHUNK_SIZE_EXP) + 2 * PagedElevGrid.pageDim(), 2)
+			);
+		return new PagedElevGrid(coverage, maxSize);
+	}
+		
 	static void buildTopology(List<DEMFile> DEMs) {
 		Map<Prefix, Set<DEMFile>> coverage = PagedElevGrid.partitionDEM(DEMs);
 		
 		FileUtil.ensureEmpty(FileUtil.PHASE_RAW);
 		
-		Builder builder = new Builder(NUM_WORKERS, coverage);
+		Builder builder = new Builder(Main.NUM_WORKERS, coverage);
 		builder.firstRound();
 		
 		int round = 0;
 		while (builder.needsAnotherRound()) {
 			round++;
-			Logging.log("round " + round);
+			Logging.log("extra round " + round);
 			
 			builder.nextRound();
 		}
@@ -94,6 +108,15 @@ public class TopologyBuilder {
 		Set<Long> pendingCheckpointsUp;
 		Set<Long> pendingCheckpointsDown;
 		
+		/* TODO even with the checkpointing rules, the checkpoint length threshold is still
+		 * quite long. the is a tradeoff for lower memory consumption, but i'm worried all this
+		 * tracing will be unpleasantly slow. what if we also stored another set of checkpoints,
+		 * with a much shorter length threshold, to be discarded after the processing of this
+		 * chunk. traces would be short and fast, and memory would not creep up during the
+		 * pipeline. would probably also obviate the pending lead grouping optimization noted
+		 * above
+		 */
+		
 		public ChunkProcessor(ChunkInput input) {
 			this.input = input;
 			this.prefix = input.chunkPrefix;
@@ -123,7 +146,7 @@ public class TopologyBuilder {
 		}
 		
 		public ChunkOutput build() {
-			mesh = new PagedElevGrid(coverage, (int)(1.5 * Math.pow(2, 2 * CHUNK_SIZE_EXP)));
+			mesh = _createMesh(coverage);
 			Iterable<DEMFile.Sample> points = mesh.loadForPrefix(prefix, 1);
 			
 			if (input.fullMode) {
@@ -181,8 +204,11 @@ public class TopologyBuilder {
 		
 		void processLead(Lead lead) {
 			ChaseResult result = chase(lead);
-			if (result.status != ChaseResult.STATUS_PENDING) {
+			if (result.status == ChaseResult.STATUS_PENDING) {
+				pending.add(result.lead);
+			} else {				
 				processResult(result);
+				
 				if (result.status == ChaseResult.STATUS_INTERIM) {
 					long chk = result.lead.p.ix;
 					if (!checkpointExists(result.lead) && inChunk(chk)) {
@@ -192,8 +218,6 @@ public class TopologyBuilder {
 						pendingCheckpoints(lead.up).add(chk);
 					}
 				}
-			} else {
-				pending.add(result.lead);
 			}
 		}
 
@@ -239,7 +263,7 @@ public class TopologyBuilder {
 			int loopFailsafe = 0;
 			while (true) {
 				status = chaseStatus(lead);
-				if (status != 0) {
+				if (status > 0) {
 					break;
 				}
 				
@@ -575,11 +599,7 @@ public class TopologyBuilder {
 		}
 
 		public void firstRound() {
-			Set<Prefix> chunks = new HashSet<Prefix>();
-			for (Prefix p : coverage.keySet()) {
-				chunks.add(new Prefix(p, CHUNK_SIZE_EXP));
-			}
-			
+			Set<Prefix> chunks = enumerateChunks(coverage);
 			for (Prefix chunk : chunks) {
 				internalCheckpoints.get(true).put(chunk, new HashSet<Long>());
 				internalCheckpoints.get(false).put(chunk, new HashSet<Long>());
@@ -642,9 +662,10 @@ public class TopologyBuilder {
 		}
 		
 		public boolean needsAnotherRound() {
-			Logging.log("before " + pendingCheckpoints.get(true).size() + " " + pendingCheckpoints.get(false).size());
+			int[] beforeCount = new int[] {pendingCheckpoints.get(true).size(), pendingCheckpoints.get(false).size()};
+			
 			for (boolean up : new boolean[] {true, false}) {
-				// think i could use set.removeAll(), but not sure if less efficient when set being
+				// think i could use set.removeAll(), but likely less efficient when the set being
 				// removed from is much smaller than set being removed
 				for (Iterator<Long> it = pendingCheckpoints.get(up).iterator(); it.hasNext(); ) {
 					long chk = it.next();
@@ -653,7 +674,11 @@ public class TopologyBuilder {
 					}
 				}
 			}
-			Logging.log("after " + pendingCheckpoints.get(true).size() + " " + pendingCheckpoints.get(false).size());
+
+			Logging.log(String.format("pending: U %d -> %d D %d -> %d",
+					beforeCount[0], pendingCheckpoints.get(true).size(),
+					beforeCount[1], pendingCheckpoints.get(false).size()));
+
 			return (pendingCheckpoints.get(true).size() +
 					pendingCheckpoints.get(false).size() > 0);
 		}
@@ -674,7 +699,7 @@ public class TopologyBuilder {
 			chunks.addAll(upChunks.keySet());
 			chunks.addAll(downChunks.keySet());
 
-			this.launch(NUM_WORKERS, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
+			this.launch(numWorkers, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
 				public ChunkInput apply(Prefix p) {
 					return makeInput(p, upChunks, downChunks);
 				}
@@ -724,8 +749,6 @@ public class TopologyBuilder {
 }
 	
 // verifications:	
-// does not refer to self (handled by assert in Edge)
-// only saddles can connect to null (handled by assert in Edge)
 // every saddle listed must be unique
 // peak must be higher than all connecting saddles
 // saddle must be lower than two connecting peaks

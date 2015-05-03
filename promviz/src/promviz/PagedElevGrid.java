@@ -15,6 +15,7 @@ import promviz.dem.DEMFile;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 import promviz.util.SaneIterable;
+import promviz.util.Util;
 
 import com.google.common.collect.Iterables;
 
@@ -34,8 +35,8 @@ public class PagedElevGrid implements IMesh {
 		segments = new HashMap<Prefix, Segment>();
 	}
 
-	static int pageDim() { return 1 << PAGE_SIZE_EXP; }
-	static int pageArea() { return 1 << (2 * PAGE_SIZE_EXP); }
+	static int pageDim() { return Util.pow2(PAGE_SIZE_EXP); }
+	static int pageArea() { return Util.pow2(2 * PAGE_SIZE_EXP); }
 	static Prefix segmentPrefix(long ix) { return new Prefix(ix, PAGE_SIZE_EXP); }
 	
 	static class Segment {

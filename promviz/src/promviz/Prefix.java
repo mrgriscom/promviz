@@ -1,5 +1,7 @@
 package promviz;
 
+import promviz.util.Util;
+
 public class Prefix implements Comparable<Prefix> {
 	long prefix;
 	int res;
@@ -40,19 +42,20 @@ public class Prefix implements Comparable<Prefix> {
 		}
 		
 		int[] p = PointIndex.split(prefix);
-		int _dim = (1 << level) + 2 * fringe;
+		int _dim = Util.pow2(level) + 2 * fringe;
 		return tile(p[0], p[1], p[2], _dim, _dim, -fringe, -fringe, chRes);
 	}
 	
 	public static Prefix[] tile(int proj, int x0, int y0, int width, int height, int xo, int yo, int res) {
 		Prefix[] pp = new Prefix[width * height];
+		int dim = Util.pow2(res);
 		int n = 0;
 		for (int i = 0; i < width; i++) {
 			for (int j = 0; j < height; j++) {
 				pp[n++] = new Prefix(PointIndex.make(
 						proj,
-						x0 + ((i + xo) << res),
-						y0 + ((j + yo) << res)
+						x0 + (i + xo) * dim,
+						y0 + (j + yo) * dim
 					), res);
 			}
 		}
@@ -68,7 +71,7 @@ public class Prefix implements Comparable<Prefix> {
 	public int[] bounds() {
 		int[] k = PointIndex.split(prefix);
 		int x0 = k[1], y0 = k[2];
-		int dim = (1 << res);
+		int dim = Util.pow2(res);
 		return new int[] {x0, y0, x0 + dim, y0 + dim};
 	}
 	

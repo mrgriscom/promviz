@@ -16,6 +16,8 @@ import promviz.util.Logging;
 
 public class Main {
 
+	static final int NUM_WORKERS = 3;
+	
 	static Properties props;
 	
 	public static void initProps() {
@@ -67,7 +69,13 @@ public class Main {
 		};
 		
 		TopologyBuilder.buildTopology(DEMs);
-		//Harness.promSearch(DEMs, true, 20.);
+		
+//		final double PROM_CUTOFF_UP = 20.;
+//		final double PROM_CUTOFF_DOWN = 20.;
+//		FileUtil.ensureEmpty(FileUtil.PHASE_PROM);
+//		FileUtil.ensureEmpty(FileUtil.PHASE_MST);
+//		Prominence.promSearch(DEMs, true, PROM_CUTOFF_UP);
+//		Prominence.promSearch(DEMs, false, PROM_CUTOFF_DOWN);
 	}
 	
 
