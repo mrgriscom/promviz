@@ -35,84 +35,6 @@ public class Harness {
 	///////// HERE BE DRAGONS
 
 	
-	static class TopologyNetwork implements IMesh {
-		PagedElevGrid mesh;
-		Iterable<Sample> samples;
-		boolean up;
-		
-		Map<Long, MeshPoint> points;
-		Set<MeshPoint> pendingSaddles;
-		
-		public TopologyNetwork(boolean up, Map<Prefix, Set<DEMFile>> coverage) {
-			this.up = up;
-			this.mesh = new PagedElevGrid(coverage, 1 << 29);
-			this.samples = this.mesh.bulkLoadPage(coverage.keySet());
-			
-			points = new HashMap<Long, MeshPoint>();
-			pendingSaddles = new HashSet<MeshPoint>();
-			
-			load();
-		}
-
-		void load() {
-			String path = FileUtil.dir(FileUtil.PHASE_RAW);
-			File folder = new File(path);
-			for (File f : folder.listFiles()) {
-				if (!f.getPath().contains((up ? "U" : "D") + "-")) {
-					continue;
-				}
-				loadSegment(f.getPath());
-			}
-		}
-
-		void loadSegment(String path) {
-			int i = 0;
-			for (Edge e : FileUtil.loadEdges(path)) {
-				addPoint(e.a);
-				addPoint(e.saddle);
-				get(e.a).adjAdd(e.saddle, e.tagA, true);
-				get(e.saddle).adjAdd(e.a, e.tagA, false);
-				if (e.pending()) {
-					pendingSaddles.add(get(e.saddle));
-				} else {
-					addPoint(e.b);
-					get(e.b).adjAdd(e.saddle, e.tagB, true);
-					get(e.saddle).adjAdd(e.b, e.tagB, false);
-				}
-			}
-		}
-
-		void addPoint(long ix) {
-			if (!points.containsKey(ix)) {
-				points.put(ix, new MeshPoint(ix, mesh.get(ix).elev));
-			}
-		}
-		
-		@Override
-		public MeshPoint get(long ix) {
-			return points.get(ix);
-		}
-		
-		Set<MeshPoint> adjacent(MeshPoint p) {
-			return new HashSet<MeshPoint>(getPoint(p).adjacent(this));
-		}
-		
-		public MeshPoint getHighest() {
-			MeshPoint highest = null;
-			Comparator<Point> cmp = Point.cmpElev(up);
-			for (DEMFile.Sample s : this.samples) {
-				MeshPoint p = new GridPoint(s);
-				if (highest == null || cmp.compare(p, highest) > 0) {
-					highest = p;
-				}					
-			}
-			return highest;
-		}
-		
-		MeshPoint getPoint(Point p) {
-			return get(p.ix);
-		}
-	}
 	
 	
 //	//static boolean oldSchool = true;
@@ -384,7 +306,6 @@ public class Harness {
 //	}
 //	
 //	static void promPass2(Point highest, DEMManager dm, final boolean up, String region) {
-//		MESH_MAX_POINTS = (1 << 26);
 //		TopologyNetwork tn = new PagedTopologyNetwork(EdgeIterator.PHASE_RMST, up, null, new Meta[] {new PromMeta()});
 //		
 //		if (oldSchool) {

@@ -5,6 +5,7 @@ import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.util.ArrayList;
 import java.util.NoSuchElementException;
 
 import promviz.util.SaneIterable;
@@ -50,16 +51,16 @@ public class FileUtil {
 		return new File(root, path).getPath();
 	}
 
-	public static SaneIterable<Edge> loadEdges(boolean up, Prefix p, int phase) {
+	public static Iterable<Edge> loadEdges(boolean up, Prefix p, int phase) {
 		return loadEdges(segmentPath(up, p, phase));
 	}
 	
-	public static SaneIterable<Edge> loadEdges(String path) {
+	public static Iterable<Edge> loadEdges(String path) {
 		final DataInputStream in;
 		try {
 			in = new DataInputStream(new BufferedInputStream(new FileInputStream(path)));
 		} catch (FileNotFoundException e) {
-			throw new RuntimeException(e);
+			return new ArrayList<Edge>();
 		}
 
 		return new SaneIterable<Edge>() {

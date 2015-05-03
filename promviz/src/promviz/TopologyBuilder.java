@@ -38,11 +38,15 @@ public class TopologyBuilder {
 	}
 	
 	static Set<Prefix> enumerateChunks(Map<Prefix, Set<DEMFile>> coverage) {
-		Set<Prefix> chunks = new HashSet<Prefix>();
-		for (Prefix p : coverage.keySet()) {
-			chunks.add(new Prefix(p, CHUNK_SIZE_EXP));
+		return clusterPrefixes(coverage.keySet(), CHUNK_SIZE_EXP);
+	}
+	
+	static Set<Prefix> clusterPrefixes(Iterable<Prefix> prefixes, int size) {
+		Set<Prefix> clustered = new HashSet<Prefix>();
+		for (Prefix p : prefixes) {
+			clustered.add(new Prefix(p, size));
 		}
-		return chunks;
+		return clustered;
 	}
 	
 	static PagedElevGrid _createMesh(Map<Prefix, Set<DEMFile>> coverage) {
@@ -96,7 +100,6 @@ public class TopologyBuilder {
 	
 	static class ChunkProcessor {
 		Prefix prefix;
-		Map<Prefix, Set<DEMFile>> coverage;
 		ChunkInput input;
 		
 		PagedElevGrid mesh;
@@ -120,7 +123,7 @@ public class TopologyBuilder {
 		public ChunkProcessor(ChunkInput input) {
 			this.input = input;
 			this.prefix = input.chunkPrefix;
-			this.coverage = input.coverage;
+			this.mesh = _createMesh(input.coverage);
 			
 			processedBySaddle = new DefaultMap<SaddleAndDir, Set<SummitAndTag>>() {
 				public Set<SummitAndTag> defaultValue(SaddleAndDir key) {
@@ -146,7 +149,6 @@ public class TopologyBuilder {
 		}
 		
 		public ChunkOutput build() {
-			mesh = _createMesh(coverage);
 			Iterable<DEMFile.Sample> points = mesh.loadForPrefix(prefix, 1);
 			
 			if (input.fullMode) {
@@ -605,6 +607,7 @@ public class TopologyBuilder {
 				internalCheckpoints.get(false).put(chunk, new HashSet<Long>());
 			}
 			
+			Logging.log(chunks.size() + " dem chunks");
 			launch(numWorkers, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
 				public ChunkInput apply(Prefix p) {
 					return makeInput(p, null, null);
