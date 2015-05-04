@@ -290,7 +290,7 @@ public class PromNetwork {
 		
 		MeshPoint cur = null;
 		while (true) {
-			cur = front.next();
+			cur = front.pop();
 			if (cur == null) {
 				// we've searched the whole world
 				//pi.global_max = true;

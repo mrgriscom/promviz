@@ -15,4 +15,8 @@ public class Logging {
 	public static void log(String msg) {
 		System.err.println(String.format("%03d-%07.2f %s", Thread.currentThread().getId(), clock(), msg));
 	}
+	
+	public static void log(Object o) {
+		log(o != null ? o.toString() : "null");
+	}
 }

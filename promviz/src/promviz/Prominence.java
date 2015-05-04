@@ -141,9 +141,11 @@ public class Prominence {
 		boolean up;
 		PagedElevGrid mesh;
 
-		Map<Point, Front> fronts;
+		Set<Front> fronts;
+		// the highest saddle directly connecting two fronts (both forward and reverse mapping)
 		Map<MeshPoint, Set<Front>> connectorsBySaddle;
 		Map<Set<Front>, MeshPoint> connectorsByFrontPair;
+		// front pairs that can and must be coalesced
 		Set<FrontMerge> pendingMerges;
 		
 		public ChunkProcessor(ChunkInput input) {
@@ -165,7 +167,11 @@ public class Prominence {
 				Iterator<FrontMerge> it = pendingMerges.iterator();
 				FrontMerge toMerge = it.next();
 				it.remove();
-				mergeFronts(toMerge.parent, toMerge.child);
+				
+				PromInfo pi = mergeFronts(toMerge);
+				if (pi.prominence() >= input.cutoff) {
+					input.onprom.onprom(pi);
+				}
 			}
 			Logging.log("after " + fronts.size());
 			
@@ -182,17 +188,17 @@ public class Prominence {
 		}
 		
 		static class FrontMerge {
-			Front parent;
 			Front child;
+			Front parent;
 			
 			FrontMerge(Front child, Front parent) {
-				this.parent = parent;
 				this.child = child;
+				this.parent = parent;
 			}
 			
 			public boolean equals(Object o) {
 				FrontMerge fm = (FrontMerge)o;
-				return this.parent == fm.parent && this.child == fm.child;
+				return this.parent.equals(fm.parent) && this.child.equals(fm.child);
 			}
 			
 			public int hashCode() {
@@ -201,17 +207,14 @@ public class Prominence {
 		}
 		
 		public void load() {
-			fronts = new DefaultMap<Point, Front>() {
-				public Front defaultValue(Point key) {
-					return new Front(Point.cmpElev(up));
-				}
-			};
+			fronts = new HashSet<Front>();
 			connectorsBySaddle = new HashMap<MeshPoint, Set<Front>>();
 			connectorsByFrontPair = new HashMap<Set<Front>, MeshPoint>();
 			pendingMerges = new HashSet<FrontMerge>();
 			
 			List<Edge> edges = Lists.newArrayList(FileUtil.loadEdges(up, prefix, FileUtil.PHASE_RAW));
 			
+			// load necessary DEM pages for graph
 			final Set<Prefix> pages = new HashSet<Prefix>();
 			processEdges(edges, new EdgeProcessor() {
 				public void process(long summitIx, long saddleIx) {
@@ -221,28 +224,34 @@ public class Prominence {
 			});
 			mesh.bulkLoadPage(pages);
 
+			// build atomic fronts (summit + immediate saddles)
+			final Map<MeshPoint, Front> frontsByPeak = new DefaultMap<MeshPoint, Front>() {
+				public Front defaultValue(MeshPoint key) {
+					return new Front(key, Point.cmpElev(up));
+				}
+			};
 			processEdges(edges, new EdgeProcessor() {
 				public void process(long summitIx, long saddleIx) {
 					MeshPoint summit = mesh.get(summitIx);
 					MeshPoint saddle = mesh.get(saddleIx);
-					fronts.get(summit).add(summit, null);
-					fronts.get(summit).add(saddle, summit);
+					frontsByPeak.get(summit).add(saddle);
 				}
 			});
-			for (Front f : fronts.values()) {
-				f.next(); // remove summit  TODO remove this hackiness
-			}
+			fronts.addAll(frontsByPeak.values());
 			
+			// map saddles to fronts that that saddle appears in
 			Map<MeshPoint, Set<Front>> saddlesToFronts = new DefaultMap<MeshPoint, Set<Front>>() {
 				public Set<Front> defaultValue(MeshPoint key) {
 					return new HashSet<Front>();
 				}
 			};
-			for (Front f : fronts.values()) {
+			for (Front f : fronts) {
 				for (MeshPoint saddle : f.set){
 					saddlesToFronts.get(saddle).add(f);
 				}
 			}
+			// map sets of fronts to the saddles that appear in those fronts
+			// these saddles only ever appear together in the same fronts -- i.e., the intersection of the two fronts
 			Map<Set<Front>, List<MeshPoint>> frontPairsToSaddles = new DefaultMap<Set<Front>, List<MeshPoint>>() {
 				public List<MeshPoint> defaultValue(Set<Front> key) {
 					return new ArrayList<MeshPoint>();
@@ -257,10 +266,11 @@ public class Prominence {
 				}
 				frontPairsToSaddles.get(fs).add(saddle);
 			}
+			// for every front intersection, eliminate all but the highest saddle and store in the connector indexes
 			for (Entry<Set<Front>, List<MeshPoint>> e : frontPairsToSaddles.entrySet()) {
 				Set<Front> fp = e.getKey();
 				List<MeshPoint> saddles = e.getValue();
-				MeshPoint highest = Collections.max(saddles, Point.cmpElev(up));
+				MeshPoint highest = Collections.max(saddles, fp.iterator().next().c);
 				for (MeshPoint saddle : saddles) {
 					if (saddle == highest) {
 						continue;
@@ -269,14 +279,11 @@ public class Prominence {
 						f.remove(saddle);
 					}
 				}
-				connectorsBySaddle.put(highest, fp);
-				connectorsByFrontPair.put(fp, highest);
+				connectorsPut(highest, fp);
 			}
-			for (Front f : fronts.values()) {
-				Front parent = yonderFront(f);
-				if (parent != null && f.c.compare(f.root(), parent.root()) < 0) {
-					pendingMerges.add(new FrontMerge(f, parent));
-				}
+			// pre-fill all pending merges for adjacent fronts
+			for (Front f : fronts) {
+				newPendingMerge(f);
 			}
 			
 			Logging.log("" + pendingMerges.size());
@@ -293,90 +300,92 @@ public class Prominence {
 			}
 		}
 		
-		Front yonderFront(Front f) {
-			return otherFront(f, f.peekNext());
+		void newPendingMerge(Front f) {
+			Front primary = primaryFront(f);
+			if (primary != null && f.c.compare(primary.peak, f.peak) > 0) {
+				pendingMerges.add(new FrontMerge(f, primary));
+			}
 		}
 		
-		Front otherFront(Front f, MeshPoint saddle) {
-			Set<Front> fs = connectorsBySaddle.get(saddle);
-			if (fs == null) {
+		Front primaryFront(Front f) {
+			return connectingFront(f, f.first());
+		}
+		
+		Front connectingFront(Front f, MeshPoint saddle) {
+			Set<Front> fp = connectorsBySaddle.get(saddle);
+			if (fp == null) {
 				return null;
 			}
-			for (Front ff : fs) {
-				if (ff != f) {
-					return ff;
+			for (Front other : fp) {
+				if (!other.equals(f)) {
+					return other;
 				}
 			}
-			// should never reach here
-			assert false;
-			return null;
-			
+			throw new RuntimeException("can't happen");
 		}
 		
-		Set<Front> setPair(Front a, Front b) {
-			Set<Front> s = new HashSet<Front>();
-			s.add(a);
-			s.add(b);
-			return s;
+		Set<Front> frontPair(Front a, Front b) {
+			Set<Front> pair = new HashSet<Front>();
+			pair.add(a);
+			pair.add(b);
+			return pair;
 		}
 		
-		void mergeFronts(Front parent, Front child) {
-			MeshPoint saddle = child.next();
+		PromInfo mergeFronts(FrontMerge fm) {
+			Front parent = fm.parent;
+			Front child = fm.child;
 			
-			PromInfo pi = new PromInfo(child.root(), saddle);
-			pi.up = up;
-			pi._finalizeDumb();
+			fronts.remove(child);
+			MeshPoint saddle = child.pop();
+			boolean newParentMerge = parent.mergeFrom(child, saddle);
+			connectorsClear(saddle, frontPair(parent, child));
 			
-			if (pi.prominence() >= input.cutoff) {
-				input.onprom.onprom(pi);
-			}
-
-			fronts.remove(child.root());
-
-			Set<Front> pc = setPair(parent, child);
-			connectorsBySaddle.remove(saddle);
-			connectorsByFrontPair.remove(pc);
-
-			for (MeshPoint s : child.set) {
-				parent.add(s, child.root()); // TODO fix backtracing
-
-				Front f = otherFront(child, s);
+			for (MeshPoint subsaddle : child.set) {
+				Front f = connectingFront(child, subsaddle);
 				if (f == null) {
 					continue;
 				}
 				
-				Set<Front> childX = setPair(child, f);
-				Set<Front> parentX = setPair(parent, f);
-
-				connectorsBySaddle.remove(s);
-				connectorsByFrontPair.remove(childX);
-				
-				MeshPoint newS;
-				MeshPoint competingS = connectorsByFrontPair.get(parentX);
-				if (competingS != null && parent.c.compare(competingS, s) > 0) {
-					newS = competingS;
-				} else {
-					newS = s;
-				}
-				connectorsBySaddle.put(newS, parentX);
-				connectorsByFrontPair.put(parentX, newS);
-				
-				FrontMerge possMerge = new FrontMerge(f, child);
-				if (pendingMerges.contains(possMerge)) {
-					pendingMerges.remove(possMerge);
+				FrontMerge potentialMergeToChild = new FrontMerge(f, child);
+				if (pendingMerges.contains(potentialMergeToChild)) {
+					pendingMerges.remove(potentialMergeToChild);
 					pendingMerges.add(new FrontMerge(f, parent));
 				}
-			}
-
-			boolean rependParent = saddle.equals(parent.peekNext());
-			parent.remove(saddle);
-			if (rependParent) {
-				Front pparent = yonderFront(parent);
-				if (pparent != null && parent.c.compare(parent.root(), pparent.root()) < 0) {
-					pendingMerges.add(new FrontMerge(parent, pparent));
+				
+				Set<Front> childAndOther = frontPair(child, f);
+				Set<Front> parentAndOther = frontPair(parent, f);
+				MeshPoint existingParentOtherSaddle = connectorsByFrontPair.get(parentAndOther);
+				MeshPoint postMergeSubsaddle;
+				if (existingParentOtherSaddle != null && parent.c.compare(existingParentOtherSaddle, subsaddle) > 0) {
+					postMergeSubsaddle = existingParentOtherSaddle;
+				} else {
+					postMergeSubsaddle = subsaddle;
 				}
+				connectorsClear(subsaddle, childAndOther);
+				connectorsPut(postMergeSubsaddle, parentAndOther);				
 			}
 
+			if (newParentMerge) {
+				// parent could not have had an existing pending merge, so no need to remove anything
+				newPendingMerge(parent);
+			}
+			
+			PromInfo pi = new PromInfo(child.peak, saddle);
+			pi.up = up;
+			pi._finalizeDumb();
+			return pi;
+		}
+		
+		void connectorsPut(MeshPoint saddle, Set<Front> fronts) {
+			connectorsBySaddle.put(saddle, fronts);
+			connectorsByFrontPair.put(fronts, saddle);
+		}
+		
+		void connectorsClear(MeshPoint saddle, Set<Front> fronts) {
+			assert fronts.equals(connectorsBySaddle.get(saddle));
+			assert saddle.equals(connectorsByFrontPair.get(fronts));
+			connectorsBySaddle.remove(saddle);
+			connectorsByFrontPair.remove(fronts);
 		}
 		
 		/*
@@ -457,7 +466,6 @@ if other cell has higher peak, merge
 		}
 	}
 	
-	
 	static class Backtrace {
 		Map<Point, Point> backtrace;
 		Point root;
@@ -522,11 +530,10 @@ if other cell has higher peak, merge
 				}
 
 				public void prune() {
-					Iterator<Point> iterBT = backtrace.keySet().iterator();
-					while (iterBT.hasNext()) {
-						Point p = iterBT.next();
+					for (Iterator<Point> it = backtrace.keySet().iterator(); it.hasNext(); ) {
+						Point p = it.next();
 						if (!backtraceKeep.contains(p)) {
-					        iterBT.remove();
+					        it.remove();
 					    }
 					}
 				}
@@ -600,32 +607,33 @@ if other cell has higher peak, merge
 	}
 	
 	static class Front {
-		PriorityQueue<MeshPoint> queue; // the search front, akin to an expanding contour
+		MeshPoint peak;
+		PriorityQueue<MeshPoint> queue; // the set of saddles delineating the cell for which 'peak' is the highest point
 		Set<MeshPoint> set; // set of all points in 'queue'
 		Backtrace bt;
-//		int pruneThreshold = 1; // this could start out much larger (memory-dependent) to avoid
-//		                        // unnecessary pruning in the early stages
 
 		Map<MeshPoint, MeshPoint> forwardSaddles;
 		Map<MeshPoint, MeshPoint> backwardSaddles;
 		
 		Comparator<Point> c;
 
-		public Front(final Comparator<Point> c) {
+		public Front(MeshPoint peak, final Comparator<Point> c) {
+			this.peak = peak;
 			this.c = c;
 			queue = new PriorityQueue<MeshPoint>(10, new ReverseComparator<Point>(c));
 			set = new HashSet<MeshPoint>();
-			bt = new Backtrace();
+			//bt = new Backtrace();
+			//bt.add(peak, null);
 			
 			forwardSaddles = new HashMap<MeshPoint, MeshPoint>();
 			backwardSaddles = new HashMap<MeshPoint, MeshPoint>();
 		}
 		
-		public boolean add(MeshPoint p, MeshPoint parent) {
+		public boolean add(MeshPoint p) {
 			boolean newItem = set.add(p);
 			if (newItem) {
 				queue.add(p);
-				bt.add(p, parent);
+				//bt.add(p, peak);
 			}
 			return newItem;
 		}
@@ -640,7 +648,7 @@ if other cell has higher peak, merge
 			return removed;
 		}
 		
-		public MeshPoint next() {
+		public MeshPoint pop() {
 			MeshPoint p = queue.poll();
 			if (p != null) {
 				set.remove(p);
@@ -651,20 +659,36 @@ if other cell has higher peak, merge
 		
 		void ensureNextIsValid() {
 			while (true) {
-				MeshPoint _n = peekNext();
+				MeshPoint _n = first();
 				if (_n == null || set.contains(_n)) {
 					break;
 				}
-				next();
+				pop();
 			}
 		}
 		
-		public MeshPoint peekNext() {
+		public MeshPoint first() {
 			return queue.peek();
 		}
 
-		public MeshPoint root() {
-			return (MeshPoint)bt.root;
+		// assumes 'saddle' has already been popped from 'other'
+		public boolean mergeFrom(Front other, MeshPoint saddle) {
+			boolean firstChanged = first().equals(saddle);
+			remove(saddle);
+			
+			for (MeshPoint s : other.set) {
+				add(s);
+			}
+			
+			return firstChanged;
+		}
+
+		public boolean equals(Object o) {
+			return this.peak.equals(((Front)o).peak);
+		}
+		
+		public int hashCode() {
+			return peak.hashCode();
 		}
 		
 //		public void prune(Collection<MeshPoint> pendingPeaks, Collection<MeshPoint> pendingSaddles) {
