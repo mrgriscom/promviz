@@ -91,6 +91,7 @@ public class Prominence {
 		public void baseCellSearch() {
 			Set<Prefix> chunks = TopologyBuilder.enumerateChunks(coverage);
 			Logging.log(chunks.size() + " network chunks");
+			
 			launch(numWorkers, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
 				public ChunkInput apply(Prefix p) {
 					return makeInput(p, up, cutoff, onprom);
@@ -174,6 +175,17 @@ public class Prominence {
 				}
 			}
 			Logging.log("after " + fronts.size());
+			
+			// temporary
+			for (Front f : fronts) {
+				PromInfo pi = new PromInfo(f.peak, f.first());
+				pi.up = up;
+				pi._finalizeDumb();
+				pi.min_bound_only = true;
+				if (pi.prominence() >= input.cutoff) {
+					input.onprom.onprom(pi);
+				}
+			}
 			
 			// dump mst
 			// dump pending fronts
@@ -345,12 +357,7 @@ public class Prominence {
 				if (f == null) {
 					continue;
 				}
-				
-				FrontMerge potentialMergeToChild = new FrontMerge(f, child);
-				if (pendingMerges.contains(potentialMergeToChild)) {
-					pendingMerges.remove(potentialMergeToChild);
-					pendingMerges.add(new FrontMerge(f, parent));
-				}
+				boolean mergesTowardsChild = child.equals(primaryFront(f));
 				
 				Set<Front> childAndOther = frontPair(child, f);
 				Set<Front> parentAndOther = frontPair(parent, f);
@@ -371,6 +378,16 @@ public class Prominence {
 					parent.remove(redundantSaddle);
 					f.remove(redundantSaddle);
 				}				
+				
+				if (mergesTowardsChild) {
+					FrontMerge existingMerge = new FrontMerge(f, child);
+					if (pendingMerges.contains(existingMerge)) {
+						pendingMerges.remove(existingMerge);
+						pendingMerges.add(new FrontMerge(f, parent));
+					} else {
+						newPendingMerge(f);
+					}
+				}
 			}
 
 			if (newParentMerge) {
@@ -692,7 +709,7 @@ if other cell has higher peak, merge
 		}
 
 		public boolean equals(Object o) {
-			return this.peak.equals(((Front)o).peak);
+			return o != null && this.peak.equals(((Front)o).peak);
 		}
 		
 		public int hashCode() {
