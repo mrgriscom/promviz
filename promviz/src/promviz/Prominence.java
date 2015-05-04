@@ -354,15 +354,23 @@ public class Prominence {
 				
 				Set<Front> childAndOther = frontPair(child, f);
 				Set<Front> parentAndOther = frontPair(parent, f);
-				MeshPoint existingParentOtherSaddle = connectorsByFrontPair.get(parentAndOther);
-				MeshPoint postMergeSubsaddle;
-				if (existingParentOtherSaddle != null && parent.c.compare(existingParentOtherSaddle, subsaddle) > 0) {
-					postMergeSubsaddle = existingParentOtherSaddle;
-				} else {
-					postMergeSubsaddle = subsaddle;
-				}
+				
 				connectorsClear(subsaddle, childAndOther);
-				connectorsPut(postMergeSubsaddle, parentAndOther);				
+				MeshPoint existingParentOtherSaddle = connectorsByFrontPair.get(parentAndOther);
+				if (existingParentOtherSaddle == null) {
+					connectorsPut(subsaddle, parentAndOther);				
+				} else {
+					MeshPoint redundantSaddle;
+					if (parent.c.compare(existingParentOtherSaddle, subsaddle) > 0) {
+						redundantSaddle = subsaddle;
+					} else {
+						redundantSaddle = existingParentOtherSaddle;
+						connectorsClear(existingParentOtherSaddle, parentAndOther);
+						connectorsPut(subsaddle, parentAndOther);
+					}
+					parent.remove(redundantSaddle);
+					f.remove(redundantSaddle);
+				}				
 			}
 
 			if (newParentMerge) {
@@ -377,13 +385,13 @@ public class Prominence {
 		}
 		
 		void connectorsPut(MeshPoint saddle, Set<Front> fronts) {
+			assert !connectorsByFrontPair.containsKey(fronts);
 			connectorsBySaddle.put(saddle, fronts);
 			connectorsByFrontPair.put(fronts, saddle);
 		}
 		
 		void connectorsClear(MeshPoint saddle, Set<Front> fronts) {
 			assert fronts.equals(connectorsBySaddle.get(saddle));
-			assert saddle.equals(connectorsByFrontPair.get(fronts));
 			connectorsBySaddle.remove(saddle);
 			connectorsByFrontPair.remove(fronts);
 		}
