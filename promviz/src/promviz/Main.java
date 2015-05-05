@@ -58,8 +58,11 @@ public class Main {
 	public static void main(String[] args) {
 		Logging.init();
 		initProps();
-		
-		List<DEMFile> DEMs = loadDEMs(args[0]);
+
+		String action = args[0];
+		String region = args[1];
+
+		List<DEMFile> DEMs = loadDEMs(region);
 		final Map<Integer, Projection> projs = new HashMap<Integer, Projection>();
 		projs.put(0, DEMs.get(0).proj);
 		Projection.authority = new Projection.Authority() {
@@ -68,14 +71,15 @@ public class Main {
 			}
 		};
 		
-//		TopologyBuilder.buildTopology(DEMs);
-		
-		final double PROM_CUTOFF_UP = 20.;
-		final double PROM_CUTOFF_DOWN = 20.;
-		FileUtil.ensureEmpty(FileUtil.PHASE_PROMTMP);
-		FileUtil.ensureEmpty(FileUtil.PHASE_MST);
-		Prominence.promSearch(DEMs, true, PROM_CUTOFF_UP);
-//		Prominence.promSearch(DEMs, false, PROM_CUTOFF_DOWN);
+		if (action.equals("--topobuild")) {
+			TopologyBuilder.buildTopology(DEMs);
+			
+		} else if (action.equals("--searchup") || action.equals("--searchdown")) {
+			boolean up = action.endsWith("up");
+			double cutoff = Double.parseDouble(args[2]);
+			Prominence.promSearch(DEMs, up, cutoff);
+			
+		}
 	}
 	
 

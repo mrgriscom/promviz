@@ -13,7 +13,19 @@ import os.path
 
 def calc_prom():
     projroot = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'promviz')
-    f = os.popen('/usr/lib/jvm/java-7-openjdk-amd64/bin/java -ea -Xms%(memory)s -Xloggc:/tmp/gc -Dfile.encoding=UTF-8 -classpath %(root)s/bin:%(root)s/lib/guava-14.0.1.jar:%(root)s/lib/gson-2.2.4.jar promviz.Main %(args)s' % {'args': ' '.join("'%s'" % k for k in sys.argv[1:]), 'memory': settings.memory, 'root': projroot})
+    f = os.popen(' '.join([
+            '/usr/lib/jvm/java-7-openjdk-amd64/bin/java',
+            '-ea',
+            '-Xms%(memory)s',
+            '-Xloggc:/tmp/gc',
+            '-Dfile.encoding=UTF-8',
+            '-classpath %(root)s/bin:%(root)s/lib/guava-14.0.1.jar:%(root)s/lib/gson-2.2.4.jar',
+            'promviz.Main %(args)s',
+        ]) % {
+            'args': ' '.join("'%s'" % k for k in sys.argv[1:]),
+            'memory': settings.memory,
+            'root': projroot,
+        })
 
     while True:
         ln = f.readline()
@@ -152,7 +164,8 @@ if __name__ == "__main__":
     for d in [getattr(settings, k) for k in dir(settings) if k.startswith('dir_')]:
         os.popen('mkdir -p "%s"' % d)
 
-    #os.popen('python demregion.py "%s" > /dev/null' % sys.argv[2])
+    # java runs this too, but swallows stderr
+    os.popen('python demregion.py "%s" > /dev/null' % sys.argv[2])
 
     conn = None #psycopg2.connect('dbname=%s' % 'gazetteer')
 
@@ -162,7 +175,6 @@ if __name__ == "__main__":
         prom_mode = 'down'
     else:
         prom_mode = None
-    prom_mode = 'up' #debug
 
     def core(p):
         _core = p[p['type']]

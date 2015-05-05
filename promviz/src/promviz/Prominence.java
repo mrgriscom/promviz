@@ -52,6 +52,9 @@ public class Prominence {
 	public static void promSearch(List<DEMFile> DEMs, boolean up, double cutoff) {
 		Map<Prefix, Set<DEMFile>> coverage = PagedElevGrid.partitionDEM(DEMs);
 		
+		FileUtil.ensureEmpty(FileUtil.PHASE_PROMTMP, up);
+		FileUtil.ensureEmpty(FileUtil.PHASE_MST, up);
+		
 		PromSearch searcher = new PromSearch(Main.NUM_WORKERS, coverage, up, cutoff, new OnProm() {
 			public void onprom(PromInfo pi) {
 				Harness.outputPromPoint(pi);
@@ -81,6 +84,7 @@ public class Prominence {
 		Prefix p;
 		List<PromInfo> proms;
 		Collection<Front> fronts;
+		// mst?
 	}
 	
 //	static class PromSearch extends WorkerPool<ChunkInput, ChunkOutput> {
@@ -141,7 +145,7 @@ public class Prominence {
 			}
 			writeFronts(output.p, output.fronts, up);
 			
-			Logging.log(i + " " + output.p);
+			Logging.log((i+1) + " " + output.p);
 		}
 
 		public static void writeFronts(Prefix prefix, Collection<Front> fronts, final boolean up) {
@@ -228,10 +232,6 @@ public class Prominence {
 			output.proms = proms;
 			output.fronts = fronts;
 			return output;
-		}
-		
-		static interface EdgeProcessor {
-			void process(long summitIx, long saddleIx);
 		}
 		
 		static class FrontMerge {
@@ -342,6 +342,10 @@ public class Prominence {
 				}
 			});
 			fronts.addAll(frontsByPeak.values());
+		}
+
+		static interface EdgeProcessor {
+			void process(long summitIx, long saddleIx);
 		}
 		
 		void processEdges(Iterable<Edge> edges, EdgeProcessor ep) {
@@ -480,6 +484,11 @@ public class Prominence {
 		void finalizeRemaining(List<PromInfo> proms) {
 			Logging.log("finalizing remaining");
 			for (Front f : fronts) {
+				if (f.first() == null) {
+					// global max
+					continue;
+				}
+
 				PromInfo pi = new PromInfo(up, f.peak, f.first());
 				pi._finalizeDumb();
 				pi.min_bound_only = true;
@@ -488,7 +497,6 @@ public class Prominence {
 				}
 			}
 			// chase to edge?
-			// global max?
 		}
 	}
 	
@@ -558,7 +566,8 @@ public class Prominence {
 	}
 	
 	static class Backtrace {
-		Map<Point, Point> backtrace; // pure Points are ok because we only care about their position, not elevation
+		Map<Point, Point> backtrace; // can't just store ixs since searchThreshold() needs elev values
+			// (because the saddle maps only store entries above the prominence cutoff)
 		Point root;
 		
 		public Backtrace() {
@@ -581,9 +590,9 @@ public class Prominence {
 			return parent;
 		}
 		
-		public boolean isLoaded(Point p) {
-			return backtrace.containsKey(p) || p.equals(root);
-		}
+//		public boolean isLoaded(Point p) {
+//			return backtrace.containsKey(p) || p.equals(root);
+//		}
 		
 		public int size() {
 			return backtrace.size();
@@ -761,8 +770,6 @@ public class Prominence {
 		// remove element, return whether item existed
 		// does not affect backtrace, etc.
 		public boolean remove(MeshPoint p) {
-			// we can't remove from the middle of the queue, so next() ignores items already removed
-			// we do ensure that peek() always yields a valid item, though
 			boolean removed = set.remove(p);
 			ensureNextIsValid();
 			return removed;
@@ -777,6 +784,8 @@ public class Prominence {
 			return p;
 		}
 		
+		// we can't remove from the middle of the queue, so when we do remove an item, we
+		// must ensure that peek() always yields a valid item, at least
 		void ensureNextIsValid() {
 			while (true) {
 				MeshPoint _n = first();
