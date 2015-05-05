@@ -1,29 +1,7 @@
 package promviz.debug;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.PriorityQueue;
-import java.util.Set;
 
-import promviz.Front;
-import promviz.MeshPoint;
-import promviz.Path;
 import promviz.Point;
-import promviz.Prominence.PromInfo;
-import promviz.debug.Harness.TopologyNetwork;
-import promviz.debug.PromNetwork.Backtrace.BacktracePruner;
-import promviz.util.Logging;
-import promviz.util.ReverseComparator;
-
-import com.google.common.collect.Iterables;
 
 public class PromNetwork {
 
@@ -278,105 +256,6 @@ public class PromNetwork {
 		
 
 
-	
-	public static void bigOlPromSearch(boolean up, MeshPoint root, TopologyNetwork tree, Harness.OnProm onprom, OnMSTEdge onedge, double cutoff) {
-		root = tree.getPoint(root);
-		Comparator<Point> c = Point.cmpElev(up);
-		
-		Deque<MeshPoint> peaks = new ArrayDeque<MeshPoint>(); 
-		Deque<MeshPoint> saddles = new ArrayDeque<MeshPoint>(); 
-		Front front = new Front(c, tree);
-		front.add(root, null);
-		
-		MeshPoint cur = null;
-		while (true) {
-			cur = front.pop();
-			if (cur == null) {
-				// we've searched the whole world
-				//pi.global_max = true;
-				//break;
-				break;
-			}
-			boolean isSaddle = (cur.classify(tree) != (up ? MeshPoint.CLASS_SUMMIT : MeshPoint.CLASS_PIT));
-			
-			boolean reachedEdge = tree.pendingSaddles.contains(cur);
-			boolean deadEnd = !reachedEdge;
-			for (MeshPoint adj : tree.adjacent(cur)) {
-				if (front.add(adj, cur)) {
-					deadEnd = false;
-					//onedge.addEdge(adj, cur, !isSaddle); // type of 'adj' is opposite 'cur'
-				}
-			}
-						
-			if (isSaddle) {
-				if (deadEnd) {
-					// basin saddle
-					continue;
-				}
-				while (saddles.peekFirst() != null && c.compare(cur, saddles.peekFirst()) < 0) {
-					MeshPoint saddle = saddles.removeFirst();
-					MeshPoint peak = peaks.removeFirst();
-					PromInfo2 pi = new PromInfo2(peak, saddle);
-					front.backwardSaddles.put(saddle, peak);
-					if (pi.prominence() >= cutoff) {
-						pi.finalizeBackward(front);
-						onprom.onprom(pi.toNormal());
-					}
-				}
-				saddles.addFirst(cur);
-			} else {
-				while (peaks.peekFirst() != null && c.compare(cur, peaks.peekFirst()) > 0) {
-					MeshPoint saddle = saddles.removeFirst();
-					MeshPoint peak = peaks.removeFirst();
-					PromInfo2 pi = new PromInfo2(peak, saddle);
-					front.forwardSaddles.put(saddle, peak);
-					front.backwardSaddles.remove(saddle); // remove pending entry, if any
-					if (pi.prominence() >= cutoff) {
-						pi.finalizeForward(front, cur);
-						onprom.onprom(pi.toNormal());
-					}
-				}
-				peaks.addFirst(cur);
-				front.backwardSaddles.put(saddles.peekFirst(), cur); // pending
-				
-				// front contains only saddles
-				front.prune(peaks, saddles);
-			}
-
-			if (reachedEdge) {
-				while (!saddles.isEmpty()) {
-					MeshPoint peak = peaks.removeLast();
-					MeshPoint saddle = saddles.removeLast();
-					PromInfo2 pi = new PromInfo2(peak, saddle);
-					pi.min_bound_only = true;
-					if (pi.prominence() >= cutoff) {
-						pi.finalizeForward(front, cur);
-						onprom.onprom(pi.toNormal());
-					}
-				}
-				//onedge.addPending(cur);
-				break; // TODO: restart search from smaller islands and agglomerate?
-			}
-			
-			// debug output
-			if (Math.random() < 1e-3) {
-				StringBuilder sb = new StringBuilder();
-				Point[] _p = peaks.toArray(new Point[0]);
-				Point[] _s = saddles.toArray(new Point[0]);
-				for (int i = 0; i < _p.length; i++) {
-					sb.append(_p[_p.length - i - 1].elev + " ");
-					int six = _s.length - i - 1;
-					if (six >= 0) {
-						sb.append(_s[six].elev + " ");
-					}
-				}
-				Logging.log(sb.toString());
-			}
-		}		
-		
-		//onedge.finalize();
-	}
-	
 	
 	
 	

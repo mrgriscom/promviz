@@ -201,9 +201,10 @@ public class Prominence {
 		}
 				
 		public ChunkOutput build() {
+			List<PromInfo> proms = new ArrayList<PromInfo>();
+
 			load();
 			
-			List<PromInfo> proms = new ArrayList<PromInfo>();
 			Logging.log("before " + fronts.size());
 			while (pendingMerges.size() > 0) {
 				Iterator<FrontMerge> it = pendingMerges.iterator();
@@ -226,7 +227,7 @@ public class Prominence {
 			for (Front f : fronts) {
 				f.prune();
 			}
-			
+
 			ChunkOutput output = new ChunkOutput();
 			output.p = prefix;
 			output.proms = proms;
@@ -490,13 +491,33 @@ public class Prominence {
 				}
 
 				PromInfo pi = new PromInfo(up, f.peak, f.first());
-				pi._finalizeDumb();
 				pi.min_bound_only = true;
 				if (pi.prominence() >= input.cutoff) {
+					pi.path = pathToUnknown(f);
 					proms.add(pi);
 				}
 			}
-			// chase to edge?
+		}
+		
+		List<Long> pathToUnknown(Front f) {
+			List<Point> path = new ArrayList<Point>();
+			Point start = f.peak;
+			while (f != null) {
+				List<Point> segment = Lists.newArrayList(f.bt.getAtoB(start, f.first()));
+				if (!path.isEmpty()) {
+					segment = segment.subList(1, segment.size());
+				}
+				path.addAll(segment);
+				
+				start = f.first();
+				f = primaryFront(f);
+			}
+
+			List<Long> ixPath = new ArrayList<Long>();
+			for (Point p : path) {
+				ixPath.add(p.ix);
+			}
+			return Lists.reverse(ixPath);
 		}
 	}
 	
