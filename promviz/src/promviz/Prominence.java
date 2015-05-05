@@ -37,13 +37,14 @@ import com.google.common.collect.Lists;
  * write out MST
  * 
  * next:
- * subsequent merge rounds
  * mst dump
  * how to handle global max?
  */
 
 public class Prominence {
 
+	static final int COALESCE_STEP = 2;
+	
 	public static interface OnProm {
 		void onprom(PromInfo pi);
 	}
@@ -65,11 +66,13 @@ public class Prominence {
 		while (searcher.needsCoalesce()) {
 			searcher.coalesce();
 		}
+		searcher.finalize();
 	}
 	
 	static class ChunkInput {
 		Prefix p;
 		boolean up;
+		boolean baseLevel;
 		double cutoff;
 		Map<Prefix, Set<DEMFile>> coverage;
 	}
@@ -88,6 +91,9 @@ public class Prominence {
 		boolean up;
 		double cutoff;
 		OnProm onprom;
+
+		int level;
+		Set<Prefix> chunks;
 		
 		public PromSearch(int numWorkers, Map<Prefix, Set<DEMFile>> coverage, boolean up, double cutoff, OnProm onprom) {
 			this.numWorkers = numWorkers;
@@ -98,11 +104,9 @@ public class Prominence {
 		}
 
 		public void baseCellSearch() {
-			Set<Prefix> chunks = TopologyBuilder.enumerateChunks(coverage);
+			this.level = TopologyBuilder.CHUNK_SIZE_EXP;
+			this.chunks = TopologyBuilder.enumerateChunks(coverage);
 			Logging.log(chunks.size() + " network chunks");
-			
-//			List<Prefix> x = new ArrayList<Prefix>(chunks);
-//			chunks = new HashSet<Prefix>(x.subList(18, 19));
 			
 			launch(numWorkers, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
 				public ChunkInput apply(Prefix p) {
@@ -112,19 +116,23 @@ public class Prominence {
 		}
 		
 		public boolean needsCoalesce() {
-			// whether we need to aggregate at the next highest level
-			return false;
+			return this.chunks.size() > 1;
 		}
 		
 		public void coalesce() {
-			// aggregate at the next highest level
-
-//			this.launch(numWorkers, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
-//				public ChunkInput apply(Prefix p) {
-//					return makeInput(p, upChunks, downChunks);
-//				}
-//			}));
-
+			this.level += COALESCE_STEP;
+			this.chunks = TopologyBuilder.clusterPrefixes(this.chunks, this.level);
+			Logging.log(chunks.size() + " chunks @ L" + level);
+			
+			launch(numWorkers, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
+				public ChunkInput apply(Prefix p) {
+					return makeInput(p, up, cutoff);
+				}
+			}));
+		}
+		
+		public void finalize() {
+			// min_bound any still-pending fronts
 		}
 		
 		public ChunkOutput process(ChunkInput input) {
@@ -141,6 +149,10 @@ public class Prominence {
 		}
 
 		public static void writeFronts(Prefix prefix, Collection<Front> fronts, final boolean up) {
+			if (fronts.isEmpty()) {
+				return;
+			}
+			
 			try {
 				DataOutputStream out = new DataOutputStream(new FileOutputStream(FileUtil.segmentPath(up, prefix, FileUtil.PHASE_PROMTMP), true));
 				for (Front f : fronts) {
@@ -156,6 +168,7 @@ public class Prominence {
 			ChunkInput ci = new ChunkInput();
 			ci.p = p;
 			ci.up = up;
+			ci.baseLevel = (p.res == TopologyBuilder.CHUNK_SIZE_EXP);
 			ci.cutoff = cutoff;
 			ci.coverage = (HashMap)((HashMap)coverage).clone();
 			return ci;
@@ -244,32 +257,11 @@ public class Prominence {
 			connectorsByFrontPair = new HashMap<Set<Front>, MeshPoint>();
 			pendingMerges = new HashSet<FrontMerge>();
 			
-			List<Edge> edges = Lists.newArrayList(FileUtil.loadEdges(up, prefix, FileUtil.PHASE_RAW));
-			
-			// load necessary DEM pages for graph
-			final Set<Prefix> pages = new HashSet<Prefix>();
-			processEdges(edges, new EdgeProcessor() {
-				public void process(long summitIx, long saddleIx) {
-					pages.add(PagedElevGrid.segmentPrefix(summitIx));
-					pages.add(PagedElevGrid.segmentPrefix(saddleIx));
-				}
-			});
-			mesh.bulkLoadPage(pages);
-
-			// build atomic fronts (summit + immediate saddles)
-			final Map<MeshPoint, Front> frontsByPeak = new DefaultMap<MeshPoint, Front>() {
-				public Front defaultValue(MeshPoint key) {
-					return new Front(key, Point.cmpElev(up));
-				}
-			};
-			processEdges(edges, new EdgeProcessor() {
-				public void process(long summitIx, long saddleIx) {
-					MeshPoint summit = mesh.get(summitIx);
-					MeshPoint saddle = mesh.get(saddleIx);
-					frontsByPeak.get(summit).add(saddle);
-				}
-			});
-			fronts.addAll(frontsByPeak.values());
+			if (input.baseLevel) {
+				loadForBase();
+			} else {
+				loadForCoalesce();
+			}
 			
 			// map saddles to fronts that that saddle appears in
 			Map<MeshPoint, Set<Front>> saddlesToFronts = new DefaultMap<MeshPoint, Set<Front>>() {
@@ -321,6 +313,35 @@ public class Prominence {
 			Logging.log("" + pendingMerges.size());
 		}
 
+		void loadForBase() {
+			List<Edge> edges = Lists.newArrayList(FileUtil.loadEdges(up, prefix, FileUtil.PHASE_RAW));
+			
+			// load necessary DEM pages for graph
+			final Set<Prefix> pages = new HashSet<Prefix>();
+			processEdges(edges, new EdgeProcessor() {
+				public void process(long summitIx, long saddleIx) {
+					pages.add(PagedElevGrid.segmentPrefix(summitIx));
+					pages.add(PagedElevGrid.segmentPrefix(saddleIx));
+				}
+			});
+			mesh.bulkLoadPage(pages);
+
+			// build atomic fronts (summit + immediate saddles)
+			final Map<MeshPoint, Front> frontsByPeak = new DefaultMap<MeshPoint, Front>() {
+				public Front defaultValue(MeshPoint key) {
+					return new Front(key, up);
+				}
+			};
+			processEdges(edges, new EdgeProcessor() {
+				public void process(long summitIx, long saddleIx) {
+					MeshPoint summit = mesh.get(summitIx);
+					MeshPoint saddle = mesh.get(saddleIx);
+					frontsByPeak.get(summit).add(saddle);
+				}
+			});
+			fronts.addAll(frontsByPeak.values());
+		}
+		
 		void processEdges(Iterable<Edge> edges, EdgeProcessor ep) {
 			for (Edge e : edges) {
 				if (inChunk(e.a)) {
@@ -328,6 +349,14 @@ public class Prominence {
 				}
 				if (!e.pending() && inChunk(e.b)) {
 					ep.process(e.b, e.saddle);
+				}
+			}
+		}
+
+		void loadForCoalesce() {
+			for (Prefix subChunk : prefix.children(COALESCE_STEP)) {
+				for (Front f : FileUtil.loadFronts(up, subChunk, FileUtil.PHASE_PROMTMP)) {
+					fronts.add(f);
 				}
 			}
 		}
@@ -691,9 +720,9 @@ public class Prominence {
 		
 		Comparator<Point> c;
 
-		public Front(MeshPoint peak, final Comparator<Point> c) {
+		public Front(MeshPoint peak, boolean up) {
 			this.peak = peak;
-			this.c = c;
+			this.c = Point.cmpElev(up);
 			queue = new PriorityQueue<MeshPoint>(10, new ReverseComparator<Point>(c));
 			set = new HashSet<MeshPoint>();
 			bt = new Backtrace();
@@ -930,6 +959,22 @@ public class Prominence {
 		}
 		
 		public void write(DataOutputStream out) throws IOException {
+			Set<Point> mesh = new HashSet<Point>();
+			mesh.add(peak);
+			mesh.addAll(set);
+			mesh.addAll(forwardSaddles.keySet());
+			mesh.addAll(forwardSaddles.values());
+			mesh.addAll(backwardSaddles.keySet());
+			mesh.addAll(backwardSaddles.values());
+			mesh.addAll(bt.backtrace.keySet());
+			mesh.addAll(bt.backtrace.values());
+
+			out.writeInt(mesh.size());
+			for (Point p : mesh) {
+				p.write(out);
+			}			
+
+			out.writeBoolean(c == Point.cmpElev(true));
 			out.writeLong(peak.ix);
 
 			out.writeInt(set.size());
@@ -939,7 +984,6 @@ public class Prominence {
 
 			writePointMap(out, forwardSaddles);
 			writePointMap(out, backwardSaddles);
-			
 			writePointMap(out, bt.backtrace);
 		}
 		
@@ -950,9 +994,39 @@ public class Prominence {
 				out.writeLong(e.getValue().ix);
 			}
 		}
-		
+				
 		public static Front read(DataInputStream in) throws IOException {
-			return null;
+			Map<Long, MeshPoint> mesh = new HashMap<Long, MeshPoint>();
+			int nPoints = in.readInt();
+			for (int i = 0; i < nPoints; i++) {
+				MeshPoint p = MeshPoint.read(in);
+				mesh.put(p.ix, p);
+			}
+			
+			boolean up = in.readBoolean();
+			Front f = new Front(mesh.get(in.readLong()), up);
+
+			int nFront = in.readInt();
+			for (int i = 0; i < nFront; i++) {
+				MeshPoint p = mesh.get(in.readLong());
+				f.queue.add(p);
+				f.set.add(p);
+			}
+
+			readPointMap(in, mesh, f.forwardSaddles);
+			readPointMap(in, mesh, f.backwardSaddles);
+			readPointMap(in, mesh, f.bt.backtrace);
+			
+			return f;
+		}
+		
+		static void readPointMap(DataInputStream in, Map<Long, MeshPoint> mesh, Map pointMap) throws IOException {
+			int nEntries = in.readInt();
+			for (int i = 0; i < nEntries; i++) {
+				MeshPoint k = mesh.get(in.readLong());
+				MeshPoint v = mesh.get(in.readLong());
+				pointMap.put(k, v);
+			}
 		}
 	}
 	

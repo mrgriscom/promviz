@@ -61,14 +61,8 @@ public class Edge {
 		}
 	}
 	
-	static Edge read(DataInputStream in) {
-		try {
-			return new Edge(in.readLong(), in.readLong(), in.readLong(), in.readByte(), in.readByte());
-		} catch (EOFException eof) {
-			return null;
-		} catch (IOException ioe) {
-			throw new RuntimeException(ioe);
-		}
+	static Edge read(DataInputStream in) throws IOException {
+		return new Edge(in.readLong(), in.readLong(), in.readLong(), in.readByte(), in.readByte());
 	}
 	
 	public boolean equals(Object o) {

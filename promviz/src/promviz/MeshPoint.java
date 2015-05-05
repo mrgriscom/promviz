@@ -1,4 +1,7 @@
 package promviz;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -41,6 +44,14 @@ public class MeshPoint extends Point {
 			adj.add(geocode != PointIndex.NULL ? m.get(geocode) : null);
 		}
 		return adj;
+	}
+	
+	public static MeshPoint read(DataInputStream in) throws IOException {
+		return new MeshPoint(
+				in.readLong(),
+				in.readFloat(),
+				in.readInt()
+			);
 	}
 	
 	public int classify(IMesh m) {

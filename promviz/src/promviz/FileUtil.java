@@ -2,12 +2,15 @@ package promviz;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.NoSuchElementException;
 
+import promviz.Prominence.Front;
 import promviz.util.SaneIterable;
 
 public class FileUtil {
@@ -51,6 +54,8 @@ public class FileUtil {
 		return new File(root, path).getPath();
 	}
 
+	// TODO these load functions are preeeeetty similar...
+	
 	public static Iterable<Edge> loadEdges(boolean up, Prefix p, int phase) {
 		return loadEdges(segmentPath(up, p, phase));
 	}
@@ -65,16 +70,42 @@ public class FileUtil {
 
 		return new SaneIterable<Edge>() {
 			public Edge genNext() {
-				Edge next = Edge.read(in);
-				if (next != null) {
-					return next;
-				} else {
+				try {
+					return Edge.read(in);
+				} catch (EOFException eof) {
 					throw new NoSuchElementException();
+				} catch (IOException ioe) {
+					throw new RuntimeException(ioe);
 				}
 			}
 		};
 	}
 
+	public static Iterable<Front> loadFronts(boolean up, Prefix p, int phase) {
+		return loadFronts(segmentPath(up, p, phase));
+	}
+	
+	public static Iterable<Front> loadFronts(String path) {
+		final DataInputStream in;
+		try {
+			in = new DataInputStream(new BufferedInputStream(new FileInputStream(path)));
+		} catch (FileNotFoundException e) {
+			return new ArrayList<Front>();
+		}
+
+		return new SaneIterable<Front>() {
+			public Front genNext() {
+				try {
+					return Front.read(in);
+				} catch (EOFException eof) {
+					throw new NoSuchElementException();
+				} catch (IOException ioe) {
+					throw new RuntimeException(ioe);
+				}
+			}
+		};
+	}
+	
 	static public void ensureEmpty(int phase) {
 		String path = dir(phase);
 		File folder = new File(path);

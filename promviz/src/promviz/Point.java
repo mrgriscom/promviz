@@ -1,5 +1,7 @@
 package promviz;
 
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.Comparator;
 
 import promviz.util.ReverseComparator;
@@ -82,6 +84,10 @@ public class Point {
 		return Long.valueOf(this.ix).hashCode();
 	}
 	
+	public void write(DataOutputStream out) throws IOException {
+		out.writeLong(ix);
+		out.writeFloat(elev);
+		out.writeInt(isodist);
+	}
 
-	
 }
