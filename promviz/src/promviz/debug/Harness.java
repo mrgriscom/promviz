@@ -105,7 +105,7 @@ public class Harness {
 	public static void outputPromPoint(PromInfo pi) {
 		Gson ser = new Gson();
 		
-		PromInfo parentfill = new PromInfo(pi.p, pi.saddle);
+		PromInfo parentfill = new PromInfo(pi.up, pi.p, pi.saddle);
 		parentfill._finalizeDumb();
 		parentfill.min_bound_only = true;
 		PromInfo parentage = parentfill; //PromNetwork.parent(tn, p, up, prominentPoints);

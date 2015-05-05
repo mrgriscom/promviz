@@ -1,6 +1,11 @@
 package promviz;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -16,7 +21,6 @@ import java.util.Set;
 import promviz.Prominence.Backtrace.BacktracePruner;
 import promviz.debug.Harness;
 import promviz.dem.DEMFile;
-import promviz.dem.DEMFile.Sample;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 import promviz.util.ReverseComparator;
@@ -32,6 +36,10 @@ import com.google.common.collect.Lists;
  * determine base-level prominence - prom, saddle, threshold, and path
  * write out MST
  * 
+ * next:
+ * subsequent merge rounds
+ * mst dump
+ * how to handle global max?
  */
 
 public class Prominence {
@@ -63,12 +71,13 @@ public class Prominence {
 		Prefix p;
 		boolean up;
 		double cutoff;
-		OnProm onprom;
 		Map<Prefix, Set<DEMFile>> coverage;
 	}
 	
 	static class ChunkOutput {
 		Prefix p;
+		List<PromInfo> proms;
+		Collection<Front> fronts;
 	}
 	
 //	static class PromSearch extends WorkerPool<ChunkInput, ChunkOutput> {
@@ -92,9 +101,12 @@ public class Prominence {
 			Set<Prefix> chunks = TopologyBuilder.enumerateChunks(coverage);
 			Logging.log(chunks.size() + " network chunks");
 			
+//			List<Prefix> x = new ArrayList<Prefix>(chunks);
+//			chunks = new HashSet<Prefix>(x.subList(18, 19));
+			
 			launch(numWorkers, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
 				public ChunkInput apply(Prefix p) {
-					return makeInput(p, up, cutoff, onprom);
+					return makeInput(p, up, cutoff);
 				}
 			}));
 		}
@@ -120,17 +132,31 @@ public class Prominence {
 		}
 
 		public void postprocess(int i, ChunkOutput output) {
-			Logging.log(i + " " + output.p);
+			for (PromInfo pi : output.proms) {
+				this.onprom.onprom(pi);
+			}
+			writeFronts(output.p, output.fronts, up);
 			
-			// write mst?
+			Logging.log(i + " " + output.p);
 		}
 
-		ChunkInput makeInput(Prefix p, boolean up, double cutoff, OnProm onprom) {
+		public static void writeFronts(Prefix prefix, Collection<Front> fronts, final boolean up) {
+			try {
+				DataOutputStream out = new DataOutputStream(new FileOutputStream(FileUtil.segmentPath(up, prefix, FileUtil.PHASE_PROMTMP), true));
+				for (Front f : fronts) {
+					f.write(out);
+				}
+				out.close();
+			} catch (IOException ioe) {
+				throw new RuntimeException(ioe);
+			}				
+		}
+		
+		ChunkInput makeInput(Prefix p, boolean up, double cutoff) {
 			ChunkInput ci = new ChunkInput();
 			ci.p = p;
 			ci.up = up;
 			ci.cutoff = cutoff;
-			ci.onprom = onprom;
 			ci.coverage = (HashMap)((HashMap)coverage).clone();
 			return ci;
 		}
@@ -163,35 +189,29 @@ public class Prominence {
 		public ChunkOutput build() {
 			load();
 			
+			List<PromInfo> proms = new ArrayList<PromInfo>();
 			Logging.log("before " + fronts.size());
 			while (pendingMerges.size() > 0) {
 				Iterator<FrontMerge> it = pendingMerges.iterator();
 				FrontMerge toMerge = it.next();
 				it.remove();
 				
-				PromInfo pi = mergeFronts(toMerge);
-				if (pi.prominence() >= input.cutoff) {
-					input.onprom.onprom(pi);
+				PromInfo pi = mergeFronts(toMerge, input.cutoff);
+				if (pi != null) {
+					proms.add(pi);
 				}
 			}
 			Logging.log("after " + fronts.size());
 			
-			// temporary
+			// TODO make MST for chunk
 			for (Front f : fronts) {
-				PromInfo pi = new PromInfo(f.peak, f.first());
-				pi.up = up;
-				pi._finalizeDumb();
-				pi.min_bound_only = true;
-				if (pi.prominence() >= input.cutoff) {
-					input.onprom.onprom(pi);
-				}
+				f.prune();
 			}
-			
-			// dump mst
-			// dump pending fronts
 
 			ChunkOutput output = new ChunkOutput();
 			output.p = prefix;
+			output.proms = proms;
+			output.fronts = fronts;
 			return output;
 		}
 		
@@ -343,62 +363,74 @@ public class Prominence {
 			return pair;
 		}
 		
-		PromInfo mergeFronts(FrontMerge fm) {
+		PromInfo mergeFronts(FrontMerge fm, double cutoff) {
 			Front parent = fm.parent;
 			Front child = fm.child;
 			
+			// unlist child front, merge into parent, and remove connection between the two
 			fronts.remove(child);
 			MeshPoint saddle = child.pop();
 			boolean newParentMerge = parent.mergeFrom(child, saddle);
 			connectorsClear(saddle, frontPair(parent, child));
 			
+			// update for all fronts adjacent to child (excluding 'parent')
 			for (MeshPoint subsaddle : child.set) {
-				Front f = connectingFront(child, subsaddle);
-				if (f == null) {
+				Front neighbor = connectingFront(child, subsaddle);
+				if (neighbor == null) {
 					continue;
 				}
-				boolean mergesTowardsChild = child.equals(primaryFront(f));
+				// must test this before manipulating 'connectors'
+				boolean mergesTowardsChild = child.equals(primaryFront(neighbor));
 				
-				Set<Front> childAndOther = frontPair(child, f);
-				Set<Front> parentAndOther = frontPair(parent, f);
-				
-				connectorsClear(subsaddle, childAndOther);
-				MeshPoint existingParentOtherSaddle = connectorsByFrontPair.get(parentAndOther);
-				if (existingParentOtherSaddle == null) {
-					connectorsPut(subsaddle, parentAndOther);				
+				Set<Front> childAndNeighbor = frontPair(child, neighbor);
+				Set<Front> parentAndNeighbor = frontPair(parent, neighbor);
+				connectorsClear(subsaddle, childAndNeighbor);
+				MeshPoint existingParentNeighborSaddle = connectorsByFrontPair.get(parentAndNeighbor);
+				if (existingParentNeighborSaddle == null) {
+					connectorsPut(subsaddle, parentAndNeighbor);			
 				} else {
+					// parent was already connected to 'neighbor' before child merge -- only keep the
+					// better of the two saddles (original via 'parent' or new via 'child')
 					MeshPoint redundantSaddle;
-					if (parent.c.compare(existingParentOtherSaddle, subsaddle) > 0) {
+					if (parent.c.compare(existingParentNeighborSaddle, subsaddle) > 0) {
 						redundantSaddle = subsaddle;
 					} else {
-						redundantSaddle = existingParentOtherSaddle;
-						connectorsClear(existingParentOtherSaddle, parentAndOther);
-						connectorsPut(subsaddle, parentAndOther);
+						redundantSaddle = existingParentNeighborSaddle;
+						connectorsClear(existingParentNeighborSaddle, parentAndNeighbor);
+						connectorsPut(subsaddle, parentAndNeighbor);
 					}
 					parent.remove(redundantSaddle);
-					f.remove(redundantSaddle);
+					neighbor.remove(redundantSaddle);
 				}				
 				
+				// neighbor may now be mergeable with parent
+				// must do this after updating 'connectors'
 				if (mergesTowardsChild) {
-					FrontMerge existingMerge = new FrontMerge(f, child);
+					FrontMerge existingMerge = new FrontMerge(neighbor, child);
 					if (pendingMerges.contains(existingMerge)) {
+						// was mergeable with 'child'; transfer merge directly
 						pendingMerges.remove(existingMerge);
-						pendingMerges.add(new FrontMerge(f, parent));
+						pendingMerges.add(new FrontMerge(neighbor, parent));
 					} else {
-						newPendingMerge(f);
+						// may be mergeable with newly merged parent+child
+						newPendingMerge(neighbor);
 					}
 				}
 			}
 
+			// parent's primary front has changed
 			if (newParentMerge) {
 				// parent could not have had an existing pending merge, so no need to remove anything
 				newPendingMerge(parent);
 			}
-			
-			PromInfo pi = new PromInfo(child.peak, saddle);
-			pi.up = up;
-			pi._finalizeDumb();
-			return pi;
+
+			PromInfo pi = new PromInfo(up, child.peak, saddle);
+			if (pi.prominence() >= cutoff) {
+				pi.finalizeBackward(parent);
+				return pi;
+			} else {
+				return null;
+			}
 		}
 		
 		void connectorsPut(MeshPoint saddle, Set<Front> fronts) {
@@ -412,16 +444,6 @@ public class Prominence {
 			connectorsBySaddle.remove(saddle);
 			connectorsByFrontPair.remove(fronts);
 		}
-		
-		/*
-
-queue of all adjacencies to check/process?
-
-for cell, get highest saddle in front
-if saddle not in other front -- pending, nothing can do atm
-if other cell has higher peak, merge
-
-		 */
 	}
 	
 	public static class PromInfo {
@@ -431,10 +453,10 @@ if other cell has higher peak, merge
 		public boolean global_max;
 		public boolean min_bound_only;
 		public List<Long> path;
-		public boolean forwardSaddle; // danger
 		public double thresholdFactor = -1;
 		
-		public PromInfo(MeshPoint peak, MeshPoint saddle) {
+		public PromInfo(boolean up, MeshPoint peak, MeshPoint saddle) {
+			this.up = up;
 			this.p = peak;
 			this.saddle = saddle;
 		}
@@ -447,7 +469,6 @@ if other cell has higher peak, merge
 			Path _ = new Path(front.bt.getAtoB(horizon, this.p), this.p);
 			this.path = _.path;
 			this.thresholdFactor = _.thresholdFactor;
-			forwardSaddle = true;
 		}
 
 		public void finalizeBackward(Front front) {
@@ -455,7 +476,6 @@ if other cell has higher peak, merge
 			Path _ = new Path(front.bt.getAtoB(thresh, this.p), this.p);
 			this.path = _.path;
 			this.thresholdFactor = _.thresholdFactor;
-			forwardSaddle = false;
 		}
 		
 		public void _finalizeDumb() {
@@ -492,7 +512,7 @@ if other cell has higher peak, merge
 	}
 	
 	static class Backtrace {
-		Map<Point, Point> backtrace;
+		Map<Point, Point> backtrace; // pure Points are ok because we only care about their position, not elevation
 		Point root;
 		
 		public Backtrace() {
@@ -521,6 +541,35 @@ if other cell has higher peak, merge
 		
 		public int size() {
 			return backtrace.size();
+		}
+		
+		public Iterable<Point> mergeFrom(Backtrace other, MeshPoint saddle) {
+			// this pruning is causing errors for some reason
+//			for (Iterator<Point> it = other.backtrace.keySet().iterator(); it.hasNext(); ) {
+//				Point from = it.next();
+//				if (this.backtrace.containsKey(from) && !from.equals(saddle)) {
+//					this.backtrace.remove(from);
+//					it.remove();
+//				}					
+//			}
+			for (Entry<Point, Point> e : other.backtrace.entrySet()) {
+				Point from = e.getKey();
+				Point to = e.getValue();
+				if (from.equals(saddle)) {
+					continue;
+				}
+				this.add(from, to);
+			}
+			
+			List<Point> toReverse = Lists.newArrayList(other.trace(saddle)); 
+			Point from = null;
+			for (Point to : toReverse) {
+				if (from != null) {
+					this.add(to, from);
+				}
+				from = to;
+			}
+			return toReverse.subList(1, toReverse.size() - 1); // exclude connecting saddle and old front peak
 		}
 		
 		public Iterable<Point> trace(final Point start) {
@@ -616,19 +665,19 @@ if other cell has higher peak, merge
 			return path;
 		}
 
-		void load(MeshPoint p, TopologyNetwork tree, boolean isPeak) {
-			MeshPoint next;
-			while (!isLoaded(p)) {
-				if (isPeak) {
-					next = tree.get(p.getByTag(1, true));
-				} else {
-					next = tree.get(p.getByTag(0, false));					
-				}
-				this.add(p, next);
-				p = next;
-				isPeak = !isPeak;
-			}
-		}		
+//		void load(MeshPoint p, TopologyNetwork tree, boolean isPeak) {
+//			MeshPoint next;
+//			while (!isLoaded(p)) {
+//				if (isPeak) {
+//					next = tree.get(p.getByTag(1, true));
+//				} else {
+//					next = tree.get(p.getByTag(0, false));					
+//				}
+//				this.add(p, next);
+//				p = next;
+//				isPeak = !isPeak;
+//			}
+//		}		
 	}
 	
 	static class Front {
@@ -647,8 +696,8 @@ if other cell has higher peak, merge
 			this.c = c;
 			queue = new PriorityQueue<MeshPoint>(10, new ReverseComparator<Point>(c));
 			set = new HashSet<MeshPoint>();
-			//bt = new Backtrace();
-			//bt.add(peak, null);
+			bt = new Backtrace();
+			bt.add(peak, null);
 			
 			forwardSaddles = new HashMap<MeshPoint, MeshPoint>();
 			backwardSaddles = new HashMap<MeshPoint, MeshPoint>();
@@ -658,7 +707,7 @@ if other cell has higher peak, merge
 			boolean newItem = set.add(p);
 			if (newItem) {
 				queue.add(p);
-				//bt.add(p, peak);
+				bt.add(p, peak);
 			}
 			return newItem;
 		}
@@ -705,6 +754,16 @@ if other cell has higher peak, merge
 				add(s);
 			}
 			
+			Iterable<Point> swappedNodes = bt.mergeFrom(other.bt, saddle);
+			for (Point p : swappedNodes) {
+				if (forwardSaddles.containsKey(p)) {
+					backwardSaddles.put((MeshPoint)p, forwardSaddles.remove(p));
+				} else if (backwardSaddles.containsKey(p)) {
+					forwardSaddles.put((MeshPoint)p, backwardSaddles.remove(p));					
+				}
+			}
+			backwardSaddles.put(saddle, other.peak);
+			
 			return firstChanged;
 		}
 
@@ -716,56 +775,32 @@ if other cell has higher peak, merge
 			return peak.hashCode();
 		}
 		
-//		public void prune(Collection<MeshPoint> pendingPeaks, Collection<MeshPoint> pendingSaddles) {
-//			// when called, front must contain only saddles
-//
-//			// TODO: could this be made to work generationally (i.e., only deal with the
-//			// portion of the front that has changed since the last prune)
-//			
-//			long startAt = System.currentTimeMillis();
-//			if (seen.size() <= pruneThreshold) {
-//				return;
-//			}
-//			
-//			seen.retainAll(this.adjacent());
-//			pruneThreshold = Math.max(pruneThreshold, 2 * seen.size());
-//
-//			BacktracePruner btp = bt.pruner();
-//
-//			// concession for 'old school' mode
-//			if (pendingPeaks == null) {
-//				pendingPeaks = new ArrayList<MeshPoint>();
-//				pendingSaddles = new ArrayList<MeshPoint>();
-//			}
-//			
-//			for (Point p : Iterables.concat(queue, pendingPeaks)) {
-//				btp.markPoint(p);
-//			}
-//			Set<Point> bookkeeping = new HashSet<Point>();
-//			Set<Point> significantSaddles = new HashSet<Point>(pendingSaddles);
-//			for (Point p : Iterables.concat(queue, pendingSaddles)) {
-//				bulkSearchThresholdStart(p, btp, bookkeeping, significantSaddles);
-//			}
-//			btp.prune();
-//
-//			Iterator<Point> iterFS = forwardSaddles.keySet().iterator();
-//			while (iterFS.hasNext()) {
-//				Point p = iterFS.next();
-//				if (!significantSaddles.contains(p)) {
-//			        iterFS.remove();
-//			    }
-//			}
-//			Iterator<Point> iterBS = backwardSaddles.keySet().iterator();
-//			while (iterBS.hasNext()) {
-//				Point p = iterBS.next();
-//				if (!significantSaddles.contains(p)) {
-//			        iterBS.remove();
-//			    }
-//			}
-//						
-//			double runTime = (System.currentTimeMillis() - startAt) / 1000.;
-//			Logging.log(String.format("prooned [%.2fs] %d %d %d %d", runTime, queue.size(), bt.size(), forwardSaddles.size(), backwardSaddles.size()));
-//		}
+		public void prune() {
+			BacktracePruner btp = bt.pruner();
+
+			for (Point p : set) {
+				btp.markPoint(p);
+			}
+			Set<Point> bookkeeping = new HashSet<Point>();
+			Set<Point> significantSaddles = new HashSet<Point>();
+			for (Point p : set) {
+				bulkSearchThresholdStart(p, btp, bookkeeping, significantSaddles);
+			}
+			btp.prune();
+
+			for (Iterator<MeshPoint> it = forwardSaddles.keySet().iterator(); it.hasNext(); ) {
+				Point p = it.next();
+				if (!significantSaddles.contains(p)) {
+			        it.remove();
+			    }
+			}
+			for (Iterator<MeshPoint> it = backwardSaddles.keySet().iterator(); it.hasNext(); ) {
+				Point p = it.next();
+				if (!significantSaddles.contains(p)) {
+			        it.remove();
+			    }
+			}
+		}
 		
 		public int size() {
 			return queue.size();
@@ -823,8 +858,6 @@ if other cell has higher peak, merge
 				}
 			}
 			throw new RuntimeException("infinite loop failsafe exceeded");
-//			System.err.println("infinite loop failsafe exceeded " + p);
-//			return saddle;
 		}
 
 		public void bulkSearchThresholdStart(Point saddle, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
@@ -896,50 +929,32 @@ if other cell has higher peak, merge
 			// reached target
 		}
 		
-		
-	}
+		public void write(DataOutputStream out) throws IOException {
+			out.writeLong(peak.ix);
 
-	
-	
-	// temporary
-	static class TopologyNetwork implements IMesh {
-		PagedElevGrid mesh;
-		Iterable<Sample> samples;
-		boolean up;
-		
-		Map<Long, MeshPoint> points;
-		Set<MeshPoint> pendingSaddles;
-		
-		public TopologyNetwork(boolean up, Map<Prefix, Set<DEMFile>> coverage) {
-			this.up = up;
-			this.mesh = new PagedElevGrid(coverage, 1 << 29);
-			this.samples = this.mesh.bulkLoadPage(coverage.keySet());
+			out.writeInt(set.size());
+			for (MeshPoint p : set) {
+				out.writeLong(p.ix);
+			}
+
+			writePointMap(out, forwardSaddles);
+			writePointMap(out, backwardSaddles);
 			
-			points = new HashMap<Long, MeshPoint>();
-			pendingSaddles = new HashSet<MeshPoint>();
+			writePointMap(out, bt.backtrace);
 		}
-
-
-		void addPoint(long ix) {
-			if (!points.containsKey(ix)) {
-				points.put(ix, new MeshPoint(ix, mesh.get(ix).elev));
+		
+		public void writePointMap(DataOutputStream out, Map<? extends Point, ? extends Point> pointMap) throws IOException {
+			out.writeInt(pointMap.size());
+			for (Entry<? extends Point, ? extends Point> e : pointMap.entrySet()) {
+				out.writeLong(e.getKey().ix);
+				out.writeLong(e.getValue().ix);
 			}
 		}
 		
-		@Override
-		public MeshPoint get(long ix) {
-			return points.get(ix);
-		}
-		
-		Set<MeshPoint> adjacent(MeshPoint p) {
-			return new HashSet<MeshPoint>(getPoint(p).adjacent(this));
-		}
-		
-		MeshPoint getPoint(Point p) {
-			return get(p.ix);
+		public static Front read(DataInputStream in) throws IOException {
+			return null;
 		}
 	}
-
 	
 
 }

@@ -72,7 +72,7 @@ public class Main {
 		
 		final double PROM_CUTOFF_UP = 20.;
 		final double PROM_CUTOFF_DOWN = 20.;
-		FileUtil.ensureEmpty(FileUtil.PHASE_PROM);
+		FileUtil.ensureEmpty(FileUtil.PHASE_PROMTMP);
 		FileUtil.ensureEmpty(FileUtil.PHASE_MST);
 		Prominence.promSearch(DEMs, true, PROM_CUTOFF_UP);
 //		Prominence.promSearch(DEMs, false, PROM_CUTOFF_DOWN);

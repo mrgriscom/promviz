@@ -13,7 +13,7 @@ import promviz.util.SaneIterable;
 public class FileUtil {
 
 	public static final int PHASE_RAW = 0;
-	public static final int PHASE_PROM = 1;
+	public static final int PHASE_PROMTMP = 1;
 	public static final int PHASE_MST = 2;
 	public static final int PHASE_RMST = 3;
 	
@@ -39,8 +39,8 @@ public class FileUtil {
 		String _d = null;
 		if (phase == PHASE_RAW) {
 			_d = "dir_net";
-		} else if (phase == PHASE_PROM) {
-			_d = "dir_prom";
+		} else if (phase == PHASE_PROMTMP) {
+			_d = "dir_promtmp";
 		} else if (phase == PHASE_MST) {
 			_d = "dir_mst";
 		} else if (phase == PHASE_RMST) {
