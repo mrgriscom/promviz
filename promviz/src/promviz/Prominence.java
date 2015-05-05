@@ -66,13 +66,13 @@ public class Prominence {
 		while (searcher.needsCoalesce()) {
 			searcher.coalesce();
 		}
-		searcher.finalize();
 	}
 	
 	static class ChunkInput {
 		Prefix p;
 		boolean up;
 		boolean baseLevel;
+		boolean finalLevel;
 		double cutoff;
 		Map<Prefix, Set<DEMFile>> coverage;
 	}
@@ -131,10 +131,6 @@ public class Prominence {
 			}));
 		}
 		
-		public void finalize() {
-			// min_bound any still-pending fronts
-		}
-		
 		public ChunkOutput process(ChunkInput input) {
 			return new ChunkProcessor(input).build();
 		}
@@ -169,6 +165,7 @@ public class Prominence {
 			ci.p = p;
 			ci.up = up;
 			ci.baseLevel = (p.res == TopologyBuilder.CHUNK_SIZE_EXP);
+			ci.finalLevel = (chunks.size() == 1);
 			ci.cutoff = cutoff;
 			ci.coverage = (HashMap)((HashMap)coverage).clone();
 			return ci;
@@ -216,11 +213,16 @@ public class Prominence {
 			}
 			Logging.log("after " + fronts.size());
 			
+			if (input.finalLevel) {
+				finalizeRemaining(proms);
+				fronts.removeAll(fronts);
+			}
+
 			// TODO make MST for chunk
 			for (Front f : fronts) {
 				f.prune();
 			}
-
+			
 			ChunkOutput output = new ChunkOutput();
 			output.p = prefix;
 			output.proms = proms;
@@ -358,6 +360,7 @@ public class Prominence {
 				for (Front f : FileUtil.loadFronts(up, subChunk, FileUtil.PHASE_PROMTMP)) {
 					fronts.add(f);
 				}
+				// could delete chunk file now
 			}
 		}
 		
@@ -472,6 +475,20 @@ public class Prominence {
 			assert fronts.equals(connectorsBySaddle.get(saddle));
 			connectorsBySaddle.remove(saddle);
 			connectorsByFrontPair.remove(fronts);
+		}
+		
+		void finalizeRemaining(List<PromInfo> proms) {
+			Logging.log("finalizing remaining");
+			for (Front f : fronts) {
+				PromInfo pi = new PromInfo(up, f.peak, f.first());
+				pi._finalizeDumb();
+				pi.min_bound_only = true;
+				if (pi.prominence() >= input.cutoff) {
+					proms.add(pi);
+				}
+			}
+			// chase to edge?
+			// global max?
 		}
 	}
 	
