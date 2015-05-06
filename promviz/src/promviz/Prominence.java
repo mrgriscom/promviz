@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NoSuchElementException;
-import java.util.PriorityQueue;
+import java.util.Objects;
 import java.util.Set;
 
 import promviz.Prominence.Backtrace.BacktracePruner;
@@ -23,6 +23,7 @@ import promviz.debug.Harness;
 import promviz.dem.DEMFile;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
+import promviz.util.MutablePriorityQueue;
 import promviz.util.ReverseComparator;
 import promviz.util.SaneIterable;
 import promviz.util.WorkerPoolDebug;
@@ -30,6 +31,7 @@ import promviz.util.WorkerPoolDebug;
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 /* goals
  * 
@@ -187,7 +189,7 @@ public class Prominence {
 		Map<MeshPoint, Set<Front>> connectorsBySaddle;
 		Map<Set<Front>, MeshPoint> connectorsByFrontPair;
 		// front pairs that can and must be coalesced
-		Set<FrontMerge> pendingMerges;
+		MutablePriorityQueue<FrontMerge> pendingMerges;
 		
 		public ChunkProcessor(ChunkInput input) {
 			this.input = input;
@@ -207,10 +209,7 @@ public class Prominence {
 			
 			Logging.log("before " + fronts.size());
 			while (pendingMerges.size() > 0) {
-				Iterator<FrontMerge> it = pendingMerges.iterator();
-				FrontMerge toMerge = it.next();
-				it.remove();
-				
+				FrontMerge toMerge = pendingMerges.poll();
 				PromInfo pi = mergeFronts(toMerge, input.cutoff);
 				if (pi != null) {
 					proms.add(pi);
@@ -250,7 +249,7 @@ public class Prominence {
 			}
 			
 			public int hashCode() {
-				return parent.hashCode() ^ child.hashCode();
+				return Objects.hash(parent, child);
 			}
 		}
 		
@@ -258,7 +257,16 @@ public class Prominence {
 			fronts = new HashSet<Front>();
 			connectorsBySaddle = new HashMap<MeshPoint, Set<Front>>();
 			connectorsByFrontPair = new HashMap<Set<Front>, MeshPoint>();
-			pendingMerges = new HashSet<FrontMerge>();
+			pendingMerges = new MutablePriorityQueue<FrontMerge>(new Comparator<FrontMerge>() {
+				// prefer highest parent, then highest child
+				public int compare(FrontMerge a, FrontMerge b) {
+					int c = a.parent.c.compare(a.parent.peak, b.parent.peak);
+					if (c == 0) {
+						c = a.child.c.compare(a.child.peak, b.child.peak);
+					}
+					return -c;
+				}
+			});
 			
 			if (input.baseLevel) {
 				loadForBase();
@@ -273,7 +281,7 @@ public class Prominence {
 				}
 			};
 			for (Front f : fronts) {
-				for (MeshPoint saddle : f.set){
+				for (MeshPoint saddle : f.queue){
 					saddlesToFronts.get(saddle).add(f);
 				}
 			}
@@ -317,7 +325,8 @@ public class Prominence {
 		}
 
 		void loadForBase() {
-			List<Edge> edges = Lists.newArrayList(FileUtil.loadEdges(up, prefix, FileUtil.PHASE_RAW));
+			// there may be some duplicate edges as artifacts of the topobuild process; use set to remove them
+			Set<Edge> edges = Sets.newHashSet(FileUtil.loadEdges(up, prefix, FileUtil.PHASE_RAW));
 			
 			// load necessary DEM pages for graph
 			final Set<Prefix> pages = new HashSet<Prefix>();
@@ -339,7 +348,7 @@ public class Prominence {
 				public void process(long summitIx, long saddleIx) {
 					MeshPoint summit = mesh.get(summitIx);
 					MeshPoint saddle = mesh.get(saddleIx);
-					frontsByPeak.get(summit).add(saddle);
+					frontsByPeak.get(summit).add(saddle, true);
 				}
 			});
 			fronts.addAll(frontsByPeak.values());
@@ -411,7 +420,7 @@ public class Prominence {
 			connectorsClear(saddle, frontPair(parent, child));
 			
 			// update for all fronts adjacent to child (excluding 'parent')
-			for (MeshPoint subsaddle : child.set) {
+			for (MeshPoint subsaddle : child.queue) {
 				Front neighbor = connectingFront(child, subsaddle);
 				if (neighbor == null) {
 					continue;
@@ -438,7 +447,7 @@ public class Prominence {
 					}
 					parent.remove(redundantSaddle);
 					neighbor.remove(redundantSaddle);
-				}				
+				}
 				
 				// neighbor may now be mergeable with parent
 				// must do this after updating 'connectors'
@@ -587,8 +596,10 @@ public class Prominence {
 	}
 	
 	static class Backtrace {
-		Map<Point, Point> backtrace; // can't just store ixs since searchThreshold() needs elev values
-			// (because the saddle maps only store entries above the prominence cutoff)
+		// you may think we could just store the point indexes instead, but:
+		// - it simplifies the logic of searchThreshold() to be able to access the elevation values along the trace
+		// - each Long object would be in memory twice: once for the 'to' and the 'from'		
+		Map<Point, Point> backtrace; 
 		Point root;
 		
 		public Backtrace() {
@@ -758,8 +769,7 @@ public class Prominence {
 	
 	static class Front {
 		MeshPoint peak;
-		PriorityQueue<MeshPoint> queue; // the set of saddles delineating the cell for which 'peak' is the highest point
-		Set<MeshPoint> set; // set of all points in 'queue'
+		MutablePriorityQueue<MeshPoint> queue; // the set of saddles delineating the cell for which 'peak' is the highest point
 		Backtrace bt;
 
 		Map<MeshPoint, MeshPoint> forwardSaddles;
@@ -770,8 +780,7 @@ public class Prominence {
 		public Front(MeshPoint peak, boolean up) {
 			this.peak = peak;
 			this.c = Point.cmpElev(up);
-			queue = new PriorityQueue<MeshPoint>(10, new ReverseComparator<Point>(c));
-			set = new HashSet<MeshPoint>();
+			queue = new MutablePriorityQueue<MeshPoint>(new ReverseComparator<Point>(c));
 			bt = new Backtrace();
 			bt.add(peak, null);
 			
@@ -779,55 +788,34 @@ public class Prominence {
 			backwardSaddles = new HashMap<MeshPoint, MeshPoint>();
 		}
 		
-		public boolean add(MeshPoint p) {
-			boolean newItem = set.add(p);
-			if (newItem) {
-				queue.add(p);
+		public void add(MeshPoint p, boolean initial) {
+			queue.add(p);
+			if (initial) {
 				bt.add(p, peak);
 			}
-			return newItem;
 		}
-
+		
 		// remove element, return whether item existed
 		// does not affect backtrace, etc.
 		public boolean remove(MeshPoint p) {
-			boolean removed = set.remove(p);
-			ensureNextIsValid();
-			return removed;
+			return queue.remove(p);
 		}
 		
 		public MeshPoint pop() {
-			MeshPoint p = queue.poll();
-			if (p != null) {
-				set.remove(p);
-				ensureNextIsValid();
-			}
-			return p;
-		}
-		
-		// we can't remove from the middle of the queue, so when we do remove an item, we
-		// must ensure that peek() always yields a valid item, at least
-		void ensureNextIsValid() {
-			while (true) {
-				MeshPoint _n = first();
-				if (_n == null || set.contains(_n)) {
-					break;
-				}
-				pop();
-			}
+			return queue.poll();
 		}
 		
 		public MeshPoint first() {
 			return queue.peek();
 		}
-
+		
 		// assumes 'saddle' has already been popped from 'other'
 		public boolean mergeFrom(Front other, MeshPoint saddle) {
 			boolean firstChanged = first().equals(saddle);
 			remove(saddle);
 			
-			for (MeshPoint s : other.set) {
-				add(s);
+			for (MeshPoint s : other.queue) {
+				add(s, false);
 			}
 			
 			Iterable<Point> swappedNodes = bt.mergeFrom(other.bt, saddle);
@@ -854,12 +842,12 @@ public class Prominence {
 		public void prune() {
 			BacktracePruner btp = bt.pruner();
 
-			for (Point p : set) {
+			for (Point p : queue) {
 				btp.markPoint(p);
 			}
 			Set<Point> bookkeeping = new HashSet<Point>();
 			Set<Point> significantSaddles = new HashSet<Point>();
-			for (Point p : set) {
+			for (Point p : queue) {
 				bulkSearchThresholdStart(p, btp, bookkeeping, significantSaddles);
 			}
 			btp.prune();
@@ -1008,7 +996,7 @@ public class Prominence {
 		public void write(DataOutputStream out) throws IOException {
 			Set<Point> mesh = new HashSet<Point>();
 			mesh.add(peak);
-			mesh.addAll(set);
+			mesh.addAll(queue);
 			mesh.addAll(forwardSaddles.keySet());
 			mesh.addAll(forwardSaddles.values());
 			mesh.addAll(backwardSaddles.keySet());
@@ -1024,8 +1012,8 @@ public class Prominence {
 			out.writeBoolean(c == Point.cmpElev(true));
 			out.writeLong(peak.ix);
 
-			out.writeInt(set.size());
-			for (MeshPoint p : set) {
+			out.writeInt(queue.size());
+			for (MeshPoint p : queue) {
 				out.writeLong(p.ix);
 			}
 
@@ -1056,8 +1044,7 @@ public class Prominence {
 			int nFront = in.readInt();
 			for (int i = 0; i < nFront; i++) {
 				MeshPoint p = mesh.get(in.readLong());
-				f.queue.add(p);
-				f.set.add(p);
+				f.add(p, false);
 			}
 
 			readPointMap(in, mesh, f.forwardSaddles);
@@ -1067,7 +1054,7 @@ public class Prominence {
 			return f;
 		}
 		
-		static void readPointMap(DataInputStream in, Map<Long, MeshPoint> mesh, Map pointMap) throws IOException {
+		static void readPointMap(DataInputStream in, Map<Long, MeshPoint> mesh, Map<? super MeshPoint, ? super MeshPoint> pointMap) throws IOException {
 			int nEntries = in.readInt();
 			for (int i = 0; i < nEntries; i++) {
 				MeshPoint k = mesh.get(in.readLong());

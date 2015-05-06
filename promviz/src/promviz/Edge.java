@@ -4,6 +4,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.Objects;
 
 import promviz.util.Util;
 
@@ -75,7 +76,7 @@ public class Edge {
 	}
 	
 	public int hashCode() {
-		return Long.valueOf(this.a).hashCode() ^ Long.valueOf(this.b).hashCode() ^ Long.valueOf(this.saddle).hashCode();
+		return Objects.hash(a, b, saddle);
 	}
 	
 	public String _fmtTag(int tag) {

@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 
 
 /* extends Point with the concept of being part of a network or mesh, i.e., being
@@ -127,7 +128,7 @@ public class MeshPoint extends Point {
 		}
 		
 		public int hashCode() {
-			return this.p0.hashCode() ^ Integer.valueOf(this.i).hashCode() ^ Boolean.valueOf(this.up).hashCode();
+			return Objects.hash(p0, i, up);
 		}
 	}
 	

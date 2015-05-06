@@ -12,15 +12,14 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import promviz.MeshPoint.Lead;
 import promviz.dem.DEMFile;
-import promviz.dem.Projection;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 import promviz.util.Util;
-import promviz.util.WorkerPool;
 import promviz.util.WorkerPoolDebug;
 
 import com.google.common.base.Function;
@@ -28,7 +27,7 @@ import com.google.common.collect.Iterables;
 
 public class TopologyBuilder {
 
-	static final int CHUNK_SIZE_EXP = 11; //13;
+	static final int CHUNK_SIZE_EXP = 13;
 	static final int CHECKPOINT_FREQ = Util.pow2(11);
 	static final int CHECKPOINT_LEN = CHECKPOINT_FREQ;
 	static final int CHECKPOINT_EXCL_BUFFER = PagedElevGrid.pageDim();
@@ -420,7 +419,7 @@ public class TopologyBuilder {
 			}
 			
 			public int hashCode() {
-				return Long.valueOf(saddle).hashCode() ^ Boolean.valueOf(up).hashCode();
+				return Objects.hash(saddle, up);
 			}
 		}
 
@@ -439,7 +438,7 @@ public class TopologyBuilder {
 			}
 			
 			public int hashCode() {
-				return Long.valueOf(summit).hashCode() ^ Integer.valueOf(tag).hashCode();
+				return Objects.hash(summit, tag);
 			}
 		}
 
