@@ -818,6 +818,8 @@ public class Prominence {
 				add(s, false);
 			}
 			
+			forwardSaddles.putAll(other.forwardSaddles);
+			backwardSaddles.putAll(other.backwardSaddles);
 			Iterable<Point> swappedNodes = bt.mergeFrom(other.bt, saddle);
 			for (Point p : swappedNodes) {
 				if (forwardSaddles.containsKey(p)) {
@@ -848,7 +850,15 @@ public class Prominence {
 			Set<Point> bookkeeping = new HashSet<Point>();
 			Set<Point> significantSaddles = new HashSet<Point>();
 			for (Point p : queue) {
-				bulkSearchThresholdStart(p, btp, bookkeeping, significantSaddles);
+				bulkSearchThresholdStart(p, null, btp, bookkeeping, significantSaddles);
+			}
+			for (Point target : queue) {
+				Set<Point> bookkeeping2 = new HashSet<Point>();
+				for (Point p : queue) {
+					if (p != target) {
+						bulkSearchThresholdStart(p, target, btp, bookkeeping2, significantSaddles);
+					}
+				}
 			}
 			btp.prune();
 
@@ -924,8 +934,8 @@ public class Prominence {
 			throw new RuntimeException("infinite loop failsafe exceeded");
 		}
 
-		public void bulkSearchThresholdStart(Point saddle, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
-			bulkSearchThreshold(bt.get(saddle), null, null, btp, bookkeeping, significantSaddles);
+		public void bulkSearchThresholdStart(Point saddle, Point target, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
+			bulkSearchThreshold(bt.get(saddle), target, null, btp, bookkeeping, significantSaddles);
 		}
 		
 		public void bulkSearchThreshold(Point start, Point target, Point minThresh, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
