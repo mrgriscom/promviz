@@ -472,7 +472,7 @@ public class Prominence {
 
 			PromInfo pi = new PromInfo(up, child.peak, saddle);
 			if (pi.prominence() >= cutoff) {
-				pi.finalizeBackward(parent);
+				pi.finalize(parent);
 				return pi;
 			} else {
 				return null;
@@ -549,14 +549,8 @@ public class Prominence {
 			return Math.abs(p.elev - saddle.elev);
 		}
 		
-		public void finalizeForward(Front front, MeshPoint horizon) {
-			Path _ = new Path(front.bt.getAtoB(horizon, this.p), this.p);
-			this.path = _.path;
-			this.thresholdFactor = _.thresholdFactor;
-		}
-
-		public void finalizeBackward(Front front) {
-			Point thresh = front.searchThreshold(this.p, this.saddle);			
+		public void finalize(Front front) {
+			Point thresh = front.thresholds.get(this.p);			
 			Path _ = new Path(front.bt.getAtoB(thresh, this.p), this.p);
 			this.path = _.path;
 			this.thresholdFactor = _.thresholdFactor;
@@ -771,9 +765,7 @@ public class Prominence {
 		MeshPoint peak;
 		MutablePriorityQueue<MeshPoint> queue; // the set of saddles delineating the cell for which 'peak' is the highest point
 		Backtrace bt;
-
-		Map<MeshPoint, MeshPoint> forwardSaddles;
-		Map<MeshPoint, MeshPoint> backwardSaddles;
+		Backtrace thresholds;
 		
 		Comparator<Point> c;
 
@@ -783,15 +775,15 @@ public class Prominence {
 			queue = new MutablePriorityQueue<MeshPoint>(new ReverseComparator<Point>(c));
 			bt = new Backtrace();
 			bt.add(peak, null);
-			
-			forwardSaddles = new HashMap<MeshPoint, MeshPoint>();
-			backwardSaddles = new HashMap<MeshPoint, MeshPoint>();
+			thresholds = new Backtrace();
+			thresholds.add(peak, null);
 		}
 		
 		public void add(MeshPoint p, boolean initial) {
 			queue.add(p);
 			if (initial) {
 				bt.add(p, peak);
+				thresholds.add(p, peak);
 			}
 		}
 		
@@ -818,17 +810,16 @@ public class Prominence {
 				add(s, false);
 			}
 			
-			forwardSaddles.putAll(other.forwardSaddles);
-			backwardSaddles.putAll(other.backwardSaddles);
-			Iterable<Point> swappedNodes = bt.mergeFrom(other.bt, saddle);
-			for (Point p : swappedNodes) {
-				if (forwardSaddles.containsKey(p)) {
-					backwardSaddles.put((MeshPoint)p, forwardSaddles.remove(p));
-				} else if (backwardSaddles.containsKey(p)) {
-					forwardSaddles.put((MeshPoint)p, backwardSaddles.remove(p));					
-				}
+			bt.mergeFrom(other.bt, saddle);
+
+			Point threshold = saddle;
+			while (c.compare(threshold, other.peak) < 0) {
+				threshold = this.thresholds.get(threshold);
 			}
-			backwardSaddles.put(saddle, other.peak);
+			this.thresholds.backtrace.remove(saddle);
+			other.thresholds.backtrace.remove(saddle);
+			this.thresholds.backtrace.putAll(other.thresholds.backtrace);
+			this.thresholds.add(other.peak, threshold);
 			
 			return firstChanged;
 		}
@@ -842,175 +833,30 @@ public class Prominence {
 		}
 		
 		public void prune() {
-			BacktracePruner btp = bt.pruner();
-
+			BacktracePruner threshp = thresholds.pruner();
 			for (Point p : queue) {
+				threshp.markPoint(p);
+			}
+			threshp.prune();
+			
+			BacktracePruner btp = bt.pruner();
+			for (Point p : thresholds.backtrace.keySet()) {
 				btp.markPoint(p);
 			}
-			Set<Point> bookkeeping = new HashSet<Point>();
-			Set<Point> significantSaddles = new HashSet<Point>();
-			for (Point p : queue) {
-				bulkSearchThresholdStart(p, null, btp, bookkeeping, significantSaddles);
-			}
-			for (Point target : queue) {
-				Set<Point> bookkeeping2 = new HashSet<Point>();
-				for (Point p : queue) {
-					if (p != target) {
-						bulkSearchThresholdStart(p, target, btp, bookkeeping2, significantSaddles);
-					}
-				}
-			}
 			btp.prune();
-
-			for (Iterator<MeshPoint> it = forwardSaddles.keySet().iterator(); it.hasNext(); ) {
-				Point p = it.next();
-				if (!significantSaddles.contains(p)) {
-			        it.remove();
-			    }
-			}
-			for (Iterator<MeshPoint> it = backwardSaddles.keySet().iterator(); it.hasNext(); ) {
-				Point p = it.next();
-				if (!significantSaddles.contains(p)) {
-			        it.remove();
-			    }
-			}
 		}
 		
 		public int size() {
 			return queue.size();
 		}
 		
-		public Point searchThreshold(Point p, Point saddle) {
-			/*
-			 * we have mapping saddle->peak: forwardSaddles, backwardSaddles
-			 * forwardSaddles is saddles fixed via finalizeForward, etc.
-			 * backwardSaddles also includes all pending saddle/peak pairs
-			 * 
-			 * strict definition:
-			 * forwardSaddles means: given the saddle, the peak is located in the direction of the backtrace
-			 * backwardSaddles means: peak is located in opposite direction to the backtrace
-             */
-
-			Point start = bt.get(saddle);
-			Point target = null;
-			for (int i = 0; i < 1000; i++) {
-				Iterable<Point> path = bt.getAtoB(start, target);
-				start = null;
-				
-				boolean isPeak = true;
-				Point prev = null;
-				Point lockout = null;
-				for (Point cur : path) {
-					if (lockout != null && this.c.compare(cur, lockout) < 0) {
-						lockout = null;
-					}
-					if (lockout == null) {
-						if (isPeak) {
-							if (start == null || this.c.compare(cur, start) > 0) {
-								start = cur;
-								if (this.c.compare(start, p) > 0) {
-									return start;
-								}
-							}
-						} else {
-							Point pf = forwardSaddles.get(cur);
-							Point pb = backwardSaddles.get(cur);
-							boolean dirForward = (prev.equals(this.bt.get(cur)));
-							Point peakAway = (dirForward ? pf : pb);
-							Point peakToward = (dirForward ? pb : pf);
-							if (peakToward != null && this.c.compare(peakToward, start) > 0) {
-								lockout = cur;
-							} else if (peakAway != null && this.c.compare(peakAway, p) > 0) {
-								target = peakAway;
-								break;
-							}
-						}
-					}
-
-					isPeak = !isPeak;
-					prev = cur;
-				}
-			}
-			throw new RuntimeException("infinite loop failsafe exceeded");
-		}
-
-		public void bulkSearchThresholdStart(Point saddle, Point target, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
-			bulkSearchThreshold(bt.get(saddle), target, null, btp, bookkeeping, significantSaddles);
-		}
-		
-		public void bulkSearchThreshold(Point start, Point target, Point minThresh, BacktracePruner btp, Set<Point> bookkeeping, Set<Point> significantSaddles) {
-			// minThresh is the equivalent of 'p' in non-bulk mode
-			
-			boolean withBailout = (bookkeeping != null);
-			
-			Iterable<Point> path = bt.getAtoB(start, target);
-			if (target != null) {
-				btp.markPoint(target);
-			}
-			start = null;
-						
-			boolean isPeak = true;
-			Point prev = null;
-			Point lockout = null;
-			for (Point cur : path) {
-				boolean bailoutCandidate = false;
-				
-				if (lockout != null && this.c.compare(cur, lockout) < 0) {
-					lockout = null;
-				}
-				if (lockout == null) {
-					if (isPeak) {
-						if (start == null || this.c.compare(cur, start) > 0) {
-							start = cur;
-							if (minThresh == null || this.c.compare(start, minThresh) > 0) {
-								minThresh = start;
-								bailoutCandidate = true;
-							}
-						}
-					} else {
-						Point pf = forwardSaddles.get(cur);
-						Point pb = backwardSaddles.get(cur);
-						boolean dirForward = (prev.equals(this.bt.get(cur)));
-						Point peakAway = (dirForward ? pf : pb);
-						Point peakToward = (dirForward ? pb : pf);
-						if (peakToward != null) {
-							// i don't think we can filter based on 'start' like in non-bulk mode because
-							// different paths might have differing 'start's at any given time even though
-							// they ultimately find the same peaks. if the processing order changed things
-							// would break? unfortunately that means every 'toward' saddle is significant
-							significantSaddles.add(cur);
-							lockout = cur;
-						} else if (peakAway != null && this.c.compare(peakAway, minThresh) > 0) {
-							significantSaddles.add(cur);
-							Point newTarget = peakAway;
-							bulkSearchThreshold(start, newTarget, minThresh, btp, bookkeeping, significantSaddles);
-							minThresh = newTarget;
-							bailoutCandidate = true;
-						}
-					}
-				}
-				if (bailoutCandidate && withBailout) {
-					if (bookkeeping.contains(cur)) {
-						return;
-					} else {
-						bookkeeping.add(cur);
-					}
-				}
-				
-				isPeak = !isPeak;
-				prev = cur;
-			}
-			// reached target
-		}
-		
+		// TODO i don't think backtrace 'root' gets stored?
 		public void write(DataOutputStream out) throws IOException {
 			Set<Point> mesh = new HashSet<Point>();
 			mesh.add(peak);
 			mesh.addAll(queue);
-			mesh.addAll(forwardSaddles.keySet());
-			mesh.addAll(forwardSaddles.values());
-			mesh.addAll(backwardSaddles.keySet());
-			mesh.addAll(backwardSaddles.values());
+			mesh.addAll(thresholds.backtrace.keySet());
+			mesh.addAll(thresholds.backtrace.values());
 			mesh.addAll(bt.backtrace.keySet());
 			mesh.addAll(bt.backtrace.values());
 
@@ -1027,8 +873,7 @@ public class Prominence {
 				out.writeLong(p.ix);
 			}
 
-			writePointMap(out, forwardSaddles);
-			writePointMap(out, backwardSaddles);
+			writePointMap(out, thresholds.backtrace);
 			writePointMap(out, bt.backtrace);
 		}
 		
@@ -1057,8 +902,7 @@ public class Prominence {
 				f.add(p, false);
 			}
 
-			readPointMap(in, mesh, f.forwardSaddles);
-			readPointMap(in, mesh, f.backwardSaddles);
+			readPointMap(in, mesh, f.thresholds.backtrace);
 			readPointMap(in, mesh, f.bt.backtrace);
 			
 			return f;
