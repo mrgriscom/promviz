@@ -91,19 +91,6 @@ public class PromNetwork {
 //		}
 //	}
 	
-//	static class DomainSaddleInfo {
-//		Point saddle;
-//		Long peakIx;
-//		boolean isHigher;
-//		boolean isDomain;
-//		
-//		public DomainSaddleInfo(PromPair pp, boolean isDomain, TopologyNetwork tree, Comparator<Point> cmp, Point p) {
-//			this.saddle = pp.getSaddle();
-//			this.peakIx = pp.getPeakIx();
-//			this.isDomain = isDomain;
-//			this.isHigher = (cmp.compare(tree.get(this.peakIx), p) > 0);
-//		}
-//	}
 	
 //	public static List<DomainSaddleInfo> domainSaddles(boolean up, TopologyNetwork tree, Point p) {
 //		final PromPair pp = PromPair.fromPeak(p, tree);

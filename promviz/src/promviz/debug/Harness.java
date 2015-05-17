@@ -139,12 +139,12 @@ public class Harness {
 		System.out.println(ser.toJson(new ParentData(up, pi.p, pi)));
 	}
 
-	static void outputSubsaddles(Point p, List<Integer/*DomainSaddleInfo*/> dsi, boolean up) {
+	public static void outputSubsaddles(long pix, List<DomainSaddleInfo> dsi, boolean up) {
 		if (dsi.isEmpty()) {
 			return;
 		}
 		Gson ser = new Gson();
-		System.out.println(ser.toJson(new SubsaddleData(up, p, dsi)));
+		System.out.println(ser.toJson(new SubsaddleData(up, pix, dsi)));
 	}
 
 	static void outputPromThresh(PrintWriter w, PromInfo pi, boolean up) {
@@ -286,23 +286,31 @@ public class Harness {
 		}
 		List<Subsaddle> subsaddles;
 		
-		public SubsaddleData(boolean up, Point p, List<Integer/*DomainSaddleInfo*/> dsis) {
+		public SubsaddleData(boolean up, long pix, List<DomainSaddleInfo> dsis) {
 			this.up = up;
-			this.summit = new PromPoint(p.ix);
+			this.summit = new PromPoint(pix);
 
 			this.subsaddles = new ArrayList<Subsaddle>();
-//			for (DomainSaddleInfo dsi : dsis) {
-//				Subsaddle SS = new Subsaddle();
-//				SS.saddle = new PromPoint((Point)dsi.saddle, null);
-//				SS.peak = new PromPoint(dsi.peakIx);
-//				SS.higher = dsi.isHigher;
-//				SS.domain = dsi.isDomain;
-//				this.subsaddles.add(SS);
-//			}
+			for (DomainSaddleInfo dsi : dsis) {
+				Subsaddle SS = new Subsaddle();
+				SS.saddle = new PromPoint(dsi.saddleIx);
+				SS.peak = new PromPoint(dsi.peakIx);
+				SS.higher = dsi.isHigher;
+				SS.domain = dsi.isDomain;
+				this.subsaddles.add(SS);
+			}
 		}
 	}
 	
+	public static class DomainSaddleInfo {
+		public long saddleIx;
+		public long peakIx;
+		public boolean isHigher;
+		public boolean isDomain;
+	}
 
+	
+	
 //
 //	static void processMST(Point highest, DEMManager dm, boolean up, String region) {
 //		if (region != null) {

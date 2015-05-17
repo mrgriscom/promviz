@@ -20,6 +20,7 @@ import java.util.Set;
 
 import promviz.Prominence.Backtrace.BacktracePruner;
 import promviz.debug.Harness;
+import promviz.debug.Harness.DomainSaddleInfo;
 import promviz.dem.DEMFile;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
@@ -77,6 +78,7 @@ public class Prominence {
 		List<PromInfo> proms;
 		Collection<Front> fronts;
 		Map<Long, Long> pthresh;
+		Map<Long, Set<Long[]>> subsaddles;
 		// mst?
 	}
 	
@@ -142,6 +144,21 @@ public class Prominence {
 				Harness.outputPThresh(up, e.getKey(), e.getValue());
 			}
 			
+			// TODO if peak already exists in proms, consolidate and save writes (big slow down)
+			for (Entry<Long, Set<Long[]>> e : output.subsaddles.entrySet()) {
+				List<DomainSaddleInfo> ssi = new ArrayList<DomainSaddleInfo>();
+				for (Long[] pp : e.getValue()) {
+					DomainSaddleInfo dsi = new DomainSaddleInfo();
+					ssi.add(dsi);
+					
+					dsi.saddleIx = pp[0];
+					dsi.peakIx = pp[1];
+					dsi.isHigher = true;
+					dsi.isDomain = false;
+				}
+				Harness.outputSubsaddles(e.getKey(), ssi, up);
+			}
+			
 			Logging.log((i+1) + " " + output.p);
 		}
 
@@ -186,6 +203,7 @@ public class Prominence {
 		// front pairs that can and must be coalesced
 		MutablePriorityQueue<FrontMerge> pendingMerges;
 		Map<Long, Long> pthresh;
+		Map<Long, Set<Long[]>> subsaddles;
 		
 		public ChunkProcessor(ChunkInput input) {
 			this.input = input;
@@ -201,6 +219,11 @@ public class Prominence {
 		public ChunkOutput build() {
 			List<PromInfo> proms = new ArrayList<PromInfo>();
 			pthresh = new HashMap<Long, Long>();
+			subsaddles = new DefaultMap<Long, Set<Long[]>>() {
+				public Set<Long[]> defaultValue(Long key) {
+					return new HashSet<Long[]>();
+				}
+			};
 			
 			load();
 			
@@ -229,6 +252,7 @@ public class Prominence {
 			output.proms = proms;
 			output.fronts = fronts;
 			output.pthresh = pthresh;
+			output.subsaddles = (HashMap)((HashMap)subsaddles).clone();
 			return output;
 		}
 		
@@ -414,7 +438,7 @@ public class Prominence {
 			// unlist child front, merge into parent, and remove connection between the two
 			fronts.remove(child);
 			MeshPoint saddle = child.pop();
-			boolean newParentMerge = parent.mergeFrom(child, saddle);
+			boolean newParentMerge = parent.mergeFrom(child, saddle, subsaddles);
 			connectorsClear(saddle, frontPair(parent, child));
 			
 			// update for all fronts adjacent to child (excluding 'parent')
@@ -683,20 +707,23 @@ public class Prominence {
 			return toReverse.subList(1, toReverse.size() - 1); // exclude connecting saddle and old front peak
 		}
 		
-		public void mergeFromAsTree(Backtrace other, MeshPoint saddle, Comparator<Point> c) {
+		public List<Point> mergeFromAsTree(Backtrace other, MeshPoint saddle, Comparator<Point> c) {
 			removeInCommon(other, saddle);
 			
 			Point threshold = null;
+			List<Point> belowThresh = new ArrayList<Point>();
 			for (Point p : trace(saddle)) {
 				if (c.compare(p, other.root) > 0) {
 					threshold = p;
 					break;
 				}
+				belowThresh.add(p);
 			}
 			this.backtrace.remove(saddle);
 			other.backtrace.remove(saddle);
 			this.backtrace.putAll(other.backtrace);
 			this.add(other.root, threshold);
+			return belowThresh;
 		}
 		
 		public Iterable<Point> trace(final Point start) {
@@ -868,7 +895,7 @@ public class Prominence {
 		}
 		
 		// assumes 'saddle' has already been popped from 'other'
-		public boolean mergeFrom(Front other, MeshPoint saddle) {
+		public boolean mergeFrom(Front other, MeshPoint saddle, Map<Long, Set<Long[]>> subsaddles) {
 			boolean firstChanged = first().equals(saddle);
 			remove(saddle);
 			
@@ -877,7 +904,13 @@ public class Prominence {
 			}
 			
 			bt.mergeFromAsNetwork(other.bt, saddle);
-			thresholds.mergeFromAsTree(other.thresholds, saddle, this.c);
+			
+			List<Point> subbed1 = Lists.newArrayList(other.thresholds.trace(saddle));
+			subbed1 = subbed1.subList(1, subbed1.size() - 1);
+			List<Point> subbed2 = thresholds.mergeFromAsTree(other.thresholds, saddle, this.c);
+			for (Point sub : Iterables.concat(subbed1, subbed2)) {
+				subsaddles.get(sub.ix).add(new Long[] {saddle.ix, other.peak.ix});
+			}
 			
 			promPoints.putAll(other.promPoints);
 			

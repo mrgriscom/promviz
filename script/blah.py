@@ -127,8 +127,10 @@ def process_addendum(p):
                 },
                 'domain': ss['domain'],
             }
+        cur_ss = out.get('subsaddles', [])
+        cur_ss.extend(map(tx_saddle, p['subsaddles']))
         out.update({
-            'subsaddles': sorted(map(tx_saddle, p['subsaddles']), key=lambda ss: ss['saddle']['geo']),
+            'subsaddles': sorted(cur_ss, key=lambda ss: ss['saddle']['geo']),
         })
 
     return out
