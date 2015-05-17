@@ -43,23 +43,16 @@ for k in points():
     #        psimp.append(p)
     #ref['threshold_path'] = psimp
 
-    # new-school parent search cuts off at root's saddle
-    if 'parent' not in cur:
-        if 'parent' in ref:
-            del ref['parent']
-    # new-school parent path only starts from saddle
-    del cur['parent_path']
-    del ref['parent_path']
-
-    del cur['_thresh']
     del ref['_thresh']
 
-    def softdel(k):
-        if k in ref:
-            del ref[k]
-    softdel('pthresh')
+    def softdel(k, a=ref):
+        if k in a:
+            del a[k]
     softdel('subsaddles')
     softdel('children')
+    for a in (cur, ref):
+        softdel('parent', a)
+        softdel('parent_path', a)
 
     if cur != ref:
         diffs = True

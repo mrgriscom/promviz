@@ -26,7 +26,7 @@ import promviz.util.Logging;
 import promviz.util.MutablePriorityQueue;
 import promviz.util.ReverseComparator;
 import promviz.util.SaneIterable;
-import promviz.util.WorkerPool;
+import promviz.util.WorkerPoolDebug;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
@@ -76,11 +76,12 @@ public class Prominence {
 		Prefix p;
 		List<PromInfo> proms;
 		Collection<Front> fronts;
+		Map<Long, Long> pthresh;
 		// mst?
 	}
 	
-	static class PromSearch extends WorkerPool<ChunkInput, ChunkOutput> {
-//	static class PromSearch extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
+//	static class PromSearch extends WorkerPool<ChunkInput, ChunkOutput> {
+	static class PromSearch extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
 
 		int numWorkers;
 		Map<Prefix, Set<DEMFile>> coverage;
@@ -137,6 +138,10 @@ public class Prominence {
 			}
 			writeFronts(output.p, output.fronts, up);
 			
+			for (Entry<Long, Long> e : output.pthresh.entrySet()) {
+				Harness.outputPThresh(up, e.getKey(), e.getValue());
+			}
+			
 			Logging.log((i+1) + " " + output.p);
 		}
 
@@ -180,6 +185,7 @@ public class Prominence {
 		Map<Set<Front>, MeshPoint> connectorsByFrontPair;
 		// front pairs that can and must be coalesced
 		MutablePriorityQueue<FrontMerge> pendingMerges;
+		Map<Long, Long> pthresh;
 		
 		public ChunkProcessor(ChunkInput input) {
 			this.input = input;
@@ -194,7 +200,8 @@ public class Prominence {
 				
 		public ChunkOutput build() {
 			List<PromInfo> proms = new ArrayList<PromInfo>();
-
+			pthresh = new HashMap<Long, Long>();
+			
 			load();
 			
 			Logging.log("before " + fronts.size());
@@ -221,6 +228,7 @@ public class Prominence {
 			output.p = prefix;
 			output.proms = proms;
 			output.fronts = fronts;
+			output.pthresh = pthresh;
 			return output;
 		}
 		
@@ -458,15 +466,18 @@ public class Prominence {
 			if (newParentMerge) {
 				// parent could not have had an existing pending merge, so no need to remove anything
 				newPendingMerge(parent);
+				
+				if (parent.pendProm() >= cutoff) {
+					flushPending(parent, parent.peak);
+				}
 			}
 
 			PromInfo pi = new PromInfo(up, child.peak, saddle);
-			if (pi.prominence() >= cutoff) {
-				pi.finalize(parent);
-				return pi;
-			} else {
-				return null;
+			boolean save = pi.finalize(parent, child, cutoff);
+			if (pi.pthresh != null) {
+				flushPending(child, pi.pthresh);
 			}
+			return (save ? pi : null);
 		}
 		
 		void connectorsPut(MeshPoint saddle, Set<Front> fronts) {
@@ -518,6 +529,13 @@ public class Prominence {
 			}
 			return Lists.reverse(ixPath);
 		}
+		
+		void flushPending(Front f, Point pthresh) {
+			for (Iterator<Long> it = f.pendingPThresh.iterator(); it.hasNext(); ) {
+				this.pthresh.put(it.next(), pthresh.ix);
+				it.remove();
+			}
+		}
 	}
 	
 	public static class PromInfo {
@@ -529,6 +547,8 @@ public class Prominence {
 		public List<Long> path;
 		public double thresholdFactor = -1;
 		
+		public Point pthresh;
+		
 		public PromInfo(boolean up, MeshPoint peak, MeshPoint saddle) {
 			this.up = up;
 			this.p = peak;
@@ -538,12 +558,36 @@ public class Prominence {
 		public double prominence() {
 			return Math.abs(p.elev - saddle.elev);
 		}
+
+		public boolean finalize(Front parent, Front child, double cutoff) {
+			boolean aboveCutoff = (prominence() >= cutoff);
+			if (aboveCutoff || !child.pendingPThresh.isEmpty()) {
+				Point thresh = parent.thresholds.get(this.p);
+				if (aboveCutoff) {
+					parent.promPoints.put(child.peak, prominence());
+					Path _ = new Path(parent.bt.getAtoB(thresh, this.p), this.p);
+					this.path = _.path;
+					this.thresholdFactor = _.thresholdFactor;
+				}
+				pthresh = this.pthresh(thresh, parent, child, cutoff);
+			}
+			return aboveCutoff;
+		}
 		
-		public void finalize(Front front) {
-			Point thresh = front.thresholds.get(this.p);			
-			Path _ = new Path(front.bt.getAtoB(thresh, this.p), this.p);
-			this.path = _.path;
-			this.thresholdFactor = _.thresholdFactor;
+		Point pthresh(Point thresh, Front parent, Front child, double cutoff) {
+			Point pthresh = thresh;
+			while (parent.getProm(pthresh) < cutoff && !pthresh.equals(parent.peak)) {
+				pthresh = parent.thresholds.get(pthresh);
+			}
+			if (parent.getProm(pthresh) >= cutoff) {
+				return pthresh;
+			} else {
+				if (prominence() >= cutoff) {
+					parent.pendingPThresh.add(this.p.ix);
+				}
+				parent.pendingPThresh.addAll(child.pendingPThresh);
+				return null;
+			}
 		}
 		
 		public void _finalizeDumb() {
@@ -769,6 +813,9 @@ public class Prominence {
 		Backtrace bt;
 		Backtrace thresholds;
 		
+		Map<MeshPoint, Double> promPoints; // TODO eventually store saddle instead of prom directly
+		Set<Long> pendingPThresh;
+		
 		Comparator<Point> c;
 
 		public Front(MeshPoint peak, boolean up) {
@@ -779,6 +826,23 @@ public class Prominence {
 			bt.add(peak, null);
 			thresholds = new Backtrace();
 			thresholds.add(peak, null);
+			
+			promPoints = new HashMap<MeshPoint, Double>();
+			pendingPThresh = new HashSet<Long>();
+		}
+		
+		public double pendProm() {
+			return Math.abs(peak.elev - first().elev);			
+		}
+		
+		public double getProm(Point p) {
+			if (p.equals(peak)) {
+				return pendProm();
+			} else if (promPoints.containsKey(p)) {
+				return promPoints.get(p);
+			} else {
+				return -1;
+			}
 		}
 		
 		public void add(MeshPoint p, boolean initial) {
@@ -815,6 +879,8 @@ public class Prominence {
 			bt.mergeFromAsNetwork(other.bt, saddle);
 			thresholds.mergeFromAsTree(other.thresholds, saddle, this.c);
 			
+			promPoints.putAll(other.promPoints);
+			
 			return firstChanged;
 		}
 
@@ -838,6 +904,12 @@ public class Prominence {
 				btp.markPoint(p);
 			}
 			btp.prune();
+			
+			for (Iterator<MeshPoint> it = promPoints.keySet().iterator(); it.hasNext(); ) {
+				if (!thresholds.backtrace.containsKey(it.next())) {
+					it.remove();
+				}
+			}
 		}
 		
 		public int size() {
@@ -869,6 +941,17 @@ public class Prominence {
 
 			writePointMap(out, thresholds.backtrace);
 			writePointMap(out, bt.backtrace);
+
+			out.writeInt(promPoints.size());
+			for (Entry<MeshPoint, Double> e : promPoints.entrySet()) {
+				out.writeLong(e.getKey().ix);
+				out.writeDouble(e.getValue());
+			}
+			
+			out.writeInt(pendingPThresh.size());
+			for (long ix : pendingPThresh) {
+				out.writeLong(ix);
+			}
 		}
 		
 		public void writePointMap(DataOutputStream out, Map<? extends Point, ? extends Point> pointMap) throws IOException {
@@ -899,6 +982,18 @@ public class Prominence {
 			readPointMap(in, mesh, f.thresholds.backtrace);
 			readPointMap(in, mesh, f.bt.backtrace);
 
+			int nProm = in.readInt();
+			for (int i = 0; i < nProm; i++) {
+				MeshPoint k = mesh.get(in.readLong());
+				double v = in.readDouble();
+				f.promPoints.put(k, v);
+			}
+			
+			int nPendPT = in.readInt();
+			for (int i = 0; i < nPendPT; i++) {
+				f.pendingPThresh.add(in.readLong());
+			}
+			
 			return f;
 		}
 		

@@ -89,7 +89,7 @@ def process_point(p):
             'geo': p['parent']['geo'],
         }
     if p.get('_thresh'):
-        out['_thresh'] = {
+        out['pthresh'] = {
             'geo': p['_thresh']['geo'],
         }
     
@@ -106,6 +106,12 @@ def process_addendum(p):
             'parent': {
                 'geo': p['parent']['geo'],
             },
+        })
+    if p['addendum'] == 'pthresh':
+        out.update({
+            'pthresh': {
+                'geo': p['pthresh']['geo'],
+            }
         })
     if p['addendum'] == 'subsaddles':
         def tx_saddle(ss):

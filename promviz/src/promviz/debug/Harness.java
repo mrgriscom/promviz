@@ -122,6 +122,13 @@ public class Harness {
 			)));
 	}
 	
+	public static void outputPThresh(boolean up, long peak, long pthresh) {
+		Gson ser = new Gson();
+		System.out.println(ser.toJson(new PThreshData(
+				up, peak, pthresh
+			)));		
+	}
+	
 	static void outputPromParentage(PromInfo pi, boolean up) {
 		Gson ser = new Gson();
 		
@@ -212,7 +219,9 @@ public class Harness {
 					last[i] = last[i] * pi.thresholdFactor + nextToLast[i] * (1. - pi.thresholdFactor);
 				}
 			}
-			this._thresh = new PromPoint(pi.path.get(0));
+			if (pi.pthresh != null) {
+				this._thresh = new PromPoint(pi.pthresh.ix);
+			}
 			
 			this.parent_path = new ArrayList<double[]>();
 			for (long k : parentage.path) {
@@ -225,6 +234,19 @@ public class Harness {
 			if (!parentage.min_bound_only && !parentage.path.isEmpty()) {
 				this.parent = new PromPoint(parentage.path.get(0));
 			}
+		}
+	}
+	
+	static class PThreshData {
+		boolean up;
+		PromPoint summit;
+		PromPoint pthresh;
+		String addendum = "pthresh";
+		
+		public PThreshData(boolean up, long pix, long threshix) {
+			this.up = up;
+			this.summit = new PromPoint(pix);
+			this.pthresh = new PromPoint(threshix);
 		}
 	}
 	
