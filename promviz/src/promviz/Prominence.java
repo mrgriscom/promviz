@@ -33,16 +33,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-/* goals
- * 
- * determine base-level prominence - prom, saddle, threshold, and path
- * write out MST
- * 
- * next:
- * mst dump
- * how to handle global max?
- */
-
 public class Prominence {
 
 	static final int COALESCE_STEP = 2;
@@ -590,9 +580,7 @@ public class Prominence {
 	}
 	
 	static class Backtrace {
-		// you may think we could just store the point indexes instead, but:
-		// - it simplifies the logic of searchThreshold() to be able to access the elevation values along the trace
-		// - each Long object would be in memory twice: once for the 'to' and the 'from'		
+		// for MST could we store just <Long, Long>?
 		Map<Point, Point> backtrace; 
 		Point root;
 		
@@ -624,25 +612,23 @@ public class Prominence {
 			return backtrace.size();
 		}
 		
-		public Iterable<Point> mergeFrom(Backtrace other, MeshPoint saddle) {
-			// this pruning is causing errors for some reason
-//			for (Iterator<Point> it = other.backtrace.keySet().iterator(); it.hasNext(); ) {
-//				Point from = it.next();
-//				if (this.backtrace.containsKey(from) && !from.equals(saddle)) {
-//					this.backtrace.remove(from);
-//					it.remove();
-//				}					
-//			}
-			for (Entry<Point, Point> e : other.backtrace.entrySet()) {
-				Point from = e.getKey();
-				Point to = e.getValue();
-				if (from.equals(saddle)) {
-					continue;
+		void removeInCommon(Backtrace other, MeshPoint saddle) {
+			for (Iterator<Point> it = other.backtrace.keySet().iterator(); it.hasNext(); ) {
+				Point from = it.next();
+				if (this.backtrace.containsKey(from) && !from.equals(saddle)) {
+					this.backtrace.remove(from);
+					it.remove();
 				}
-				this.add(from, to);
 			}
-			
+		}
+		
+		public Iterable<Point> mergeFromAsNetwork(Backtrace other, MeshPoint saddle) {
+			removeInCommon(other, saddle);
+
 			List<Point> toReverse = Lists.newArrayList(other.trace(saddle)); 
+			other.backtrace.remove(saddle);
+			this.backtrace.putAll(other.backtrace);
+			
 			Point from = null;
 			for (Point to : toReverse) {
 				if (from != null) {
@@ -651,6 +637,22 @@ public class Prominence {
 				from = to;
 			}
 			return toReverse.subList(1, toReverse.size() - 1); // exclude connecting saddle and old front peak
+		}
+		
+		public void mergeFromAsTree(Backtrace other, MeshPoint saddle, Comparator<Point> c) {
+			removeInCommon(other, saddle);
+			
+			Point threshold = null;
+			for (Point p : trace(saddle)) {
+				if (c.compare(p, other.root) > 0) {
+					threshold = p;
+					break;
+				}
+			}
+			this.backtrace.remove(saddle);
+			other.backtrace.remove(saddle);
+			this.backtrace.putAll(other.backtrace);
+			this.add(other.root, threshold);
 		}
 		
 		public Iterable<Point> trace(final Point start) {
@@ -810,16 +812,8 @@ public class Prominence {
 				add(s, false);
 			}
 			
-			bt.mergeFrom(other.bt, saddle);
-
-			Point threshold = saddle;
-			while (c.compare(threshold, other.peak) < 0) {
-				threshold = this.thresholds.get(threshold);
-			}
-			this.thresholds.backtrace.remove(saddle);
-			other.thresholds.backtrace.remove(saddle);
-			this.thresholds.backtrace.putAll(other.thresholds.backtrace);
-			this.thresholds.add(other.peak, threshold);
+			bt.mergeFromAsNetwork(other.bt, saddle);
+			thresholds.mergeFromAsTree(other.thresholds, saddle, this.c);
 			
 			return firstChanged;
 		}
@@ -904,7 +898,7 @@ public class Prominence {
 
 			readPointMap(in, mesh, f.thresholds.backtrace);
 			readPointMap(in, mesh, f.bt.backtrace);
-			
+
 			return f;
 		}
 		
