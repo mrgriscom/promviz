@@ -98,6 +98,7 @@ def process_point(p):
 def process_addendum(p):
     out = load_point(p)
     if not out:
+        print 'warning: not found'
         return None
 
     if p['addendum'] == 'parent':

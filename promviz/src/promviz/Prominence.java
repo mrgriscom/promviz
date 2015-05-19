@@ -144,7 +144,7 @@ public class Prominence {
 				Harness.outputPThresh(up, e.getKey(), e.getValue());
 			}
 			
-			// TODO if peak already exists in proms, consolidate and save writes (big slow down)
+			// TODO if peak already exists in proms, consolidate and save writes
 			for (Entry<Long, Set<Long[]>> e : output.subsaddles.entrySet()) {
 				List<DomainSaddleInfo> ssi = new ArrayList<DomainSaddleInfo>();
 				for (Long[] pp : e.getValue()) {
@@ -713,6 +713,10 @@ public class Prominence {
 			Point threshold = null;
 			List<Point> belowThresh = new ArrayList<Point>();
 			for (Point p : trace(saddle)) {
+				if (p == saddle) {
+					continue;
+				}
+				
 				if (c.compare(p, other.root) > 0) {
 					threshold = p;
 					break;
@@ -902,6 +906,8 @@ public class Prominence {
 			for (MeshPoint s : other.queue) {
 				add(s, false);
 			}
+
+			promPoints.putAll(other.promPoints);
 			
 			bt.mergeFromAsNetwork(other.bt, saddle);
 			
@@ -909,10 +915,10 @@ public class Prominence {
 			subbed1 = subbed1.subList(1, subbed1.size() - 1);
 			List<Point> subbed2 = thresholds.mergeFromAsTree(other.thresholds, saddle, this.c);
 			for (Point sub : Iterables.concat(subbed1, subbed2)) {
-				subsaddles.get(sub.ix).add(new Long[] {saddle.ix, other.peak.ix});
+				if (promPoints.containsKey(sub)) {
+					subsaddles.get(sub.ix).add(new Long[] {saddle.ix, other.peak.ix});
+				}
 			}
-			
-			promPoints.putAll(other.promPoints);
 			
 			return firstChanged;
 		}
