@@ -46,18 +46,20 @@ for k in points():
     refss = ref.get('subsaddles', [])
     refss = set(ss['saddle']['geo'] for ss in refss)
     refss -= set(ref[x]['geo'] for x in ('peak', 'saddle'))
-    ref['_ss'] = sorted(refss)
-
-    cur['_ss'] = sorted([ss['saddle']['geo'] for ss in cur.get('subsaddles', [])])
+    #ref['_ss'] = sorted(refss)
+    #cur['_ss'] = sorted([ss['saddle']['geo'] for ss in cur.get('subsaddles', [])])
 
     def softdel(k, a=ref):
         if k in a:
             del a[k]
 
+    if 'parent' not in ref:
+        softdel('parent', cur)
+        softdel('parent_path', cur)
+
     softdel('_thresh')
     softdel('children')
     for a in (cur, ref):
-        softdel('parent', a)
         softdel('parent_path', a)
         softdel('subsaddles', a)
 

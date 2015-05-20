@@ -79,6 +79,8 @@ public class Prominence {
 		List<PromInfo> proms;
 		Collection<Front> fronts;
 		Map<Long, Long> pthresh;
+		Map<Long, Long> parents;
+		Map<Long, List<Long>> parent_paths;
 		Map<Long, Set<Point[]>> subsaddles;
 		// mst?
 	}
@@ -145,6 +147,10 @@ public class Prominence {
 				Harness.outputPThresh(up, e.getKey(), e.getValue());
 			}
 			
+			for (Entry<Long, Long> e : output.parents.entrySet()) {
+				Harness.outputPromParentage(e.getKey(), e.getValue(), output.parent_paths.get(e.getKey()));
+			}
+			
 			// TODO if peak already exists in proms, consolidate and save writes
 			for (Entry<Long, Set<Point[]>> e : output.subsaddles.entrySet()) {
 				List<DomainSaddleInfo> ssi = new ArrayList<DomainSaddleInfo>();
@@ -204,6 +210,8 @@ public class Prominence {
 		// front pairs that can and must be coalesced
 		MutablePriorityQueue<FrontMerge> pendingMerges;
 		Map<Long, Long> pthresh;
+		Map<Long, Long> parents;
+		Map<Long, List<Long>> parent_paths;
 		Map<Long, Set<Point[]>> subsaddles;
 		
 		public ChunkProcessor(ChunkInput input) {
@@ -220,6 +228,8 @@ public class Prominence {
 		public ChunkOutput build() {
 			List<PromInfo> proms = new ArrayList<PromInfo>();
 			pthresh = new HashMap<Long, Long>();
+			parents = new HashMap<Long, Long>();
+			parent_paths = new HashMap<Long, List<Long>>();
 			subsaddles = new DefaultMap<Long, Set<Point[]>>() {
 				public Set<Point[]> defaultValue(Long key) {
 					return new HashSet<Point[]>();
@@ -253,6 +263,8 @@ public class Prominence {
 			output.proms = proms;
 			output.fronts = fronts;
 			output.pthresh = pthresh;
+			output.parents = parents;
+			output.parent_paths = parent_paths;
 			output.subsaddles = (HashMap)((HashMap)subsaddles).clone();
 			return output;
 		}
@@ -493,14 +505,15 @@ public class Prominence {
 				newPendingMerge(parent);
 				
 				if (parent.pendProm() >= cutoff) {
-					flushPending(parent, parent.peak);
+					flushPendingThresh(parent, parent.peak);
+					parent.flushPendingParents(parent.peak, parent.pendProm(), parent, parents, parent_paths);
 				}
 			}
 
 			PromInfo pi = new PromInfo(up, child.peak, saddle);
-			boolean save = pi.finalize(parent, child, cutoff);
+			boolean save = pi.finalize(parent, child, cutoff, parents, parent_paths);
 			if (pi.pthresh != null) {
-				flushPending(child, pi.pthresh);
+				flushPendingThresh(child, pi.pthresh);
 			}
 			return (save ? pi : null);
 		}
@@ -572,7 +585,7 @@ public class Prominence {
 			return Lists.reverse(ixPath);
 		}
 		
-		void flushPending(Front f, Point pthresh) {
+		void flushPendingThresh(Front f, Point pthresh) {
 			for (Iterator<Long> it = f.pendingPThresh.iterator(); it.hasNext(); ) {
 				this.pthresh.put(it.next(), pthresh.ix);
 				it.remove();
@@ -601,9 +614,9 @@ public class Prominence {
 			return Math.abs(p.elev - saddle.elev);
 		}
 
-		public boolean finalize(Front parent, Front child, double cutoff) {
+		public boolean finalize(Front parent, Front child, double cutoff, Map<Long, Long> parentMap, Map<Long, List<Long>> parentPathMap) {
 			boolean aboveCutoff = (prominence() >= cutoff);
-			if (aboveCutoff || !child.pendingPThresh.isEmpty()) {
+			if (aboveCutoff || !child.pendingPThresh.isEmpty() || !child.pendingParent.isEmpty()) {
 				Point thresh = parent.thresholds.get(this.p);
 				if (aboveCutoff) {
 					parent.promPoints.put(child.peak, prominence());
@@ -611,7 +624,12 @@ public class Prominence {
 					this.path = _.path;
 					this.thresholdFactor = _.thresholdFactor;
 				}
-				pthresh = this.pthresh(thresh, parent, child, cutoff);
+				if (aboveCutoff || !child.pendingPThresh.isEmpty()) {
+					pthresh = this.pthresh(thresh, parent, child, cutoff);
+				}
+				if (aboveCutoff || !child.pendingParent.isEmpty()) {
+					this.parentage(thresh, parent, child, cutoff, parentMap, parentPathMap);
+				}
 			}
 			return aboveCutoff;
 		}
@@ -630,6 +648,21 @@ public class Prominence {
 				parent.pendingPThresh.addAll(child.pendingPThresh);
 				return null;
 			}
+		}
+
+		void parentage(Point thresh, Front f, Front other, double cutoff, Map<Long, Long> parentMap, Map<Long, List<Long>> parentPathMap) {
+			if (prominence() >= cutoff) {
+				other.pendingParent.put(this.p.ix, prominence());
+			}
+			for (Point p : f.thresholds.trace(thresh)) {
+				double prom = f.getProm(p);
+				if (prom <= 0) {
+					continue;
+				}
+				
+				other.flushPendingParents(p, prom, f, parentMap, parentPathMap);
+			}
+			f.pendingParent.putAll(other.pendingParent);
 		}
 		
 		public void _finalizeDumb() {
@@ -685,7 +718,7 @@ public class Prominence {
 		public Point get(Point p) {
 			Point parent = backtrace.get(p);
 			if (parent == null && !p.equals(root)) {
-				throw new RuntimeException("point not loaded");
+				throw new RuntimeException("point not loaded [" + p + "]");
 			}
 			return parent;
 		}
@@ -872,6 +905,7 @@ public class Prominence {
 		
 		Map<MeshPoint, Double> promPoints; // TODO eventually store saddle instead of prom directly
 		Set<Long> pendingPThresh;
+		Map<Long, Double> pendingParent;
 		
 		Comparator<Point> c;
 
@@ -886,6 +920,7 @@ public class Prominence {
 			
 			promPoints = new HashMap<MeshPoint, Double>();
 			pendingPThresh = new HashSet<Long>();
+			pendingParent = new HashMap<Long, Double>();
 		}
 		
 		public double pendProm() {
@@ -968,6 +1003,9 @@ public class Prominence {
 			for (Point p : thresholds.backtrace.keySet()) {
 				btp.markPoint(p);
 			}
+			for (long pix : pendingParent.keySet()) {
+				btp.markPoint(new Point(pix, 0));
+			}
 			btp.prune();
 			
 			for (Iterator<MeshPoint> it = promPoints.keySet().iterator(); it.hasNext(); ) {
@@ -979,6 +1017,24 @@ public class Prominence {
 		
 		public int size() {
 			return queue.size();
+		}
+		
+		public void flushPendingParents(Point cand, double candProm, Front pathFront, Map<Long, Long> parentage, Map<Long, List<Long>> parent_paths) {
+			for (Iterator<Entry<Long, Double>> it = this.pendingParent.entrySet().iterator(); it.hasNext(); ) {
+				Entry<Long, Double> e = it.next();
+				double pendProm = e.getValue();
+				if (candProm > pendProm) {
+					long peakIx = e.getKey();
+					parentage.put(peakIx, cand.ix);
+					
+					List<Long> path = new Path(pathFront.bt.getAtoB(new Point(peakIx, 0), cand), null).path;
+					parent_paths.put(peakIx, path);
+					
+					it.remove();
+				} else {
+					// mark domain subsaddle?
+				}
+			}
 		}
 		
 		// TODO i don't think backtrace 'root' gets stored?
@@ -1016,6 +1072,11 @@ public class Prominence {
 			out.writeInt(pendingPThresh.size());
 			for (long ix : pendingPThresh) {
 				out.writeLong(ix);
+			}
+			out.writeInt(pendingParent.size());
+			for (Entry<Long, Double> e : pendingParent.entrySet()) {
+				out.writeLong(e.getKey());
+				out.writeDouble(e.getValue());
 			}
 		}
 		
@@ -1057,6 +1118,10 @@ public class Prominence {
 			int nPendPT = in.readInt();
 			for (int i = 0; i < nPendPT; i++) {
 				f.pendingPThresh.add(in.readLong());
+			}
+			int nPendPar = in.readInt();
+			for (int i = 0; i < nPendPar; i++) {
+				f.pendingParent.put(in.readLong(), in.readDouble());
 			}
 			
 			return f;

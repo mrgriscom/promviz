@@ -129,14 +129,9 @@ public class Harness {
 			)));		
 	}
 	
-	static void outputPromParentage(PromInfo pi, boolean up) {
+	public static void outputPromParentage(long peak, long parent, List<Long> path) {
 		Gson ser = new Gson();
-		
-		if (pi.min_bound_only || pi.path.isEmpty()) {
-			return;
-		}
-		
-		System.out.println(ser.toJson(new ParentData(up, pi.p, pi)));
+		System.out.println(ser.toJson(new ParentData(peak, parent, path)));
 	}
 
 	public static void outputSubsaddles(long pix, List<DomainSaddleInfo> dsi, boolean up) {
@@ -251,25 +246,20 @@ public class Harness {
 	}
 	
 	static class ParentData {
-		boolean up;
+		//boolean up;
 		PromPoint summit;
 		PromPoint parent;
 		List<double[]> parent_path;
 		String addendum = "parent";
 		
-		public ParentData(boolean up, Point p, PromInfo parentage) {
-			if (parentage.min_bound_only) {
-				throw new IllegalArgumentException();
-			}
-			
-			this.up = up;
-			this.summit = new PromPoint(p.ix);
+		public ParentData(long peak, long parent, List<Long> path) {
+			this.summit = new PromPoint(peak);
+			this.parent = new PromPoint(parent);
 
 			this.parent_path = new ArrayList<double[]>();
-			for (long k : parentage.path) {
+			for (long k : path) {
 				this.parent_path.add(PointIndex.toLatLon(k));
 			}
-			this.parent = new PromPoint(parentage.path.get(0));
 		}
 	}
 	
