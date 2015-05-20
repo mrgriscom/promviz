@@ -4,6 +4,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -78,7 +79,7 @@ public class Prominence {
 		List<PromInfo> proms;
 		Collection<Front> fronts;
 		Map<Long, Long> pthresh;
-		Map<Long, Set<Long[]>> subsaddles;
+		Map<Long, Set<Point[]>> subsaddles;
 		// mst?
 	}
 	
@@ -145,14 +146,14 @@ public class Prominence {
 			}
 			
 			// TODO if peak already exists in proms, consolidate and save writes
-			for (Entry<Long, Set<Long[]>> e : output.subsaddles.entrySet()) {
+			for (Entry<Long, Set<Point[]>> e : output.subsaddles.entrySet()) {
 				List<DomainSaddleInfo> ssi = new ArrayList<DomainSaddleInfo>();
-				for (Long[] pp : e.getValue()) {
+				for (Point[] pp : e.getValue()) {
 					DomainSaddleInfo dsi = new DomainSaddleInfo();
 					ssi.add(dsi);
 					
-					dsi.saddleIx = pp[0];
-					dsi.peakIx = pp[1];
+					dsi.saddle = pp[0];
+					dsi.peak = pp[1];
 					dsi.isHigher = true;
 					dsi.isDomain = false;
 				}
@@ -203,7 +204,7 @@ public class Prominence {
 		// front pairs that can and must be coalesced
 		MutablePriorityQueue<FrontMerge> pendingMerges;
 		Map<Long, Long> pthresh;
-		Map<Long, Set<Long[]>> subsaddles;
+		Map<Long, Set<Point[]>> subsaddles;
 		
 		public ChunkProcessor(ChunkInput input) {
 			this.input = input;
@@ -219,9 +220,9 @@ public class Prominence {
 		public ChunkOutput build() {
 			List<PromInfo> proms = new ArrayList<PromInfo>();
 			pthresh = new HashMap<Long, Long>();
-			subsaddles = new DefaultMap<Long, Set<Long[]>>() {
-				public Set<Long[]> defaultValue(Long key) {
-					return new HashSet<Long[]>();
+			subsaddles = new DefaultMap<Long, Set<Point[]>>() {
+				public Set<Point[]> defaultValue(Long key) {
+					return new HashSet<Point[]>();
 				}
 			};
 			
@@ -530,6 +531,23 @@ public class Prominence {
 					pi.path = pathToUnknown(f);
 					proms.add(pi);
 				}
+				
+				Point saddle = f.first();
+				Front other = primaryFront(f);
+				if (other != null) {
+					finalizeSubsaddles(f, other, saddle, f.peak);
+					finalizeSubsaddles(other, f, saddle, f.peak);
+				}
+			}
+		}
+		
+		void finalizeSubsaddles(Front f, Front other, Point saddle, Point peak) {
+			Map.Entry<Point, List<Point>> e = f.thresholds.traceUntil(saddle, other.thresholds.root, f.c);
+			for (Point sub : e.getValue()) {
+				boolean notablyProminent = (sub == f.peak ? f.pendProm() >= input.cutoff : f.promPoints.containsKey(sub));
+				if (notablyProminent) {
+					subsaddles.get(sub.ix).add(new Point[] {saddle, peak});
+				}
 			}
 		}
 		
@@ -709,7 +727,19 @@ public class Prominence {
 		
 		public List<Point> mergeFromAsTree(Backtrace other, MeshPoint saddle, Comparator<Point> c) {
 			removeInCommon(other, saddle);
+
+			Map.Entry<Point, List<Point>> e = traceUntil(saddle, other.root, c);
+			Point threshold = e.getKey();
+			List<Point> belowThresh = e.getValue();
 			
+			this.backtrace.remove(saddle);
+			other.backtrace.remove(saddle);
+			this.backtrace.putAll(other.backtrace);
+			this.add(other.root, threshold);
+			return belowThresh;
+		}
+		
+		public Map.Entry<Point, List<Point>> traceUntil(Point saddle, Point cutoff, Comparator<Point> c) {
 			Point threshold = null;
 			List<Point> belowThresh = new ArrayList<Point>();
 			for (Point p : trace(saddle)) {
@@ -717,17 +747,13 @@ public class Prominence {
 					continue;
 				}
 				
-				if (c.compare(p, other.root) > 0) {
+				if (c.compare(p, cutoff) > 0) {
 					threshold = p;
 					break;
 				}
 				belowThresh.add(p);
 			}
-			this.backtrace.remove(saddle);
-			other.backtrace.remove(saddle);
-			this.backtrace.putAll(other.backtrace);
-			this.add(other.root, threshold);
-			return belowThresh;
+			return new AbstractMap.SimpleEntry<Point, List<Point>>(threshold, belowThresh);
 		}
 		
 		public Iterable<Point> trace(final Point start) {
@@ -899,7 +925,7 @@ public class Prominence {
 		}
 		
 		// assumes 'saddle' has already been popped from 'other'
-		public boolean mergeFrom(Front other, MeshPoint saddle, Map<Long, Set<Long[]>> subsaddles) {
+		public boolean mergeFrom(Front other, MeshPoint saddle, Map<Long, Set<Point[]>> subsaddles) {
 			boolean firstChanged = first().equals(saddle);
 			remove(saddle);
 			
@@ -916,7 +942,7 @@ public class Prominence {
 			List<Point> subbed2 = thresholds.mergeFromAsTree(other.thresholds, saddle, this.c);
 			for (Point sub : Iterables.concat(subbed1, subbed2)) {
 				if (promPoints.containsKey(sub)) {
-					subsaddles.get(sub.ix).add(new Long[] {saddle.ix, other.peak.ix});
+					subsaddles.get(sub.ix).add(new Point[] {saddle, other.peak});
 				}
 			}
 			

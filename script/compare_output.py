@@ -22,7 +22,7 @@ dref = tempfile.mkdtemp()
 
 diffs = False
 for k in points():
-#for k in list(points())[:10]:
+#for k in list(points())[:100]:
     fcur = path(k, False)
     fref = path(k, True)
 
@@ -43,16 +43,23 @@ for k in points():
     #        psimp.append(p)
     #ref['threshold_path'] = psimp
 
-    del ref['_thresh']
+    refss = ref.get('subsaddles', [])
+    refss = set(ss['saddle']['geo'] for ss in refss)
+    refss -= set(ref[x]['geo'] for x in ('peak', 'saddle'))
+    ref['_ss'] = sorted(refss)
+
+    cur['_ss'] = sorted([ss['saddle']['geo'] for ss in cur.get('subsaddles', [])])
 
     def softdel(k, a=ref):
         if k in a:
             del a[k]
-    softdel('subsaddles')
+
+    softdel('_thresh')
     softdel('children')
     for a in (cur, ref):
         softdel('parent', a)
         softdel('parent_path', a)
+        softdel('subsaddles', a)
 
     if cur != ref:
         diffs = True

@@ -293,8 +293,8 @@ public class Harness {
 			this.subsaddles = new ArrayList<Subsaddle>();
 			for (DomainSaddleInfo dsi : dsis) {
 				Subsaddle SS = new Subsaddle();
-				SS.saddle = new PromPoint(dsi.saddleIx);
-				SS.peak = new PromPoint(dsi.peakIx);
+				SS.saddle = new PromPoint(dsi.saddle, null);
+				SS.peak = new PromPoint(dsi.peak, null);
 				SS.higher = dsi.isHigher;
 				SS.domain = dsi.isDomain;
 				this.subsaddles.add(SS);
@@ -303,8 +303,8 @@ public class Harness {
 	}
 	
 	public static class DomainSaddleInfo {
-		public long saddleIx;
-		public long peakIx;
+		public Point saddle;
+		public Point peak;
 		public boolean isHigher;
 		public boolean isDomain;
 	}
