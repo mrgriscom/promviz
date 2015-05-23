@@ -534,17 +534,7 @@ public class Prominence {
 				}
 			}
 
-			PromInfo pi = new PromInfo(up, child.peak, saddle);
-			boolean save = pi.finalize(parent, child, this);
-			if (save) {
-				PromBaseInfo pbi = new PromBaseInfo();
-				pbi.p = pi.p;
-				pbi.saddle = pi.saddle;
-				pbi.path = pi.path;
-				pbi.thresholdFactor = pi.thresholdFactor;
-				pbi.thresh = pi.thresh;
-				emitFact(pi.p, pbi);
-			}
+			processProm(new PromPair(child.peak, saddle), parent, child);
 		}
 		
 		void connectorsPut(MeshPoint saddle, Set<Front> fronts) {
@@ -558,6 +548,66 @@ public class Prominence {
 			connectorsBySaddle.remove(saddle);
 			connectorsByFrontPair.remove(fronts);
 		}
+
+		void processProm(PromPair pp, Front parent, Front child) {
+			PromBaseInfo i = new PromBaseInfo();
+			i.p = pp.peak;
+			i.saddle = pp.saddle;
+			
+			boolean notable = isNotablyProminent(pp);
+			if (notable || !child.pendingPThresh.isEmpty() || !child.pendingParent.isEmpty()) {
+				i.thresh = parent.thresholds.get(i.p);
+				if (notable) {
+					parent.promPoints.put((MeshPoint)i.p, (MeshPoint)i.saddle);
+					Path _ = new Path(parent.bt.getAtoB(i.thresh, i.p), i.p);
+					i.path = _.path;
+					i.thresholdFactor = _.thresholdFactor;
+				}
+				if (notable || !child.pendingPThresh.isEmpty()) {
+					this.pthresh(pp, i.thresh, parent, child);
+				}
+				if (notable || !child.pendingParent.isEmpty()) {
+					this.parentage(pp, i.thresh, parent, child);
+				}
+			}
+			
+			if (notable) {
+				emitFact(i.p, i);
+			}			
+		}
+
+		void pthresh(PromPair pp, Point thresh, Front parent, Front child) {
+			boolean notable = isNotablyProminent(pp);
+			Point pthresh = thresh;
+			while (!isNotablyProminent(parent.getProm(pthresh)) && !pthresh.equals(parent.peak)) {
+				pthresh = parent.thresholds.get(pthresh);
+			}
+			if (isNotablyProminent(parent.getProm(pthresh))) {
+				if (notable) {
+					child.pendingPThresh.add(pp.peak.ix);
+				}
+				child.flushPendingThresh(pthresh, this);
+			} else {
+				if (notable) {
+					parent.pendingPThresh.add(pp.peak.ix);
+				}
+				parent.pendingPThresh.addAll(child.pendingPThresh);
+			}
+		}
+
+		void parentage(PromPair pp, Point thresh, Front f, Front other) {
+			if (isNotablyProminent(pp)) {
+				other.pendingParent.put((MeshPoint)pp.peak, (MeshPoint)pp.saddle);
+			}
+			for (Point p : f.thresholds.trace(thresh)) {
+				PromPair cand = f.getProm(p);
+				if (cand == null) {
+					continue;
+				}
+				other.flushPendingParents(cand, f, this);
+			}
+			f.pendingParent.putAll(other.pendingParent);
+		}
 		
 		void finalizeRemaining() {
 			Logging.log("finalizing remaining");
@@ -567,13 +617,13 @@ public class Prominence {
 					continue;
 				}
 
-				PromInfo pi = new PromInfo(up, f.peak, f.first());
-				if (pi.isNotablyProminent(this)) {
-					PromPending pp = new PromPending();
-					pp.p = f.peak;
-					pp.pendingSaddle = f.first();
-					pp.path = pathToUnknown(f);
-					emitFact(f.peak, pp);
+				PromPair pp = new PromPair(f.peak, f.first());
+				if (isNotablyProminent(pp)) {
+					PromPending pend = new PromPending();
+					pend.p = pp.peak;
+					pend.pendingSaddle = pp.saddle;
+					pend.path = pathToUnknown(f);
+					emitFact(pend.p, pend);
 				}
 				
 				Point saddle = f.first();
@@ -623,90 +673,6 @@ public class Prominence {
 		}
 	}
 	
-	public static class PromInfo {
-		public boolean up;
-		public MeshPoint p;
-		public MeshPoint saddle;
-		public boolean global_max;
-		public boolean min_bound_only;
-		public List<Long> path;
-		public double thresholdFactor = -1;
-		public Point thresh;
-		
-		public PromInfo(boolean up, MeshPoint peak, MeshPoint saddle) {
-			this.up = up;
-			this.p = peak;
-			this.saddle = saddle;
-		}
-		
-		boolean isNotablyProminent(PromConsumer context) {
-			return context.isNotablyProminent(new PromPair(p, saddle));
-		}
-		
-		public double _prominence() {
-			return Prominence.prominence(p, saddle);
-		}
-		
-		public boolean finalize(Front parent, Front child, PromConsumer context) {
-			boolean aboveCutoff = isNotablyProminent(context);
-			if (aboveCutoff || !child.pendingPThresh.isEmpty() || !child.pendingParent.isEmpty()) {
-				this.thresh = parent.thresholds.get(this.p);
-				if (aboveCutoff) {
-					parent.promPoints.put(child.peak, saddle);
-					Path _ = new Path(parent.bt.getAtoB(thresh, this.p), this.p);
-					this.path = _.path;
-					this.thresholdFactor = _.thresholdFactor;
-				}
-				if (aboveCutoff || !child.pendingPThresh.isEmpty()) {
-					this.pthresh(thresh, parent, child, context);
-				}
-				if (aboveCutoff || !child.pendingParent.isEmpty()) {
-					this.parentage(thresh, parent, child, context);
-				}
-			}
-			return aboveCutoff;
-		}
-		
-		void pthresh(Point thresh, Front parent, Front child, PromConsumer context) {
-			Point pthresh = thresh;
-			while (!context.isNotablyProminent(parent.getProm(pthresh)) && !pthresh.equals(parent.peak)) {
-				pthresh = parent.thresholds.get(pthresh);
-			}
-			if (context.isNotablyProminent(parent.getProm(pthresh))) {
-				if (isNotablyProminent(context)) {
-					child.pendingPThresh.add(p.ix);
-				}
-				child.flushPendingThresh(pthresh, context);
-			} else {
-				if (isNotablyProminent(context)) {
-					parent.pendingPThresh.add(this.p.ix);
-				}
-				parent.pendingPThresh.addAll(child.pendingPThresh);
-			}
-		}
-
-		void parentage(Point thresh, Front f, Front other, PromConsumer context) {
-			if (isNotablyProminent(context)) {
-				other.pendingParent.put(this.p, this.saddle);
-			}
-			for (Point p : f.thresholds.trace(thresh)) {
-				PromPair pp = f.getProm(p);
-				if (pp == null) {
-					continue;
-				}
-				other.flushPendingParents(pp, f, context);
-			}
-			f.pendingParent.putAll(other.pendingParent);
-		}
-		
-		public void _finalizeDumb() {
-			this.path = new ArrayList<Long>();
-			this.path.add(this.p.ix);
-			this.path.add(this.saddle.ix);
-		}
-		
-	}
-
 	static class Path {
 		List<Long> path;
 		double thresholdFactor = -1;
