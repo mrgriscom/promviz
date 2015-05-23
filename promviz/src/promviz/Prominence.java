@@ -647,7 +647,10 @@ public class Prominence {
 					continue;
 				}
 				if (promThresh == null || cand.compareTo(promThresh) > 0) {
-					other.flushPendingParents(cand, this, newParents, p.equals(f.peak));
+					boolean newThresh = other.flushPendingParents(cand, this, newParents, p.equals(f.peak));
+					if (newThresh) {
+						promThresh = cand;
+					}
 				}
 			}
 			f.pendingParent.putAll(other.pendingParent);
@@ -1094,7 +1097,7 @@ public class Prominence {
 			}
 		}
 		
-		public void flushPendingParents(PromPair cand, PromConsumer context, List<Point[]> newParents, boolean nosubsaddle) {
+		public boolean flushPendingParents(PromPair cand, PromConsumer context, List<Point[]> newParents, boolean nosubsaddle) {
 			for (Iterator<Entry<MeshPoint, MeshPoint>> it = this.pendingParent.entrySet().iterator(); it.hasNext(); ) {
 				Entry<MeshPoint, MeshPoint> e = it.next();
 				PromPair pend = new PromPair(e.getKey(), e.getValue());
@@ -1116,8 +1119,10 @@ public class Prominence {
 					pps.subsaddle = smallest;
 					pps.type = PromSubsaddle.TYPE_PROM;
 					context.emitFact(cand.peak, pps);
+					return true;
 				}
 			}
+			return false;
 		}
 		
 		// TODO i don't think backtrace 'root' gets stored?
