@@ -491,7 +491,6 @@ public class Prominence {
 					ps.type = PromSubsaddle.TYPE_ELEV;
 					emitFact(sub, ps);
 					
-
 					PromPair subpp = new PromPair(sub, child.promPoints.get(sub));
 					if (promThresh == null || subpp.compareTo(promThresh) > 0) {
 						promThresh = subpp;
@@ -676,12 +675,13 @@ public class Prominence {
 				if (other != null) {
 					finalizeSubsaddles(f, other, saddle, f.peak);
 					finalizeSubsaddles(other, f, saddle, f.peak);
+					finalizeDomainSubsaddles(f, other, saddle, f.peak);
+					finalizeDomainSubsaddles(other, f, saddle, f.peak);
 				}
 			}
 		}
 		
 		void finalizeSubsaddles(Front f, Front other, Point saddle, Point peak) {
-			// traceUntil for peak vs. other.thresholds.root -- peak may create 'pending' subsaddles
 			Map.Entry<Point, List<Point>> e = f.thresholds.traceUntil(saddle, peak, f.c);
 			for (Point sub : e.getValue()) {
 				if (this.isNotablyProminent(f.getProm(sub))) {
@@ -692,7 +692,24 @@ public class Prominence {
 				}
 			}
 		}
-				
+		
+		void finalizeDomainSubsaddles(Front f, Front other, Point saddle, Point peak) {
+			Map.Entry<Point, List<Point>> e = f.thresholds.traceUntil(saddle, peak, f.c);
+			PromPair promThresh = null;
+			for (Point sub : e.getValue()) {
+				PromPair subpp = f.getProm(sub);
+				if (this.isNotablyProminent(subpp) &&
+						(promThresh == null || subpp.compareTo(promThresh) > 0)) {
+					promThresh = subpp;
+
+					PromSubsaddle pps = new PromSubsaddle();
+					pps.subsaddle = new PromPair(peak, saddle);
+					pps.type = PromSubsaddle.TYPE_PROM;
+					emitFact(sub, pps);
+				}
+			}
+		}
+		
 		Path pathToUnknown(Front f) {
 			List<Point> path = new ArrayList<Point>();
 			Point start = f.peak;
