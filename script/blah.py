@@ -164,9 +164,13 @@ if __name__ == "__main__":
         prom_mode = None
 
     def core(p):
-        _core = p[p['type']]
-        _core['type'] = p['type']
-        return _core
+        try:
+            _core = p[p['type']]
+            _core['type'] = p['type']
+            return _core
+        except:
+            print 'orphan promfact'
+            raise
 
     index = {
         'data': [],

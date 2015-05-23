@@ -483,25 +483,55 @@ public class Prominence {
 			i.thresh = e.getKey();
 			List<Point> parentThreshes = e.getValue();
 
+			PromPair promThresh = null;
 			for (Point sub : childThreshes) {
 				if (child.promPoints.containsKey(sub)) {
 					PromSubsaddle ps = new PromSubsaddle();
 					ps.subsaddle = new PromPair(i.p, saddle);
 					ps.type = PromSubsaddle.TYPE_ELEV;
 					emitFact(sub, ps);
+					
+
+					PromPair subpp = new PromPair(sub, child.promPoints.get(sub));
+					if (promThresh == null || subpp.compareTo(promThresh) > 0) {
+						promThresh = subpp;
+
+						PromSubsaddle pps = new PromSubsaddle();
+						pps.subsaddle = new PromPair(i.p, saddle);
+						pps.type = PromSubsaddle.TYPE_PROM;
+						emitFact(sub, pps);
+					}
 				}
 			}
+			promThresh = null;
 			for (Point sub : parentThreshes) {
 				if (parent.promPoints.containsKey(sub)) {
 					PromSubsaddle ps = new PromSubsaddle();
 					ps.subsaddle = new PromPair(i.p, saddle);
 					ps.type = PromSubsaddle.TYPE_ELEV;
 					emitFact(sub, ps);
-				}
-			}
+					
+					PromPair subpp = new PromPair(sub, parent.promPoints.get(sub));
+					if (promThresh == null || subpp.compareTo(promThresh) > 0) {
+						promThresh = subpp;
+
+						PromSubsaddle pps = new PromSubsaddle();
+						pps.subsaddle = new PromPair(i.p, saddle);
+						pps.type = PromSubsaddle.TYPE_PROM;
+						emitFact(sub, pps);
+					}
+  				}
+  			}
 			
 			if (notable || !child.pendingPThresh.isEmpty()) {
 				this.pthresh(newProm, i.thresh, parent, child);
+			}
+			if (notable) {
+				child.flushPendingParents(newProm, this, null, false);
+			}
+			List<Point[]> newParents = new ArrayList<Point[]>(); // temp list because we can't do path stuff till post-merge
+			if (notable || !child.pendingParent.isEmpty()) {
+				this.parentage(newProm, i.thresh, promThresh, parent, child, newParents);
 			}
 
 			// unlist child front, merge into parent, and remove connection between the two
@@ -562,18 +592,22 @@ public class Prominence {
 				
 				if (isNotablyProminent(parent.pendProm())) {
 					parent.flushPendingThresh(parent.peak, this);
-					parent.flushPendingParents(parent.pendProm(), parent, this);
+					parent.flushPendingParents(parent.pendProm(), this, newParents, true);
 				}
 			}
 
-			if (notable || !child.pendingParent.isEmpty()) {
-				this.parentage(newProm, i.thresh, parent, child);
-			}
-			
 			if (notable) {
 				i.path = new Path(parent.bt.getAtoB(i.thresh, i.p), i.p);
 				parent.promPoints.put((MeshPoint)i.p, (MeshPoint)i.saddle);
 				emitFact(i.p, i);
+			}
+			for (Point[] childparent : newParents) {
+				Point p = childparent[0];
+				Point par = childparent[1];
+				PromParent parentInfo = new PromParent();
+				parentInfo.parent = par;
+				parentInfo.path = new Path(parent.bt.getAtoB(p, par), null);
+				emitFact(p, parentInfo);
 			}
 		}
 		
@@ -604,7 +638,7 @@ public class Prominence {
 			}
 		}
 
-		void parentage(PromPair pp, Point thresh, Front f, Front other) {
+		void parentage(PromPair pp, Point thresh, PromPair promThresh, Front f, Front other, List<Point[]> newParents) {
 			if (isNotablyProminent(pp)) {
 				other.pendingParent.put((MeshPoint)pp.peak, (MeshPoint)pp.saddle);
 			}
@@ -613,7 +647,9 @@ public class Prominence {
 				if (cand == null) {
 					continue;
 				}
-				other.flushPendingParents(cand, f, this);
+				if (promThresh == null || cand.compareTo(promThresh) > 0) {
+					other.flushPendingParents(cand, this, newParents, p.equals(f.peak));
+				}
 			}
 			f.pendingParent.putAll(other.pendingParent);
 		}
@@ -1041,19 +1077,28 @@ public class Prominence {
 			}
 		}
 		
-		public void flushPendingParents(PromPair cand, Front pathFront, PromConsumer context) {
+		public void flushPendingParents(PromPair cand, PromConsumer context, List<Point[]> newParents, boolean nosubsaddle) {
 			for (Iterator<Entry<MeshPoint, MeshPoint>> it = this.pendingParent.entrySet().iterator(); it.hasNext(); ) {
 				Entry<MeshPoint, MeshPoint> e = it.next();
 				PromPair pend = new PromPair(e.getKey(), e.getValue());
 				if (cand.compareTo(pend) > 0) {
-					PromParent parentInfo = new PromParent();
-					parentInfo.parent = cand.peak;
-					parentInfo.path = new Path(pathFront.bt.getAtoB(pend.peak, cand.peak), null);
-					context.emitFact(pend.peak, parentInfo);
-					
+					newParents.add(new Point[] {pend.peak, cand.peak});
 					it.remove();
-				} else {
-					// mark domain subsaddle?
+				}
+			}
+			if (!nosubsaddle) {
+				PromPair smallest = null;
+				for (Entry<MeshPoint, MeshPoint> e : this.pendingParent.entrySet()) {
+					PromPair pend = new PromPair(e.getKey(), e.getValue());
+					if (smallest == null || pend.compareTo(smallest) < 0) {
+						smallest = pend;
+					}
+				}
+				if (smallest != null) {
+					PromSubsaddle pps = new PromSubsaddle();
+					pps.subsaddle = smallest;
+					pps.type = PromSubsaddle.TYPE_PROM;
+					context.emitFact(cand.peak, pps);
 				}
 			}
 		}
