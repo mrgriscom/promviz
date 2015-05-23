@@ -479,7 +479,7 @@ public class Prominence {
 			boolean notable = isNotablyProminent(newProm);
 
 			List<Point> childThreshes = child.thresholds.traceUntil(saddle, i.p, child.c).getValue();
-			Entry<Point, List<Point>> e = parent.thresholds.traceUntil(saddle, i.p, child.c);
+			Entry<Point, List<Point>> e = parent.thresholds.traceUntil(saddle, i.p, parent.c);
 			i.thresh = e.getKey();
 			List<Point> parentThreshes = e.getValue();
 
@@ -492,12 +492,16 @@ public class Prominence {
 				}
 			}
 			for (Point sub : parentThreshes) {
-				if (child.promPoints.containsKey(sub)) {
+				if (parent.promPoints.containsKey(sub)) {
 					PromSubsaddle ps = new PromSubsaddle();
 					ps.subsaddle = new PromPair(i.p, saddle);
 					ps.type = PromSubsaddle.TYPE_ELEV;
 					emitFact(sub, ps);
 				}
+			}
+			
+			if (notable || !child.pendingPThresh.isEmpty()) {
+				this.pthresh(newProm, i.thresh, parent, child);
 			}
 
 			// unlist child front, merge into parent, and remove connection between the two
@@ -562,9 +566,6 @@ public class Prominence {
 				}
 			}
 
-			if (notable || !child.pendingPThresh.isEmpty()) {
-				this.pthresh(newProm, i.thresh, parent, child);
-			}
 			if (notable || !child.pendingParent.isEmpty()) {
 				this.parentage(newProm, i.thresh, parent, child);
 			}
@@ -589,20 +590,16 @@ public class Prominence {
 		}
 
 		void pthresh(PromPair pp, Point thresh, Front parent, Front child) {
-			boolean notable = isNotablyProminent(pp);
 			Point pthresh = thresh;
 			while (!isNotablyProminent(parent.getProm(pthresh)) && !pthresh.equals(parent.peak)) {
 				pthresh = parent.thresholds.get(pthresh);
 			}
+			if (isNotablyProminent(pp)) {
+				child.pendingPThresh.add(pp.peak.ix);
+			}
 			if (isNotablyProminent(parent.getProm(pthresh))) {
-				if (notable) {
-					child.pendingPThresh.add(pp.peak.ix);
-				}
 				child.flushPendingThresh(pthresh, this);
 			} else {
-				if (notable) {
-					parent.pendingPThresh.add(pp.peak.ix);
-				}
 				parent.pendingPThresh.addAll(child.pendingPThresh);
 			}
 		}
