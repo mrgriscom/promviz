@@ -490,7 +490,7 @@ public class Prominence {
 					ps.type = PromSubsaddle.TYPE_ELEV;
 					emitFact(sub, ps);
 				}
-			}			
+			}
 			for (Point sub : parentThreshes) {
 				if (child.promPoints.containsKey(sub)) {
 					PromSubsaddle ps = new PromSubsaddle();
@@ -648,7 +648,8 @@ public class Prominence {
 		}
 		
 		void finalizeSubsaddles(Front f, Front other, Point saddle, Point peak) {
-			Map.Entry<Point, List<Point>> e = f.thresholds.traceUntil(saddle, other.thresholds.root, f.c);
+			// traceUntil for peak vs. other.thresholds.root -- peak may create 'pending' subsaddles
+			Map.Entry<Point, List<Point>> e = f.thresholds.traceUntil(saddle, peak, f.c);
 			for (Point sub : e.getValue()) {
 				if (this.isNotablyProminent(f.getProm(sub))) {
 					PromSubsaddle ps = new PromSubsaddle();
