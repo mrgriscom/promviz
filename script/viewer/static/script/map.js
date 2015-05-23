@@ -68,7 +68,7 @@ function singleStyle(props, highlight) {
     } else if (props.type == 'parent') {
         style = {fillColor: '#0f0'};
     } else if (props.type == 'subsaddle') {
-        style = {fillColor: props.higher ? '#800' : '#000', radius: props.domain ? 10 : 5};
+        style = {fillColor: '#000', radius: props.domain ? 8 : 5};
     } else if (props.type == 'childsaddle') {
         style = {fillColor: '#00f', radius: 3};
     }

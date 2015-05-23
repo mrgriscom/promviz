@@ -87,8 +87,10 @@ def to_geojson(k):
             _feature(k['parent_path'], type='toparent'),
         ]
     }
-    for ss in k.get('subsaddles', []):
-        data['features'].append(saddle_feature(ss, 'subsaddle', higher=ss['for']['higher'], domain=ss['domain']))
+    for ss in k.get('height_subsaddles', []):
+        data['features'].append(saddle_feature(ss, 'subsaddle', higher=True, domain=False))
+    for ss in k.get('prom_subsaddles', []):
+        data['features'].append(saddle_feature(ss, 'subsaddle', higher=False, domain=True))
 
     if k.get('threshold'):
         data['features'].append(
@@ -119,8 +121,9 @@ class MapViewHandler(web.RequestHandler):
         data['_children'] = [loadgeo(c) for c in data.get('children', [])]
         for i, ch in enumerate(data['_children']):
             ch['ix'] = i + 1
-        for ss in data.get('subsaddles', []):
-            ss['_for'] = loadgeo(ss['for']['geo'])
+        for sstype in ('height', 'prom'):
+            for ss in data.get('%s_subsaddles' % sstype, []):
+                ss['_for'] = loadgeo(ss['for']['geo'])
         data['_pthresh'] = loadgeo(data['pthresh']['geo']) if 'pthresh' in data else None        
 
         self.render('map.html', mode='single', data=to_geojson(data))

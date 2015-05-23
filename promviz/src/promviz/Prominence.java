@@ -21,7 +21,6 @@ import java.util.Set;
 
 import promviz.Prominence.Backtrace.BacktracePruner;
 import promviz.debug.Harness;
-import promviz.debug.Harness.DomainSaddleInfo;
 import promviz.dem.DEMFile;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
@@ -44,8 +43,8 @@ public class Prominence {
 	}
 	
 	public static class PromPair implements Comparable<PromPair> {
-		private Point peak;
-		private Point saddle;
+		public Point peak;
+		public Point saddle;
 		private Comparator<Point> cmp;
 
 		public PromPair(Point peak, Point saddle) {
@@ -80,28 +79,34 @@ public class Prominence {
 	public static abstract class PromFact {}
 	
 	public static class PromBaseInfo extends PromFact {
-		
+		public Point p;
+		public Point saddle;
+		public List<Long> path;
+		public Point thresh;
+		public double thresholdFactor = -1;
 	}
 	
 	public static class PromPending extends PromFact {
-		
+		public Point p;
+		public Point pendingSaddle;
+		public List<Long> path;
 	}
 	
 	public static class PromThresh extends PromFact {
-		Point pthresh;
+		public Point pthresh;
 	}
 	
 	public static class PromParent extends PromFact {
-		Point parent;
-		List<Long> path;
+		public Point parent;
+		public List<Long> path;
 	}
 	
 	public static class PromSubsaddle extends PromFact {
+		public static final int TYPE_ELEV = 1;
+		public static final int TYPE_PROM = 2;
 		
-	}
-	
-	public static interface OnProm {
-		void onprom(PromInfo pi);
+		public PromPair subsaddle;
+		public int type;
 	}
 	
 	public static void promSearch(List<DEMFile> DEMs, boolean up, double cutoff) {
@@ -110,16 +115,7 @@ public class Prominence {
 		FileUtil.ensureEmpty(FileUtil.PHASE_PROMTMP, up);
 		FileUtil.ensureEmpty(FileUtil.PHASE_MST, up);
 		
-		PromSearch searcher = new PromSearch(Main.NUM_WORKERS, coverage, up, cutoff, new OnProm() {
-			public void onprom(PromInfo pi) {
-				Harness.outputPromPoint(pi);
-				
-				// note: if we ever have varying cutoffs this will take extra care
-				// to make sure we always capture the parent/next highest peaks for
-				// peaks right on the edge of the lower-cutoff region
-				// TODO: cache out prom values and threshold points for processing in later phases?
-			}
-		});
+		PromSearch searcher = new PromSearch(Main.NUM_WORKERS, coverage, up, cutoff);
 		searcher.baseCellSearch();
 		while (searcher.needsCoalesce()) {
 			searcher.coalesce();
@@ -137,12 +133,9 @@ public class Prominence {
 	
 	static class ChunkOutput {
 		Prefix p;
-		List<PromInfo> proms;
+		boolean up;
+		Map<Long, List<PromFact>> promfacts;
 		Collection<Front> fronts;
-		Map<Long, Long> pthresh;
-		Map<Long, Long> parents;
-		Map<Long, List<Long>> parent_paths;
-		Map<Long, Set<Point[]>> subsaddles;
 		// mst?
 	}
 	
@@ -153,17 +146,15 @@ public class Prominence {
 		Map<Prefix, Set<DEMFile>> coverage;
 		boolean up;
 		double cutoff;
-		OnProm onprom;
 
 		int level;
 		Set<Prefix> chunks;
 		
-		public PromSearch(int numWorkers, Map<Prefix, Set<DEMFile>> coverage, boolean up, double cutoff, OnProm onprom) {
+		public PromSearch(int numWorkers, Map<Prefix, Set<DEMFile>> coverage, boolean up, double cutoff) {
 			this.numWorkers = numWorkers;
 			this.coverage = coverage;
 			this.up = up;
 			this.cutoff = cutoff;
-			this.onprom = onprom;
 		}
 
 		public void baseCellSearch() {
@@ -199,34 +190,10 @@ public class Prominence {
 		}
 
 		public void postprocess(int i, ChunkOutput output) {
-			for (PromInfo pi : output.proms) {
-				this.onprom.onprom(pi);
+			for (Entry<Long, List<PromFact>> e : output.promfacts.entrySet()) {
+				Harness.outputPromInfo(output.up, e.getKey(), e.getValue());
 			}
 			writeFronts(output.p, output.fronts, up);
-			
-			for (Entry<Long, Long> e : output.pthresh.entrySet()) {
-				Harness.outputPThresh(up, e.getKey(), e.getValue());
-			}
-			
-			for (Entry<Long, Long> e : output.parents.entrySet()) {
-				Harness.outputPromParentage(e.getKey(), e.getValue(), output.parent_paths.get(e.getKey()));
-			}
-			
-			// TODO if peak already exists in proms, consolidate and save writes
-			for (Entry<Long, Set<Point[]>> e : output.subsaddles.entrySet()) {
-				List<DomainSaddleInfo> ssi = new ArrayList<DomainSaddleInfo>();
-				for (Point[] pp : e.getValue()) {
-					DomainSaddleInfo dsi = new DomainSaddleInfo();
-					ssi.add(dsi);
-					
-					dsi.saddle = pp[0];
-					dsi.peak = pp[1];
-					dsi.isHigher = true;
-					dsi.isDomain = false;
-				}
-				Harness.outputSubsaddles(e.getKey(), ssi, up);
-			}
-			
 			Logging.log((i+1) + " " + output.p);
 		}
 
@@ -275,10 +242,7 @@ public class Prominence {
 		Map<Set<Front>, MeshPoint> connectorsByFrontPair;
 		// front pairs that can and must be coalesced
 		MutablePriorityQueue<FrontMerge> pendingMerges;
-		Map<Long, Long> pthresh;
-		Map<Long, Long> parents;
-		Map<Long, List<Long>> parent_paths;
-		Map<Long, Set<Point[]>> subsaddles;
+		Map<Long, List<PromFact>> promFacts;
 		
 		public ChunkProcessor(ChunkInput input) {
 			this.input = input;
@@ -296,13 +260,9 @@ public class Prominence {
 		}
 		
 		public ChunkOutput build() {
-			List<PromInfo> proms = new ArrayList<PromInfo>();
-			pthresh = new HashMap<Long, Long>();
-			parents = new HashMap<Long, Long>();
-			parent_paths = new HashMap<Long, List<Long>>();
-			subsaddles = new DefaultMap<Long, Set<Point[]>>() {
-				public Set<Point[]> defaultValue(Long key) {
-					return new HashSet<Point[]>();
+			promFacts = new DefaultMap<Long, List<PromFact>>() {
+				public List<PromFact> defaultValue(Long key) {
+					return new ArrayList<PromFact>();
 				}
 			};
 			
@@ -311,15 +271,12 @@ public class Prominence {
 			Logging.log("before " + fronts.size());
 			while (pendingMerges.size() > 0) {
 				FrontMerge toMerge = pendingMerges.poll();
-				PromInfo pi = mergeFronts(toMerge);
-				if (pi != null) {
-					proms.add(pi);
-				}
+				mergeFronts(toMerge);
 			}
 			Logging.log("after " + fronts.size());
 			
 			if (input.finalLevel) {
-				finalizeRemaining(proms);
+				finalizeRemaining();
 				fronts.removeAll(fronts);
 			}
 
@@ -330,12 +287,9 @@ public class Prominence {
 
 			ChunkOutput output = new ChunkOutput();
 			output.p = prefix;
-			output.proms = proms;
+			output.up = up;
+			output.promfacts = (HashMap)((HashMap)promFacts).clone();
 			output.fronts = fronts;
-			output.pthresh = pthresh;
-			output.parents = parents;
-			output.parent_paths = parent_paths;
-			output.subsaddles = (HashMap)((HashMap)subsaddles).clone();
 			return output;
 		}
 		
@@ -514,14 +468,14 @@ public class Prominence {
 			return pair;
 		}
 		
-		PromInfo mergeFronts(FrontMerge fm) {
+		void mergeFronts(FrontMerge fm) {
 			Front parent = fm.parent;
 			Front child = fm.child;
 			
 			// unlist child front, merge into parent, and remove connection between the two
 			fronts.remove(child);
 			MeshPoint saddle = child.pop();
-			boolean newParentMerge = parent.mergeFrom(child, saddle, subsaddles);
+			boolean newParentMerge = parent.mergeFrom(child, saddle, this);
 			connectorsClear(saddle, frontPair(parent, child));
 			
 			// update for all fronts adjacent to child (excluding 'parent')
@@ -582,7 +536,15 @@ public class Prominence {
 
 			PromInfo pi = new PromInfo(up, child.peak, saddle);
 			boolean save = pi.finalize(parent, child, this);
-			return (save ? pi : null);
+			if (save) {
+				PromBaseInfo pbi = new PromBaseInfo();
+				pbi.p = pi.p;
+				pbi.saddle = pi.saddle;
+				pbi.path = pi.path;
+				pbi.thresholdFactor = pi.thresholdFactor;
+				pbi.thresh = pi.thresh;
+				emitFact(pi.p, pbi);
+			}
 		}
 		
 		void connectorsPut(MeshPoint saddle, Set<Front> fronts) {
@@ -597,7 +559,7 @@ public class Prominence {
 			connectorsByFrontPair.remove(fronts);
 		}
 		
-		void finalizeRemaining(List<PromInfo> proms) {
+		void finalizeRemaining() {
 			Logging.log("finalizing remaining");
 			for (Front f : fronts) {
 				if (f.first() == null) {
@@ -606,10 +568,12 @@ public class Prominence {
 				}
 
 				PromInfo pi = new PromInfo(up, f.peak, f.first());
-				pi.min_bound_only = true;
 				if (pi.isNotablyProminent(this)) {
-					pi.path = pathToUnknown(f);
-					proms.add(pi);
+					PromPending pp = new PromPending();
+					pp.p = f.peak;
+					pp.pendingSaddle = f.first();
+					pp.path = pathToUnknown(f);
+					emitFact(f.peak, pp);
 				}
 				
 				Point saddle = f.first();
@@ -624,13 +588,15 @@ public class Prominence {
 		void finalizeSubsaddles(Front f, Front other, Point saddle, Point peak) {
 			Map.Entry<Point, List<Point>> e = f.thresholds.traceUntil(saddle, other.thresholds.root, f.c);
 			for (Point sub : e.getValue()) {
-				boolean notablyProminent = (sub == f.peak ? this.isNotablyProminent(f.pendProm()) : f.promPoints.containsKey(sub));
-				if (notablyProminent) {
-					subsaddles.get(sub.ix).add(new Point[] {saddle, peak});
+				if (this.isNotablyProminent(f.getProm(sub))) {
+					PromSubsaddle ps = new PromSubsaddle();
+					ps.subsaddle = new PromPair(peak, saddle);
+					ps.type = PromSubsaddle.TYPE_ELEV;
+					emitFact(sub, ps);
 				}
 			}
 		}
-		
+				
 		List<Long> pathToUnknown(Front f) {
 			List<Point> path = new ArrayList<Point>();
 			Point start = f.peak;
@@ -653,16 +619,7 @@ public class Prominence {
 		}
 		
 		public void emitFact(Point p, PromFact pf) {
-			if (pf instanceof PromThresh) {
-				PromThresh o = (PromThresh)pf;
-				pthresh.put(p.ix, o.pthresh.ix);
-			} else if (pf instanceof PromParent) {
-				PromParent o = (PromParent)pf;
-				parents.put(p.ix, o.parent.ix);
-				parent_paths.put(p.ix, o.path);
-			} else {
-				throw new RuntimeException();
-			}
+			promFacts.get(p.ix).add(pf);
 		}
 	}
 	
@@ -674,6 +631,7 @@ public class Prominence {
 		public boolean min_bound_only;
 		public List<Long> path;
 		public double thresholdFactor = -1;
+		public Point thresh;
 		
 		public PromInfo(boolean up, MeshPoint peak, MeshPoint saddle) {
 			this.up = up;
@@ -692,7 +650,7 @@ public class Prominence {
 		public boolean finalize(Front parent, Front child, PromConsumer context) {
 			boolean aboveCutoff = isNotablyProminent(context);
 			if (aboveCutoff || !child.pendingPThresh.isEmpty() || !child.pendingParent.isEmpty()) {
-				Point thresh = parent.thresholds.get(this.p);
+				this.thresh = parent.thresholds.get(this.p);
 				if (aboveCutoff) {
 					parent.promPoints.put(child.peak, saddle);
 					Path _ = new Path(parent.bt.getAtoB(thresh, this.p), this.p);
@@ -1036,7 +994,7 @@ public class Prominence {
 		}
 		
 		// assumes 'saddle' has already been popped from 'other'
-		public boolean mergeFrom(Front other, MeshPoint saddle, Map<Long, Set<Point[]>> subsaddles) {
+		public boolean mergeFrom(Front other, MeshPoint saddle, PromConsumer context) {
 			boolean firstChanged = first().equals(saddle);
 			remove(saddle);
 			
@@ -1053,7 +1011,10 @@ public class Prominence {
 			List<Point> subbed2 = thresholds.mergeFromAsTree(other.thresholds, saddle, this.c);
 			for (Point sub : Iterables.concat(subbed1, subbed2)) {
 				if (promPoints.containsKey(sub)) {
-					subsaddles.get(sub.ix).add(new Point[] {saddle, other.peak});
+					PromSubsaddle ps = new PromSubsaddle();
+					ps.subsaddle = new PromPair(other.peak, saddle);
+					ps.type = PromSubsaddle.TYPE_ELEV;
+					context.emitFact(sub, ps);
 				}
 			}
 			

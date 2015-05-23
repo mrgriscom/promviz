@@ -1,154 +1,137 @@
 package promviz.debug;
 
-import java.io.File;
-import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
-import promviz.Edge;
-import promviz.FileUtil;
-import promviz.GridPoint;
-import promviz.IMesh;
-import promviz.MeshPoint;
-import promviz.PagedElevGrid;
 import promviz.Point;
 import promviz.PointIndex;
-import promviz.Prefix;
-import promviz.Prominence.OnProm;
-import promviz.Prominence.PromInfo;
-import promviz.dem.DEMFile;
-import promviz.dem.DEMFile.Sample;
+import promviz.Prominence;
+import promviz.Prominence.PromBaseInfo;
+import promviz.Prominence.PromFact;
+import promviz.Prominence.PromParent;
+import promviz.Prominence.PromPending;
+import promviz.Prominence.PromSubsaddle;
+import promviz.Prominence.PromThresh;
 import promviz.util.GeoCode;
-import promviz.util.Logging;
 import promviz.util.Util;
 
 import com.google.gson.Gson;
 
 public class Harness {
-
 	
-	///////// HERE BE DRAGONS
-
-	
-	
-	
-//	//static boolean oldSchool = true;
-//	static boolean oldSchool = false;
-//	public static void promSearch(List<DEMFile> DEMs, final boolean up, double cutoff) {
-//		Map<Prefix, Set<DEMFile>> coverage = PagedElevGrid.partitionDEM(DEMs);
-//		
-//		TopologyNetwork tn = new TopologyNetwork(up, coverage);
-//		
-//		if (oldSchool) {
-//			
-////			for (Point p : tn.allPoints()) {
-////				if (p.classify(tn) != (up ? Point.CLASS_SUMMIT : Point.CLASS_PIT)) {
-////					continue;
-////				}
-////				
-////				PromInfo pi = PromNetwork.prominence(tn, p, up);
-////				if (pi != null && pi.prominence() >= cutoff) {
-////					outputPromPoint(pi, up);
-////				}
-////			}
-//			
-//		} else {
-//			
-//			
-//			
-//			MeshPoint highest = tn.getHighest();
-//			Logging.log("highest: " + highest);
-//			
-////			final DataOutputStream promOut;
-////			final DataOutputStream thresholdsOut;
-////			try {
-////				promOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(EdgeIterator.dir(EdgeIterator.PHASE_MST, true) + "/prom-" + (up ? "up" : "down"))));
-////				thresholdsOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(EdgeIterator.dir(EdgeIterator.PHASE_MST, true) + "/thresh-" + (up ? "up" : "down"))));
-////			} catch (IOException ioe) {
-////				throw new RuntimeException();
-////			}
-//			PromNetwork.bigOlPromSearch(up, highest, tn, new OnProm() {
-//				public void onprom(PromInfo pi) {
-//					outputPromPoint(pi, up);
-//					
-//					// note: if we ever have varying cutoffs this will take extra care
-//					// to make sure we always capture the parent/next highest peaks for
-//					// peaks right on the edge of the lower-cutoff region
-////					new PromMeta(pi.p.ix, pi.prominence(), pi.saddle.ix, pi.forward).write(promOut);
-////					new PromMeta(pi.saddle.ix, pi.prominence(), pi.p.ix, pi.forward).write(promOut);
-//					
-////					new ThresholdMeta(pi.path.get(0)).write(thresholdsOut);
-//				}
-//			}, null, cutoff);
-////			try {
-////				promOut.close();
-////				thresholdsOut.close();
-////			} catch (IOException ioe) {
-////				throw new RuntimeException();
-////			}
-//			
-////			processMST(highest, dm, up, null);
-//		}
-//	}
-
-	
-//	public static interface OnPromParent {
-//		void onparent(PromNetwork.ParentInfo pi);
-//	}
-	
-	
-	public static void outputPromPoint(PromInfo pi) {
+	public static void outputPromInfo(boolean up, long pIx, List<PromFact> pfs) {
 		Gson ser = new Gson();
-		
-		PromInfo parentfill = new PromInfo(pi.up, pi.p, pi.saddle);
-		parentfill._finalizeDumb();
-		parentfill.min_bound_only = true;
-		PromInfo parentage = parentfill; //PromNetwork.parent(tn, p, up, prominentPoints);
-		
-		List<Point> domainSaddles = null; //PromNetwork.domainSaddles(tn, p, saddleIndex, (float)pi.prominence());
-//				List<String> domainLimits = new ArrayList<String>();
-//				for (List<Point> ro : PromNetwork.runoff(anti_tn, pi.saddle, up)) {
-//					domainLimits.add(pathToStr(ro));					
-//				}
-		//domainSaddles.remove(pi.saddle);
-		
-		System.out.println(ser.toJson(new PromData(
-				pi.up, pi.p, pi, parentage, domainSaddles
-			)));
+		System.out.println(ser.toJson(new PromInfo(up, pIx, pfs)));
 	}
 	
-	public static void outputPThresh(boolean up, long peak, long pthresh) {
-		Gson ser = new Gson();
-		System.out.println(ser.toJson(new PThreshData(
-				up, peak, pthresh
-			)));		
-	}
-	
-	public static void outputPromParentage(long peak, long parent, List<Long> path) {
-		Gson ser = new Gson();
-		System.out.println(ser.toJson(new ParentData(peak, parent, path)));
-	}
-
-	public static void outputSubsaddles(long pix, List<DomainSaddleInfo> dsi, boolean up) {
-		if (dsi.isEmpty()) {
-			return;
+	static class PromInfo {
+		String key;
+		boolean up;
+		List<PromFactInfo> facts;
+		
+		public PromInfo(boolean up, long pix, List<PromFact> pfs) {
+			this.up = up;
+			key = PointIndex.geocode(pix);
+			facts = new ArrayList<PromFactInfo>();
+			for (PromFact pf : pfs) {
+				facts.add(packageFact(pf));
+			}
 		}
-		Gson ser = new Gson();
-		System.out.println(ser.toJson(new SubsaddleData(up, pix, dsi)));
-	}
-
-	static void outputPromThresh(PrintWriter w, PromInfo pi, boolean up) {
-		if (pi.min_bound_only) {
-			return;
+		
+		PromFactInfo packageFact(PromFact pf) {
+			if (pf instanceof PromBaseInfo) {
+				return new PFBaseInfo((PromBaseInfo)pf);
+			} else if (pf instanceof PromPending) {
+				return new PFBaseInfo((PromPending)pf);
+			} else if (pf instanceof PromThresh) {
+				return new PFPThreshInfo((PromThresh)pf);
+			} else if (pf instanceof PromParent) {
+				return new PFParentInfo((PromParent)pf);
+			} else if (pf instanceof PromSubsaddle) {
+				return new PFSubsaddleInfo((PromSubsaddle)pf);
+			}
+			throw new RuntimeException();
 		}
-		w.write(new PromPoint(pi.p.ix).geo + " " + new PromPoint(pi.path.get(0)).geo + "\n");
+	}
+	
+	static abstract class PromFactInfo {}
+	
+	static class PFBaseInfo extends PromFactInfo {
+		PromPoint summit;
+		PromPoint saddle;
+		boolean min_bound;
+		PromPoint thresh;
+		List<double[]> path;
+
+		public PFBaseInfo(PromBaseInfo i) {
+			load(i.p, i.saddle, i.thresh, i.path, i.thresholdFactor);
+		}
+		
+		public PFBaseInfo(PromPending i) {
+			load(i.p, i.pendingSaddle, null, i.path, -1);
+		}
+		
+		void load(Point p, Point saddle, Point thresh, List<Long> path, double thresholdFactor) {
+			this.summit = new PromPoint(p, saddle);
+			this.saddle = new PromPoint(saddle);
+			if (thresh != null) {
+				this.thresh = new PromPoint(thresh);
+			} else {
+				this.min_bound = true;
+			}
+			this.path = makePath(path, thresholdFactor);
+			if (thresh != null && thresholdFactor >= 0) {
+				this.thresh = new PromPoint(this.path.get(0));
+			}
+		}
+	}
+	
+	static class PFPThreshInfo extends PromFactInfo {
+		PromPoint pthresh;
+		
+		public PFPThreshInfo(PromThresh i) {
+			this.pthresh = new PromPoint(i.pthresh.ix);
+		}
 	}
 
+	static class PFParentInfo extends PromFactInfo {
+		PromPoint parent;
+		List<double[]> path;
+		
+		public PFParentInfo(PromParent i) {
+			this.parent = new PromPoint(i.parent);
+			this.path = makePath(i.path, -1);
+		}
+	}
+	
+	static List<double[]> makePath(List<Long> ixpath, double thresholdFactor) {
+		List<double[]> cpath = new ArrayList<double[]>();
+		for (long ix : ixpath) {
+			cpath.add(PointIndex.toLatLon(ix));
+		}
+		if (thresholdFactor >= 0) {
+			// this is a stop-gap; actually threshold should be determined by following chase from saddle
+			double[] last = cpath.get(0);
+			double[] nextToLast = cpath.get(1);
+			for (int i = 0; i < 2; i++) {
+				last[i] = last[i] * thresholdFactor + nextToLast[i] * (1. - thresholdFactor);
+			}
+		}
+		return cpath;
+	}
+
+	static class PFSubsaddleInfo extends PromFactInfo {
+		PromPoint saddle;
+		PromPoint forPeak;
+		boolean isDomain;
+		boolean subsaddle = true; // for tagging
+
+		public PFSubsaddleInfo(PromSubsaddle i) {
+			saddle = new PromPoint(i.subsaddle.saddle);
+			forPeak = new PromPoint(i.subsaddle.peak);
+			isDomain = (i.type == PromSubsaddle.TYPE_PROM);
+		}
+	}
 	
 	static class PromPoint {
 		double coords[];
@@ -156,146 +139,28 @@ public class Harness {
 		double elev;
 		double prom;
 		
-		public PromPoint(Point p, PromInfo pi) {
-			this.coords = PointIndex.toLatLon(p.ix);
-			this.geo = Util.print(GeoCode.fromCoord(this.coords[0], this.coords[1]));
+		public PromPoint(Point p) {
+			this(p.ix);
 			this.elev = p.elev;
-			if (pi != null) {
-				prom = pi._prominence();
-			}
+		}
+
+		public PromPoint(Point p, Point saddle) {
+			this(p);
+			this.prom = Prominence.prominence(p, saddle);
 		}
 		
 		public PromPoint(long ix) {
 			this.coords = PointIndex.toLatLon(ix);
-			this.geo = Util.print(GeoCode.fromCoord(this.coords[0], this.coords[1]));			
+			this.geo = PointIndex.geocode(ix);
 		}
 		
-		public PromPoint(double[] c) {
-			this.coords = c;
-			this.geo = Util.print(GeoCode.fromCoord(this.coords[0], this.coords[1]));			
+		public PromPoint(double[] coords) {
+			this.coords = coords;
+			this.geo = Util.print(GeoCode.fromCoord(coords[0], coords[1]));
 		}
 	}
 	
-	static class PromData {
-		boolean up;
-		PromPoint summit;
-		PromPoint saddle;
-		boolean min_bound;
-		PromPoint higher;
-		PromPoint parent;
-		List<double[]> higher_path;
-		List<double[]> parent_path;
-		//List<PromPoint> secondary_saddles;
-		PromPoint _thresh;
-		
-		public PromData(boolean up, Point p, PromInfo pi, PromInfo parentage,
-				List<Point> domainSaddles) {
-			this.up = up;
-			this.summit = new PromPoint(p, pi);
-			this.saddle = new PromPoint(pi.saddle, null);
-			this.min_bound = pi.min_bound_only;
-		
-			/*
-			this.secondary_saddles = new ArrayList<PromPoint>();
-			for (Point ss : domainSaddles) {
-				this.secondary_saddles.add(new PromPoint(ss, null));
-			}
-			*/
-			
-			this.higher_path = new ArrayList<double[]>();
-			for (long k : pi.path) {
-				this.higher_path.add(PointIndex.toLatLon(k));
-			}
-			if (pi.thresholdFactor >= 0) {
-				// this is a stop-gap; actually threshold should be determined by following chase from saddle
-				double[] last = this.higher_path.get(0);
-				double[] nextToLast = this.higher_path.get(1);
-				for (int i = 0; i < 2; i++) {
-					last[i] = last[i] * pi.thresholdFactor + nextToLast[i] * (1. - pi.thresholdFactor);
-				}
-			}
-			
-			this.parent_path = new ArrayList<double[]>();
-			for (long k : parentage.path) {
-				this.parent_path.add(PointIndex.toLatLon(k));
-			}
-			
-			if (!pi.min_bound_only && !pi.path.isEmpty()) {
-				this.higher = new PromPoint(this.higher_path.get(0));
-			}
-			if (!parentage.min_bound_only && !parentage.path.isEmpty()) {
-				this.parent = new PromPoint(parentage.path.get(0));
-			}
-		}
-	}
 	
-	static class PThreshData {
-		boolean up;
-		PromPoint summit;
-		PromPoint pthresh;
-		String addendum = "pthresh";
-		
-		public PThreshData(boolean up, long pix, long threshix) {
-			this.up = up;
-			this.summit = new PromPoint(pix);
-			this.pthresh = new PromPoint(threshix);
-		}
-	}
-	
-	static class ParentData {
-		//boolean up;
-		PromPoint summit;
-		PromPoint parent;
-		List<double[]> parent_path;
-		String addendum = "parent";
-		
-		public ParentData(long peak, long parent, List<Long> path) {
-			this.summit = new PromPoint(peak);
-			this.parent = new PromPoint(parent);
-
-			this.parent_path = new ArrayList<double[]>();
-			for (long k : path) {
-				this.parent_path.add(PointIndex.toLatLon(k));
-			}
-		}
-	}
-	
-	static class SubsaddleData {
-		boolean up;
-		PromPoint summit;
-		String addendum = "subsaddles";
-
-		static class Subsaddle {
-			PromPoint saddle;
-			PromPoint peak;
-			boolean higher;
-			boolean domain;
-		}
-		List<Subsaddle> subsaddles;
-		
-		public SubsaddleData(boolean up, long pix, List<DomainSaddleInfo> dsis) {
-			this.up = up;
-			this.summit = new PromPoint(pix);
-
-			this.subsaddles = new ArrayList<Subsaddle>();
-			for (DomainSaddleInfo dsi : dsis) {
-				Subsaddle SS = new Subsaddle();
-				SS.saddle = new PromPoint(dsi.saddle, null);
-				SS.peak = new PromPoint(dsi.peak, null);
-				SS.higher = dsi.isHigher;
-				SS.domain = dsi.isDomain;
-				this.subsaddles.add(SS);
-			}
-		}
-	}
-	
-	public static class DomainSaddleInfo {
-		public Point saddle;
-		public Point peak;
-		public boolean isHigher;
-		public boolean isDomain;
-	}
-
 	
 	
 //

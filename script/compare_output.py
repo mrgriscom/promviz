@@ -62,6 +62,8 @@ for k in points():
     for a in (cur, ref):
         softdel('parent_path', a)
         softdel('subsaddles', a)
+    softdel('height_subsaddles', cur)
+    softdel('prom_subsaddles', cur)
 
     if cur != ref:
         diffs = True

@@ -58,83 +58,61 @@ def get_name(conn, pos, type, res=40030000./360/3600):
     return results[0]['name'] if results else None
     
 def process_point(p):
-    if p.get('addendum'):
-        return process_addendum(p), True
+    out = load_point(p) or {}
+    addendum = bool(out)
 
-    type = 'peak' if p['up'] else 'pit'
-    out = {
-        'type': type,
-        type: {
-            'prom': p['summit']['prom'],
-            'elev': p['summit']['elev'],
-            'min_bound': p.get('min_bound', False),
-            'coords': p['summit']['coords'],
-            'geo': p['summit']['geo'],
-        },
-        'saddle': {
-            'elev': p['saddle']['elev'],
-            'coords': p['saddle']['coords'],
-            'geo': p['saddle']['geo'],
-        },
-        'threshold_path': p['higher_path'],
-        'parent_path': p['parent_path'],
-    }
-    if p.get('higher'):
-        out['threshold'] = {
-            'coords': p['higher']['coords'],
-            'geo': p['higher']['geo'],
-        }
-    if p.get('parent'):
-        out['parent'] = {
-            'geo': p['parent']['geo'],
-        }
-    if p.get('_thresh'):
-        out['pthresh'] = {
-            'geo': p['_thresh']['geo'],
-        }
-    
-    return out, False
-
-def process_addendum(p):
-    out = load_point(p)
-    if not out:
-        print 'warning: not found'
-        return None
-
-    if p['addendum'] == 'parent':
-        out.update({
-            'parent_path': p['parent_path'],
-            'parent': {
-                'geo': p['parent']['geo'],
-            },
-        })
-    if p['addendum'] == 'pthresh':
-        out.update({
-            'pthresh': {
-                'geo': p['pthresh']['geo'],
-            }
-        })
-    if p['addendum'] == 'subsaddles':
-        def tx_saddle(ss):
-            return {
+    for fact in p['facts']:
+        if 'summit' in fact:
+            type = 'peak' if p['up'] else 'pit'
+            out.update({
+                'type': type,
+                type: {
+                    'prom': fact['summit']['prom'],
+                    'elev': fact['summit']['elev'],
+                    'min_bound': fact['min_bound'],
+                    'coords': fact['summit']['coords'],
+                    'geo': fact['summit']['geo'],
+                },
                 'saddle': {
-                    'elev': ss['saddle']['elev'],
-                    'coords': ss['saddle']['coords'],
-                    'geo': ss['saddle']['geo'],
+                    'elev': fact['saddle']['elev'],
+                    'coords': fact['saddle']['coords'],
+                    'geo': fact['saddle']['geo'],
+                },
+                'threshold_path': fact['path'],
+            })
+            if 'thresh' in fact:
+                out['threshold'] = {
+                    'coords': fact['thresh']['coords'],
+                    'geo': fact['thresh']['geo'],
+                }
+        elif 'parent' in fact:
+            out.update({
+                'parent': {
+                    'geo': fact['parent']['geo'],
+                },
+                'parent_path': fact['path'],
+            })
+        elif 'pthresh' in fact:
+            out['pthresh'] = {
+                'geo': fact['pthresh']['geo'],
+            }
+        elif 'subsaddle' in fact:
+            ss = {
+                'saddle': {
+                    'elev': fact['saddle']['elev'],
+                    'coords': fact['saddle']['coords'],
+                    'geo': fact['saddle']['geo'],
                 },
                 'for': {
-                    'geo': ss['peak']['geo'],
-                    'higher': ss['higher'],
+                    'geo': fact['forPeak']['geo'],
                 },
-                'domain': ss['domain'],
             }
-        cur_ss = out.get('subsaddles', [])
-        cur_ss.extend(map(tx_saddle, p['subsaddles']))
-        out.update({
-            'subsaddles': sorted(cur_ss, key=lambda ss: ss['saddle']['geo']),
-        })
+            sskey = '%s_subsaddles' % ('prom' if fact['isDomain'] else 'height')
+            subsaddles = out.get(sskey, [])
+            subsaddles.append(ss)
+            out[sskey] = sorted(subsaddles, key=lambda ss: ss['saddle']['geo'])  
 
-    return out
+    return out, addendum
 
 def add_name(p, conn):
     def _name(type):
@@ -162,7 +140,7 @@ def save_point(p):
         f.write(content)
 
 def load_point(p):
-    path = os.path.join(settings.dir_out, 'prom%s.json' % p['summit']['geo'])
+    path = os.path.join(settings.dir_out, 'prom%s.json' % p['key'])
     if not os.path.exists(path):
         return None
     with open(path) as f:
@@ -213,7 +191,7 @@ if __name__ == "__main__":
         try:
             p, addendum = process_point(p)
         except Exception, e:
-            sys.stderr.write('error [%s] on %s\n' % (e, p))
+            sys.stderr.write('error [%s, %s] on %s\n' % (type(e), e, p))
 
         if not addendum:
             index['data'].append(core(p))
