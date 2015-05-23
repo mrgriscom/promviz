@@ -161,7 +161,7 @@ public class Harness {
 			this.geo = Util.print(GeoCode.fromCoord(this.coords[0], this.coords[1]));
 			this.elev = p.elev;
 			if (pi != null) {
-				prom = pi.prominence();
+				prom = pi._prominence();
 			}
 		}
 		
@@ -213,9 +213,6 @@ public class Harness {
 				for (int i = 0; i < 2; i++) {
 					last[i] = last[i] * pi.thresholdFactor + nextToLast[i] * (1. - pi.thresholdFactor);
 				}
-			}
-			if (pi.pthresh != null) {
-				this._thresh = new PromPoint(pi.pthresh.ix);
 			}
 			
 			this.parent_path = new ArrayList<double[]>();
