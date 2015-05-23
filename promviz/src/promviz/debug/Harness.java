@@ -64,14 +64,14 @@ public class Harness {
 		List<double[]> path;
 
 		public PFBaseInfo(PromBaseInfo i) {
-			load(i.p, i.saddle, i.thresh, i.path, i.thresholdFactor);
+			load(i.p, i.saddle, i.thresh, i.path);
 		}
 		
 		public PFBaseInfo(PromPending i) {
-			load(i.p, i.pendingSaddle, null, i.path, -1);
+			load(i.p, i.pendingSaddle, null, i.path);
 		}
 		
-		void load(Point p, Point saddle, Point thresh, List<Long> path, double thresholdFactor) {
+		void load(Point p, Point saddle, Point thresh, Prominence.Path path) {
 			this.summit = new PromPoint(p, saddle);
 			this.saddle = new PromPoint(saddle);
 			if (thresh != null) {
@@ -79,9 +79,10 @@ public class Harness {
 			} else {
 				this.min_bound = true;
 			}
-			this.path = makePath(path, thresholdFactor);
-			if (thresh != null && thresholdFactor >= 0) {
-				this.thresh = new PromPoint(this.path.get(0));
+			
+			this.path = path._finalize();
+			if (thresh != null) {
+				this.thresh = new PromPoint(path.threshCoords);
 			}
 		}
 	}
@@ -100,24 +101,8 @@ public class Harness {
 		
 		public PFParentInfo(PromParent i) {
 			this.parent = new PromPoint(i.parent);
-			this.path = makePath(i.path, -1);
+			this.path = i.path._finalize();
 		}
-	}
-	
-	static List<double[]> makePath(List<Long> ixpath, double thresholdFactor) {
-		List<double[]> cpath = new ArrayList<double[]>();
-		for (long ix : ixpath) {
-			cpath.add(PointIndex.toLatLon(ix));
-		}
-		if (thresholdFactor >= 0) {
-			// this is a stop-gap; actually threshold should be determined by following chase from saddle
-			double[] last = cpath.get(0);
-			double[] nextToLast = cpath.get(1);
-			for (int i = 0; i < 2; i++) {
-				last[i] = last[i] * thresholdFactor + nextToLast[i] * (1. - thresholdFactor);
-			}
-		}
-		return cpath;
 	}
 
 	static class PFSubsaddleInfo extends PromFactInfo {

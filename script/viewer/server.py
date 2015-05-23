@@ -84,7 +84,6 @@ def to_geojson(k):
             summit_feature(k[k['type']], type=k['type']),
             saddle_feature(k),
             _feature(k['threshold_path'], type='divide'),
-            _feature(k['parent_path'], type='toparent'),
         ]
     }
     for ss in k.get('height_subsaddles', []):
@@ -99,7 +98,10 @@ def to_geojson(k):
                  ),
         )
     if k.get('parent'):
-        data['features'].append(summit_feature(meat(k['_parent']), type='parent'))
+        data['features'].extend([
+            summit_feature(meat(k['_parent']), type='parent'),
+            _feature(k['parent_path'], type='toparent'),
+        ])
     for child in k.get('_children', []):
         data['features'].append(summit_feature(meat(child), type='child', ix=child['ix']))
         data['features'].append(saddle_feature(child, type='childsaddle', ix=child['ix']))

@@ -81,15 +81,14 @@ public class Prominence {
 	public static class PromBaseInfo extends PromFact {
 		public Point p;
 		public Point saddle;
-		public List<Long> path;
+		public Path path;
 		public Point thresh;
-		public double thresholdFactor = -1;
 	}
 	
 	public static class PromPending extends PromFact {
 		public Point p;
 		public Point pendingSaddle;
-		public List<Long> path;
+		public Path path;
 	}
 	
 	public static class PromThresh extends PromFact {
@@ -98,7 +97,7 @@ public class Prominence {
 	
 	public static class PromParent extends PromFact {
 		public Point parent;
-		public List<Long> path;
+		public Path path;
 	}
 	
 	public static class PromSubsaddle extends PromFact {
@@ -471,10 +470,39 @@ public class Prominence {
 		void mergeFronts(FrontMerge fm) {
 			Front parent = fm.parent;
 			Front child = fm.child;
-			
+
+			MeshPoint saddle = child.first();
+			PromPair newProm = new PromPair(child.peak, saddle);
+			PromBaseInfo i = new PromBaseInfo();
+			i.p = newProm.peak;
+			i.saddle = newProm.saddle;
+			boolean notable = isNotablyProminent(newProm);
+
+			List<Point> childThreshes = child.thresholds.traceUntil(saddle, i.p, child.c).getValue();
+			Entry<Point, List<Point>> e = parent.thresholds.traceUntil(saddle, i.p, child.c);
+			i.thresh = e.getKey();
+			List<Point> parentThreshes = e.getValue();
+
+			for (Point sub : childThreshes) {
+				if (child.promPoints.containsKey(sub)) {
+					PromSubsaddle ps = new PromSubsaddle();
+					ps.subsaddle = new PromPair(i.p, saddle);
+					ps.type = PromSubsaddle.TYPE_ELEV;
+					emitFact(sub, ps);
+				}
+			}			
+			for (Point sub : parentThreshes) {
+				if (child.promPoints.containsKey(sub)) {
+					PromSubsaddle ps = new PromSubsaddle();
+					ps.subsaddle = new PromPair(i.p, saddle);
+					ps.type = PromSubsaddle.TYPE_ELEV;
+					emitFact(sub, ps);
+				}
+			}
+
 			// unlist child front, merge into parent, and remove connection between the two
 			fronts.remove(child);
-			MeshPoint saddle = child.pop();
+			child.pop();
 			boolean newParentMerge = parent.mergeFrom(child, saddle, this);
 			connectorsClear(saddle, frontPair(parent, child));
 			
@@ -534,7 +562,18 @@ public class Prominence {
 				}
 			}
 
-			processProm(new PromPair(child.peak, saddle), parent, child);
+			if (notable || !child.pendingPThresh.isEmpty()) {
+				this.pthresh(newProm, i.thresh, parent, child);
+			}
+			if (notable || !child.pendingParent.isEmpty()) {
+				this.parentage(newProm, i.thresh, parent, child);
+			}
+			
+			if (notable) {
+				i.path = new Path(parent.bt.getAtoB(i.thresh, i.p), i.p);
+				parent.promPoints.put((MeshPoint)i.p, (MeshPoint)i.saddle);
+				emitFact(i.p, i);
+			}
 		}
 		
 		void connectorsPut(MeshPoint saddle, Set<Front> fronts) {
@@ -547,33 +586,6 @@ public class Prominence {
 			assert fronts.equals(connectorsBySaddle.get(saddle));
 			connectorsBySaddle.remove(saddle);
 			connectorsByFrontPair.remove(fronts);
-		}
-
-		void processProm(PromPair pp, Front parent, Front child) {
-			PromBaseInfo i = new PromBaseInfo();
-			i.p = pp.peak;
-			i.saddle = pp.saddle;
-			
-			boolean notable = isNotablyProminent(pp);
-			if (notable || !child.pendingPThresh.isEmpty() || !child.pendingParent.isEmpty()) {
-				i.thresh = parent.thresholds.get(i.p);
-				if (notable) {
-					parent.promPoints.put((MeshPoint)i.p, (MeshPoint)i.saddle);
-					Path _ = new Path(parent.bt.getAtoB(i.thresh, i.p), i.p);
-					i.path = _.path;
-					i.thresholdFactor = _.thresholdFactor;
-				}
-				if (notable || !child.pendingPThresh.isEmpty()) {
-					this.pthresh(pp, i.thresh, parent, child);
-				}
-				if (notable || !child.pendingParent.isEmpty()) {
-					this.parentage(pp, i.thresh, parent, child);
-				}
-			}
-			
-			if (notable) {
-				emitFact(i.p, i);
-			}			
 		}
 
 		void pthresh(PromPair pp, Point thresh, Front parent, Front child) {
@@ -647,7 +659,7 @@ public class Prominence {
 			}
 		}
 				
-		List<Long> pathToUnknown(Front f) {
+		Path pathToUnknown(Front f) {
 			List<Point> path = new ArrayList<Point>();
 			Point start = f.peak;
 			while (f != null) {
@@ -660,12 +672,7 @@ public class Prominence {
 				start = f.first();
 				f = primaryFront(f);
 			}
-
-			List<Long> ixPath = new ArrayList<Long>();
-			for (Point p : path) {
-				ixPath.add(p.ix);
-			}
-			return Lists.reverse(ixPath);
+			return new Path(Lists.reverse(path), null);
 		}
 		
 		public void emitFact(Point p, PromFact pf) {
@@ -673,9 +680,10 @@ public class Prominence {
 		}
 	}
 	
-	static class Path {
-		List<Long> path;
+	public static class Path {
+		public List<Long> path;
 		double thresholdFactor = -1;
+		public double[] threshCoords = null;
 		
 		public Path(Iterable<Point> path, Point ref) {
 			this.path = new ArrayList<Long>();
@@ -695,6 +703,23 @@ public class Prominence {
 				Point nextToLast = endSeg[1];
 				thresholdFactor = (ref.elev - nextToLast.elev) / (last.elev - nextToLast.elev);
 			}
+		}
+			
+		public List<double[]> _finalize() {
+			List<double[]> cpath = new ArrayList<double[]>();
+			for (long ix : path) {
+				cpath.add(PointIndex.toLatLon(ix));
+			}
+			if (thresholdFactor >= 0) {
+				// this is a stop-gap; actually threshold should be determined by following chase from saddle
+				double[] last = cpath.get(0);
+				double[] nextToLast = cpath.get(1);
+				for (int i = 0; i < 2; i++) {
+					last[i] = last[i] * thresholdFactor + nextToLast[i] * (1. - thresholdFactor);
+				}
+			}
+			threshCoords = cpath.get(0);
+			return cpath;
 		}
 	}
 	
@@ -758,18 +783,16 @@ public class Prominence {
 			return toReverse.subList(1, toReverse.size() - 1); // exclude connecting saddle and old front peak
 		}
 		
-		public List<Point> mergeFromAsTree(Backtrace other, MeshPoint saddle, Comparator<Point> c) {
+		public void mergeFromAsTree(Backtrace other, MeshPoint saddle, Comparator<Point> c) {
 			removeInCommon(other, saddle);
 
 			Map.Entry<Point, List<Point>> e = traceUntil(saddle, other.root, c);
 			Point threshold = e.getKey();
-			List<Point> belowThresh = e.getValue();
 			
 			this.backtrace.remove(saddle);
 			other.backtrace.remove(saddle);
 			this.backtrace.putAll(other.backtrace);
 			this.add(other.root, threshold);
-			return belowThresh;
 		}
 		
 		public Map.Entry<Point, List<Point>> traceUntil(Point saddle, Point cutoff, Comparator<Point> c) {
@@ -780,7 +803,7 @@ public class Prominence {
 					continue;
 				}
 				
-				if (c.compare(p, cutoff) > 0) {
+				if (c.compare(p, cutoff) > 0 || p.equals(cutoff)) {
 					threshold = p;
 					break;
 				}
@@ -969,20 +992,8 @@ public class Prominence {
 			}
 
 			promPoints.putAll(other.promPoints);
-			
 			bt.mergeFromAsNetwork(other.bt, saddle);
-			
-			List<Point> subbed1 = Lists.newArrayList(other.thresholds.trace(saddle));
-			subbed1 = subbed1.subList(1, subbed1.size() - 1);
-			List<Point> subbed2 = thresholds.mergeFromAsTree(other.thresholds, saddle, this.c);
-			for (Point sub : Iterables.concat(subbed1, subbed2)) {
-				if (promPoints.containsKey(sub)) {
-					PromSubsaddle ps = new PromSubsaddle();
-					ps.subsaddle = new PromPair(other.peak, saddle);
-					ps.type = PromSubsaddle.TYPE_ELEV;
-					context.emitFact(sub, ps);
-				}
-			}
+			thresholds.mergeFromAsTree(other.thresholds, saddle, this.c);
 			
 			return firstChanged;
 		}
@@ -1039,7 +1050,7 @@ public class Prominence {
 				if (cand.compareTo(pend) > 0) {
 					PromParent parentInfo = new PromParent();
 					parentInfo.parent = cand.peak;
-					parentInfo.path = new Path(pathFront.bt.getAtoB(pend.peak, cand.peak), null).path;
+					parentInfo.path = new Path(pathFront.bt.getAtoB(pend.peak, cand.peak), null);
 					context.emitFact(pend.peak, parentInfo);
 					
 					it.remove();
