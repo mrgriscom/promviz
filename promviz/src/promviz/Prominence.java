@@ -802,6 +802,10 @@ public class Prominence {
 			return parent;
 		}
 		
+		public boolean contains(Point p) {
+			return backtrace.containsKey(p) || p.equals(root);
+		}
+		
 //		public boolean isLoaded(Point p) {
 //			return backtrace.containsKey(p) || p.equals(root);
 //		}

@@ -77,8 +77,8 @@ public class Main {
 		} else if (action.equals("--searchup") || action.equals("--searchdown")) {
 			boolean up = action.endsWith("up");
 			double cutoff = Double.parseDouble(args[2]);
-			Prominence.promSearch(DEMs, up, cutoff);
-			
+//			Prominence.promSearch(DEMs, up, cutoff);
+			ReferenceProminence.promSearch(DEMs, up, cutoff);
 		}
 	}
 	
