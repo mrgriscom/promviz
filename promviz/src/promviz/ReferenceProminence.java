@@ -6,7 +6,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.PriorityQueue;
 import java.util.Set;
 
@@ -14,7 +13,10 @@ import promviz.Prominence.Backtrace;
 import promviz.Prominence.Path;
 import promviz.Prominence.PromBaseInfo;
 import promviz.Prominence.PromFact;
+import promviz.Prominence.PromPair;
+import promviz.Prominence.PromParent;
 import promviz.Prominence.PromPending;
+import promviz.Prominence.PromThresh;
 import promviz.debug.Harness;
 import promviz.dem.DEMFile;
 import promviz.util.DefaultMap;
@@ -36,19 +38,14 @@ public class ReferenceProminence {
 		boolean up;
 		double cutoff;
 
-		Map<Long, List<PromFact>> results;
 		Map<Point, List<NetworkEdge>> network;
 		Map<Point, Point> prom;
+		Set<Point> mst;
 		
 		public PromSearch(Map<Prefix, Set<DEMFile>> coverage, boolean up, double cutoff) {
 			this.coverage = coverage;
 			this.up = up;
 			this.cutoff = cutoff;
-			this.results = new DefaultMap<Long, List<PromFact>>() {
-				public List<PromFact> defaultValue(Long key) {
-					return new ArrayList<PromFact>(5);
-				}
-			};
 			this.prom = new HashMap<Point, Point>();
 		}
 
@@ -56,8 +53,10 @@ public class ReferenceProminence {
 			load();
 			
 			searchProm();
+			searchPThresh();
+			searchParent();
 			
-			dump();
+//			dump();
 		}
 		
 		class NetworkEdge {
@@ -78,6 +77,8 @@ public class ReferenceProminence {
 					return new ArrayList<NetworkEdge>(2);
 				}
 			};
+			prom = new HashMap<Point, Point>();
+			mst = new HashSet<Point>();
 			Map<Long, Point> points = new HashMap<Long, Point>();
 			
 			for (Prefix prefix : chunks) {
@@ -118,28 +119,78 @@ public class ReferenceProminence {
 		}
 		
 		void searchProm() {
+			Logging.log("searching base prom");
 			for (Point p : network.keySet()) {
 				PromFact pf = _searchProm(p, new Criterion() {
 					public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
 						return cmp.compare(cur, p) > 0;
 					}
 				});
-				if (Prominence.prominence(p, pf instanceof PromBaseInfo ? ((PromBaseInfo)pf).saddle : ((PromPending)pf).pendingSaddle) >= cutoff) {
+				
+				Point saddle = (pf instanceof PromBaseInfo ? ((PromBaseInfo)pf).saddle : ((PromPending)pf).pendingSaddle);
+				if (Prominence.prominence(p, saddle) >= cutoff) {
 					List<PromFact> pfs = new ArrayList<PromFact>();
 					pfs.add(pf);
 					Harness.outputPromInfo(up, p.ix, pfs);
-					//emitFact(p, pf);
+					
+					prom.put(p, saddle);
+					prom.put(saddle, p);
 				}
-				// dump to disk after each round
+			}
+		}
+
+		void searchPThresh() {
+			Logging.log("searching pthresh");
+			for (Point p : network.keySet()) {
+				if (!prom.containsKey(p)) {
+					continue;
+				}
+				
+				PromFact pf = _searchProm(p, new Criterion() {
+					public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
+						return cmp.compare(cur, p) > 0 && prom.containsKey(cur);
+					}
+				});
+				
+				if (pf instanceof PromBaseInfo) {
+					PromThresh pt = new PromThresh();
+					pt.pthresh = ((PromBaseInfo)pf).thresh;
+					
+					List<PromFact> pfs = new ArrayList<PromFact>();
+					pfs.add(pt);
+					Harness.outputPromInfo(up, p.ix, pfs);
+				}
+			}
+		}
+
+		void searchParent() {
+			Logging.log("searching parent");
+			for (Point p : network.keySet()) {
+				if (!prom.containsKey(p)) {
+					continue;
+				}
+
+				final PromPair ppair = new PromPair(p, prom.get(p));
+				PromFact pf = _searchProm(p, new Criterion() {
+					public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
+						return prom.containsKey(cur) && new PromPair(cur, prom.get(cur)).compareTo(ppair) > 0;
+					}
+				});
+				
+				if (pf instanceof PromBaseInfo) {
+					PromParent pp = new PromParent();
+					pp.parent = ((PromBaseInfo)pf).thresh;
+					pp.path = ((PromBaseInfo)pf).path;
+					
+					List<PromFact> pfs = new ArrayList<PromFact>();
+					pfs.add(pp);
+					Harness.outputPromInfo(up, p.ix, pfs);
+				}
 			}
 		}
 		
 		static interface Criterion {
 			boolean condition(Comparator<Point> cmp, Point p, Point cur);
-		}
-		
-		void emitFact(Point p, PromFact fact) {
-			results.get(p.ix).add(fact);
 		}
 		
 		PromFact _searchProm(Point p, Criterion crit) {
@@ -187,7 +238,7 @@ public class ReferenceProminence {
 					break;
 				}
 				bt.add(curPeak, curSaddle);
-				// tag the edge for MST
+				mst.add(curSaddle);
 				
 				if (crit.condition(c, p, curPeak)) {
 					thresh = curPeak;
@@ -219,11 +270,11 @@ public class ReferenceProminence {
 			}
 		}
 		
-		void dump() {
-			for (Entry<Long, List<PromFact>> e : results.entrySet()) {
-				Harness.outputPromInfo(up, e.getKey(), e.getValue());
-			}
-		}
+//		void dump() {
+//			for (Entry<Long, List<PromFact>> e : results.entrySet()) {
+//				Harness.outputPromInfo(up, e.getKey(), e.getValue());
+//			}
+//		}
 	}
 
 //	static class ChunkProcessor implements PromConsumer {

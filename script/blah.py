@@ -182,12 +182,12 @@ if __name__ == "__main__":
             return
 
         print 'flushing... (%d)' % len(index['data'])
+        index['last_interim'] = time.time()
         if not index['data']:
             return
 
         write_master(index['data'], prom_mode, index['i'])
         index['i'] += 1
-        index['last_interim'] = time.time()
         index['data'] = []
 
     INTERIM_INTERVAL = 300
