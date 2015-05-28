@@ -78,6 +78,7 @@ public class Prominence {
 	
 	public static abstract class PromFact {}
 	
+	// TODO add constructors
 	public static class PromBaseInfo extends PromFact {
 		public Point p;
 		public Point saddle;
@@ -85,6 +86,7 @@ public class Prominence {
 		public Point thresh;
 	}
 	
+	// TODO merge with PromBaseInfo, rename to PromBase
 	public static class PromPending extends PromFact {
 		public Point p;
 		public Point pendingSaddle;
