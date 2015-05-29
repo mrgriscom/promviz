@@ -677,10 +677,10 @@ public class Prominence {
 				
 				Point saddle = f.first();
 				Front other = primaryFront(f);
+				finalizeSubsaddles(f, other, saddle, f.peak);
+				finalizeDomainSubsaddles(f, other, saddle, f.peak);
 				if (other != null) {
-					finalizeSubsaddles(f, other, saddle, f.peak);
 					finalizeSubsaddles(other, f, saddle, f.peak);
-					finalizeDomainSubsaddles(f, other, saddle, f.peak);
 					finalizeDomainSubsaddles(other, f, saddle, f.peak);
 				}
 			}

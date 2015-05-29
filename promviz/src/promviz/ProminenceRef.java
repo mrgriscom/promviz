@@ -149,7 +149,7 @@ public class ProminenceRef {
 					public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
 						return cmp.compare(cur, p) > 0;
 					}
-				});
+				}, true);
 				
 				Point saddle = (pf instanceof PromBaseInfo ? ((PromBaseInfo)pf).saddle : ((PromPending)pf).pendingSaddle);
 				if (Prominence.prominence(p, saddle) >= cutoff) {
@@ -174,7 +174,7 @@ public class ProminenceRef {
 					public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
 						return cmp.compare(cur, p) > 0 && prom.containsKey(cur);
 					}
-				});
+				}, false);
 				
 				if (pf instanceof PromBaseInfo) {
 					PromThresh pt = new PromThresh();
@@ -199,7 +199,7 @@ public class ProminenceRef {
 					public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
 						return prom.containsKey(cur) && new PromPair(cur, prom.get(cur)).compareTo(ppair) > 0;
 					}
-				});
+				}, false);
 				
 				if (pf instanceof PromBaseInfo) {
 					PromParent pp = new PromParent();
@@ -217,7 +217,7 @@ public class ProminenceRef {
 			boolean condition(Comparator<Point> cmp, Point p, Point cur);
 		}
 		
-		PromFact _searchProm(Point p, Criterion crit) {
+		PromFact _searchProm(Point p, Criterion crit, boolean trimPath) {
 			final Comparator<Point> c = Point.cmpElev(up);
 			PriorityQueue<NetworkEdge> front = new PriorityQueue<NetworkEdge>(10, new ReverseComparator<NetworkEdge>(
 					new Comparator<NetworkEdge> () {
@@ -282,7 +282,7 @@ public class ProminenceRef {
 				pbi.p = p;
 				pbi.saddle = saddle;
 				pbi.thresh = thresh;
-				pbi.path = new Path(bt.trace(thresh), p);
+				pbi.path = new Path(bt.trace(thresh), trimPath ? p : null);
 				return pbi;
 			} else {
 				PromPending pp = new PromPending();
