@@ -35,35 +35,15 @@ for k in points():
     with open(fref) as f:
         ref = json.load(f)
 
-    #psimp = []
-    #for p in ref['threshold_path']:
-    #    prev = psimp[-1] if psimp else None
-    #    dup = all(abs(a-b)<1e-6 for a, b in zip(p, prev)) if prev else False
-    #    if not dup:
-    #        psimp.append(p)
-    #ref['threshold_path'] = psimp
-
-    refss = ref.get('subsaddles', [])
-    refss = set(ss['saddle']['geo'] for ss in refss)
-    refss -= set(ref[x]['geo'] for x in ('peak', 'saddle'))
-    #ref['_ss'] = sorted(refss)
-    #cur['_ss'] = sorted([ss['saddle']['geo'] for ss in cur.get('subsaddles', [])])
-
     def softdel(k, a=ref):
         if k in a:
             del a[k]
 
-    if 'parent' not in ref:
-        softdel('parent', cur)
-        softdel('parent_path', cur)
-
-    softdel('_thresh')
     softdel('children')
     for a in (cur, ref):
         softdel('parent_path', a)
-        softdel('subsaddles', a)
-    softdel('height_subsaddles', cur)
-    softdel('prom_subsaddles', cur)
+        #softdel('height_subsaddles', a)
+        softdel('prom_subsaddles', a)
 
     if cur != ref:
         diffs = True

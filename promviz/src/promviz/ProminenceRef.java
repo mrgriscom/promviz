@@ -29,7 +29,16 @@ import promviz.util.ReverseComparator;
 
 import com.google.common.collect.Lists;
 
-public class ReferenceProminence {
+/*
+ * simplified, more intuitive prominence algorithms for creating reference datasets
+ * for validation of more complex algorithms. a consequence of this simplicity is
+ * the entire area of interest must be loaded into memory at once, so max area that
+ * can be processed is limited.
+ * 
+ * priorities are, in order: simplicitly/understandability; memory overhead; speed
+ */
+
+public class ProminenceRef {
 
 	public static void promSearch(List<DEMFile> DEMs, boolean up, double cutoff) {
 		Map<Prefix, Set<DEMFile>> coverage = PagedElevGrid.partitionDEM(DEMs);
@@ -268,7 +277,6 @@ public class ReferenceProminence {
 				}
 			}
 			
-
 			if (thresh != null) {
 				PromBaseInfo pbi = new PromBaseInfo();
 				pbi.p = p;
@@ -299,7 +307,6 @@ public class ReferenceProminence {
 		
 		void searchHeightSubsaddles() {
 			Logging.log("searching height subsaddles");
-			int i = 0;
 			for (Point p : network.keySet()) {
 				if (!prom.containsKey(p)) {
 					continue;
@@ -324,7 +331,6 @@ public class ReferenceProminence {
 		
 		void searchPromSubsaddles() {
 			Logging.log("searching prom subsaddles");
-			int i = 0;
 			for (Point p : network.keySet()) {
 				if (!prom.containsKey(p)) {
 					continue;
