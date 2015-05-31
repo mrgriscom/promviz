@@ -504,35 +504,24 @@ public class Prominence {
 					}
 				}
 			}
-			promThresh = null;
 			for (Point sub : parentThreshes) {
 				if (parent.promPoints.containsKey(sub)) {
 					PromSubsaddle ps = new PromSubsaddle();
 					ps.subsaddle = new PromPair(i.p, saddle);
 					ps.type = PromSubsaddle.TYPE_ELEV;
 					emitFact(sub, ps);
-					
-					PromPair subpp = new PromPair(sub, parent.promPoints.get(sub));
-					if (promThresh == null || subpp.compareTo(promThresh) > 0) {
-						promThresh = subpp;
-
-						PromSubsaddle pps = new PromSubsaddle();
-						pps.subsaddle = new PromPair(i.p, saddle);
-						pps.type = PromSubsaddle.TYPE_PROM;
-						emitFact(sub, pps);
-					}
-  				}
-  			}
+				}
+			}
 			
 			if (notable || !child.pendingPThresh.isEmpty()) {
 				this.pthresh(newProm, i.thresh, parent, child);
 			}
 			if (notable) {
-				child.flushPendingParents(newProm, this, null, false);
+				child.flushPendingParents(newProm, null, this, null, false);
 			}
 			List<Point[]> newParents = new ArrayList<Point[]>(); // temp list because we can't do path stuff till post-merge
 			if (notable || !child.pendingParent.isEmpty()) {
-				this.parentage(newProm, i.thresh, promThresh, parent, child, newParents);
+				this.parentage(newProm, parent, child, newParents);
 			}
 
 			// unlist child front, merge into parent, and remove connection between the two
@@ -593,7 +582,7 @@ public class Prominence {
 				
 				if (isNotablyProminent(parent.pendProm())) {
 					parent.flushPendingThresh(parent.peak, this);
-					parent.flushPendingParents(parent.pendProm(), this, newParents, true);
+					parent.flushPendingParents(parent.pendProm(), null, this, newParents, true);
 				}
 			}
 
@@ -639,23 +628,25 @@ public class Prominence {
 			}
 		}
 
-		void parentage(PromPair pp, Point thresh, PromPair promThresh, Front f, Front other, List<Point[]> newParents) {
+		void parentage(PromPair pp, Front f, Front other, List<Point[]> newParents) {
 			if (isNotablyProminent(pp)) {
 				other.pendingParent.put((MeshPoint)pp.peak, (MeshPoint)pp.saddle);
+				other.pendingParentThresh.put((MeshPoint)pp.peak, (MeshPoint)pp.peak);
 			}
-			for (Point p : f.thresholds.trace(thresh)) {
+
+			for (Point p : f.thresholds.trace(pp.saddle)) {
+				if (p == pp.saddle) {
+					continue;
+				}
+				
 				PromPair cand = f.getProm(p);
 				if (cand == null) {
 					continue;
 				}
-				if (promThresh == null || cand.compareTo(promThresh) > 0) {
-					boolean newThresh = other.flushPendingParents(cand, this, newParents, p.equals(f.peak));
-					if (newThresh) {
-						promThresh = cand;
-					}
-				}
+				other.flushPendingParents(cand, f, this, newParents, p.equals(f.peak));
 			}
 			f.pendingParent.putAll(other.pendingParent);
+			f.pendingParentThresh.putAll(other.pendingParentThresh);
 		}
 		
 		void finalizeRemaining() {
@@ -698,6 +689,7 @@ public class Prominence {
 			}
 		}
 		
+		// TODO pendings?
 		void finalizeDomainSubsaddles(Front f, Front other, Point saddle, Point peak) {
 			Map.Entry<Point, List<Point>> e = f.thresholds.traceUntil(saddle, peak, f.c);
 			PromPair promThresh = null;
@@ -988,7 +980,8 @@ public class Prominence {
 		
 		Map<MeshPoint, MeshPoint> promPoints;
 		Set<Long> pendingPThresh;
-		Map<MeshPoint, MeshPoint> pendingParent;
+		Map<MeshPoint, MeshPoint> pendingParent; // could probably be a set, since saddles are stored in promPoints?
+		Map<MeshPoint, MeshPoint> pendingParentThresh;
 		
 		Comparator<Point> c;
 
@@ -1004,6 +997,7 @@ public class Prominence {
 			promPoints = new HashMap<MeshPoint, MeshPoint>();
 			pendingPThresh = new HashSet<Long>();
 			pendingParent = new HashMap<MeshPoint, MeshPoint>();
+			pendingParentThresh = new HashMap<MeshPoint, MeshPoint>();
 		}
 		
 		public PromPair pendProm() {
@@ -1082,8 +1076,12 @@ public class Prominence {
 			}
 			btp.prune();
 			
+			Set<Point> allParentThreshes = new HashSet<Point>(pendingParentThresh.values());
 			for (Iterator<MeshPoint> it = promPoints.keySet().iterator(); it.hasNext(); ) {
-				if (!thresholds.backtrace.containsKey(it.next())) {
+				Point p = it.next();
+				if (!thresholds.backtrace.containsKey(p) &&
+						!pendingParent.containsKey(p) &&
+						!allParentThreshes.contains(p)) {
 					it.remove();
 				}
 			}
@@ -1103,35 +1101,45 @@ public class Prominence {
 			}
 		}
 		
-		public boolean flushPendingParents(PromPair cand, PromConsumer context, List<Point[]> newParents, boolean nosubsaddle) {
+		public void flushPendingParents(PromPair cand, Front other, PromConsumer context, List<Point[]> newParents, boolean nosubsaddle) {
 			for (Iterator<Entry<MeshPoint, MeshPoint>> it = this.pendingParent.entrySet().iterator(); it.hasNext(); ) {
 				Entry<MeshPoint, MeshPoint> e = it.next();
 				PromPair pend = new PromPair(e.getKey(), e.getValue());
 				if (cand.compareTo(pend) > 0) {
 					newParents.add(new Point[] {pend.peak, cand.peak});
 					it.remove();
+					this.pendingParentThresh.remove(pend.peak);
 				}
 			}
 			if (!nosubsaddle) {
-				PromPair smallest = null;
 				for (Entry<MeshPoint, MeshPoint> e : this.pendingParent.entrySet()) {
 					PromPair pend = new PromPair(e.getKey(), e.getValue());
-					if (smallest == null || pend.compareTo(smallest) < 0) {
-						smallest = pend;
+					Point _thresh = this.pendingParentThresh.get(pend.peak);
+					PromPair thresh;
+					if (_thresh.equals(pend.peak)) {
+						thresh = null;
+					} else {
+						// yikes
+						thresh = this.getProm(_thresh);
+						if (thresh == null) {
+							assert other != null;
+							thresh = other.getProm(_thresh);
+						}
+						assert thresh != null;
+					}
+
+					if (thresh == null || thresh.compareTo(cand) <= 0) {
+						PromSubsaddle pps = new PromSubsaddle();
+						pps.subsaddle = pend;
+						pps.type = PromSubsaddle.TYPE_PROM;
+						context.emitFact(cand.peak, pps);
+						
+						this.pendingParentThresh.put((MeshPoint)pend.peak, (MeshPoint)cand.peak);
 					}
 				}
-				if (smallest != null) {
-					PromSubsaddle pps = new PromSubsaddle();
-					pps.subsaddle = smallest;
-					pps.type = PromSubsaddle.TYPE_PROM;
-					context.emitFact(cand.peak, pps);
-					return true;
-				}
 			}
-			return false;
 		}
 		
-		// TODO i don't think backtrace 'root' gets stored?
 		public void write(DataOutputStream out) throws IOException {
 			Set<Point> mesh = new HashSet<Point>();
 			mesh.add(peak);
@@ -1168,6 +1176,7 @@ public class Prominence {
 			}
 			
 			writePointMap(out, pendingParent);
+			writePointMap(out, pendingParentThresh);
 		}
 		
 		public void writePointMap(DataOutputStream out, Map<? extends Point, ? extends Point> pointMap) throws IOException {
@@ -1205,6 +1214,7 @@ public class Prominence {
 			}
 			
 			readPointMap(in, mesh, f.pendingParent);
+			readPointMap(in, mesh, f.pendingParentThresh);
 			
 			return f;
 		}

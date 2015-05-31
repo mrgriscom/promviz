@@ -314,7 +314,7 @@ public class ProminenceRef {
 
 				List<PromPair> ss = _subsaddles(p, new Criterion() {
 					public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
-						return prom.containsKey(cur) && cmp.compare(prom.get(cur), p) > 0;
+						return prom.containsKey(cur) && cmp.compare(prom.get(cur), p) >= 0;
 					}
 				});
 
@@ -339,7 +339,8 @@ public class ProminenceRef {
 				final PromPair ppair = new PromPair(p, prom.get(p));
 				List<PromPair> ss = _subsaddles(p, new Criterion() {
 					public boolean condition(Comparator<Point> cmp, Point p, Point cur) {
-						return prom.containsKey(cur) && new PromPair(prom.get(cur), cur).compareTo(ppair) > 0;
+						// note gte
+						return prom.containsKey(cur) && new PromPair(prom.get(cur), cur).compareTo(ppair) >= 0;
 					}
 				});
 
