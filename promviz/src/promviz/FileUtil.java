@@ -19,7 +19,6 @@ public class FileUtil {
 	public static final int PHASE_RAW = 0;
 	public static final int PHASE_PROMTMP = 1;
 	public static final int PHASE_MST = 2;
-	public static final int PHASE_RMST = 3;
 	
 	static String segmentPath(boolean up, Prefix p, int phase) {
 		return prefixPath(up, null, p, phase);
@@ -47,8 +46,6 @@ public class FileUtil {
 			_d = "dir_promtmp";
 		} else if (phase == PHASE_MST) {
 			_d = "dir_mst";
-		} else if (phase == PHASE_RMST) {
-			_d = "dir_rmst";
 		}
 		String root = Main.props.getProperty("dir_root");
 		String path = Main.props.getProperty(_d);

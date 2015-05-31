@@ -27,7 +27,7 @@ import com.google.common.collect.Iterables;
 
 public class TopologyBuilder {
 
-	static final int CHUNK_SIZE_EXP = 13;
+	static final int CHUNK_SIZE_EXP = 11; //13;
 	static final int CHECKPOINT_FREQ = Util.pow2(11);
 	static final int CHECKPOINT_LEN = CHECKPOINT_FREQ;
 	static final int CHECKPOINT_EXCL_BUFFER = PagedElevGrid.pageDim();

@@ -32,7 +32,7 @@ public class Main {
 	public static List<DEMFile> loadDEMs(String region) {
 		List<DEMFile> dems = new ArrayList<DEMFile>();
 		try {
-	        Process proc = new ProcessBuilder(new String[] {"python", "/home/drew/dev/pv2/script/demregion.py", region}).start();
+	        Process proc = new ProcessBuilder(new String[] {"python", "demregion.py", region}).start();
 	        BufferedReader stdin = new BufferedReader(new InputStreamReader(proc.getInputStream()));
 	        
 	        String s = null;
