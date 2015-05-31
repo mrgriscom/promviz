@@ -27,7 +27,7 @@ import promviz.util.Logging;
 import promviz.util.MutablePriorityQueue;
 import promviz.util.ReverseComparator;
 import promviz.util.SaneIterable;
-import promviz.util.WorkerPoolDebug;
+import promviz.util.WorkerPool;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
@@ -140,8 +140,7 @@ public class Prominence {
 		// mst?
 	}
 	
-//	static class PromSearch extends WorkerPool<ChunkInput, ChunkOutput> {
-	static class PromSearch extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
+	static class PromSearch extends WorkerPool<ChunkInput, ChunkOutput> {
 
 		int numWorkers;
 		Map<Prefix, Set<DEMFile>> coverage;

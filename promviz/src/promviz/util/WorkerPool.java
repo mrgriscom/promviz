@@ -48,6 +48,11 @@ public abstract class WorkerPool <I, O> {
 	}
 	
 	public void launch(int numWorkers, Iterable<I> tasks) {
+		if (numWorkers == 0) {
+			launchSingleThreaded(tasks);
+			return;
+		}
+		
 		results = new ArrayBlockingQueue<Result>(2 * numWorkers);
 		ExecutorService threadPool = Executors.newFixedThreadPool(numWorkers);
 		int numTasks = 0;
@@ -74,6 +79,14 @@ public abstract class WorkerPool <I, O> {
 			
 			postprocess(numProcessed, result.result);
 			numProcessed++;
+		}
+	}
+	
+	public void launchSingleThreaded(Iterable<I> tasks) {
+		int i = 0;
+		for (I task : tasks) {
+			postprocess(i, process(task));
+			i++;
 		}
 	}
 	

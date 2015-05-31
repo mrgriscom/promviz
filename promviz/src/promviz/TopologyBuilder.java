@@ -20,7 +20,7 @@ import promviz.dem.DEMFile;
 import promviz.util.DefaultMap;
 import promviz.util.Logging;
 import promviz.util.Util;
-import promviz.util.WorkerPoolDebug;
+import promviz.util.WorkerPool;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
@@ -579,8 +579,7 @@ public class TopologyBuilder {
 		}
 	}
 
-//	static class Builder extends WorkerPool<ChunkInput, ChunkOutput> {
-	static class Builder extends WorkerPoolDebug<ChunkInput, ChunkOutput> {
+	static class Builder extends WorkerPool<ChunkInput, ChunkOutput> {
 
 		int numWorkers;
 		Map<Prefix, Set<DEMFile>> coverage;

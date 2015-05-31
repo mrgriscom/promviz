@@ -152,7 +152,7 @@ if __name__ == "__main__":
         os.popen('mkdir -p "%s"' % d)
 
     # java runs this too, but swallows stderr
-    os.popen('python demregion.py "%s" > /dev/null' % sys.argv[2])
+    os.popen('python demregion.py "%s" > /dev/null' % sys.argv[3])
 
     conn = None #psycopg2.connect('dbname=%s' % 'gazetteer')
 

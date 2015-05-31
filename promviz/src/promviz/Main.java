@@ -16,7 +16,7 @@ import promviz.util.Logging;
 
 public class Main {
 
-	static final int NUM_WORKERS = 3;
+	static int NUM_WORKERS;
 	
 	static Properties props;
 	
@@ -59,8 +59,9 @@ public class Main {
 		Logging.init();
 		initProps();
 
-		String action = args[0];
-		String region = args[1];
+		NUM_WORKERS = Integer.parseInt(args[0]);
+		String action = args[1];
+		String region = args[2];
 
 		List<DEMFile> DEMs = loadDEMs(region);
 		final Map<Integer, Projection> projs = new HashMap<Integer, Projection>();
@@ -76,7 +77,7 @@ public class Main {
 			
 		} else if (action.equals("--searchup") || action.equals("--searchdown")) {
 			boolean up = action.endsWith("up");
-			double cutoff = Double.parseDouble(args[2]);
+			double cutoff = Double.parseDouble(args[3]);
 			Prominence.promSearch(DEMs, up, cutoff);
 //			ProminenceRef.promSearch(DEMs, up, cutoff);
 		}
