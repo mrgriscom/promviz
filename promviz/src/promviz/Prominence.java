@@ -674,6 +674,9 @@ public class Prominence {
 					finalizeSubsaddles(other, f, saddle, f.peak);
 					finalizeDomainSubsaddles(other, f, saddle, f.peak);
 				}
+				if (isNotablyProminent(pp)) {
+					f.flushPendingParents(pp, null, this, null, false);
+				}
 			}
 		}
 		
@@ -689,7 +692,6 @@ public class Prominence {
 			}
 		}
 		
-		// TODO pendings?
 		void finalizeDomainSubsaddles(Front f, Front other, Point saddle, Point peak) {
 			Map.Entry<Point, List<Point>> e = f.thresholds.traceUntil(saddle, peak, f.c);
 			PromPair promThresh = null;
@@ -1128,7 +1130,7 @@ public class Prominence {
 						assert thresh != null;
 					}
 
-					if (thresh == null || thresh.compareTo(cand) <= 0) {
+					if (thresh == null || thresh.compareTo(cand) < 0) { // not lte
 						PromSubsaddle pps = new PromSubsaddle();
 						pps.subsaddle = pend;
 						pps.type = PromSubsaddle.TYPE_PROM;
