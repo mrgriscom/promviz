@@ -50,7 +50,7 @@ public class Prominence {
 		public PromPair(Point peak, Point saddle) {
 			this.peak = peak;
 			this.saddle = saddle;
-			cmp = Point.cmpElev(Point.cmpElev(true).compare(peak, saddle) > 0);
+			cmp = (saddle != null ? Point.cmpElev(Point.cmpElev(true).compare(peak, saddle) > 0) : null);
 		}
 		
 		double prominence() {
@@ -60,6 +60,10 @@ public class Prominence {
 		public static int compare(PromPair ppa, PromPair ppb, Comparator<Point> cmp) {
 			int c = Double.compare(ppa.prominence(), ppb.prominence());
 			if (c == 0) {
+				if (cmp == null) {
+					return 0;
+				}
+				
 				int cp = cmp.compare(ppa.peak, ppb.peak);
 				int cs = cmp.compare(ppa.saddle, ppb.saddle);
 				if (cp > 0 && cs < 0) {
@@ -652,7 +656,7 @@ public class Prominence {
 			Logging.log("finalizing remaining");
 			for (Front f : fronts) {
 				if (f.first() == null) {
-					// global max
+					Logging.log("'global' max: ignoring");
 					continue;
 				}
 

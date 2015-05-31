@@ -226,7 +226,7 @@ public class PagedElevGrid implements IMesh {
 	
 	public void trimPages(int headroom) {
 		if (headroom > this.maxPages) {
-			throw new IllegalArgumentException("cannot purge enough pages");
+			throw new IllegalArgumentException(String.format("cannot purge enough pages %d %d %d", this.maxPages, headroom, segments.size()));
 		}
 		removeOldestPages(segments.size() - (this.maxPages - headroom));
 	}

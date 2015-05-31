@@ -51,7 +51,7 @@ public class TopologyBuilder {
 	static PagedElevGrid _createMesh(Map<Prefix, Set<DEMFile>> coverage) {
 		int maxSize = (int)Math.max(
 				1.5 * Util.pow2(2 * CHUNK_SIZE_EXP),
-				Math.pow(Util.pow2(CHUNK_SIZE_EXP) + 2 * PagedElevGrid.pageDim(), 2)
+				1.25 * Math.pow(Util.pow2(CHUNK_SIZE_EXP) + 2 * PagedElevGrid.pageDim(), 2)
 			);
 		return new PagedElevGrid(coverage, maxSize);
 	}
