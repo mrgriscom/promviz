@@ -5,6 +5,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -623,7 +624,7 @@ public class TopologyBuilder {
 		}
 
 		public void postprocessChunk(int i, Prefix prefix, ChunkOutputForDir output) {
-			writeEdges(output.network, output.up);
+			writeEdges(output.network, output.up, FileUtil.PHASE_RAW);
 			
 			internalCheckpoints.get(output.up).put(prefix, output.internalCheckpoints);
 			pendingCheckpoints.get(output.up).addAll(output.pendingCheckpoints);
@@ -632,11 +633,11 @@ public class TopologyBuilder {
 					output.internalCheckpoints.size(), output.pendingCheckpoints.size()));
 		}
 		
-		public static void writeEdges(List<Edge> edges, final boolean up) {
+		public static void writeEdges(Collection<Edge> edges, final boolean up, final int phase) {
 			Map<Prefix, DataOutputStream> f = new DefaultMap<Prefix, DataOutputStream>() {
 				public DataOutputStream defaultValue(Prefix prefix) {
 					try {
-						return new DataOutputStream(new FileOutputStream(FileUtil.segmentPath(up, prefix, FileUtil.PHASE_RAW), true));
+						return new DataOutputStream(new FileOutputStream(FileUtil.segmentPath(up, prefix, phase), true));
 					} catch (IOException ioe) {
 						throw new RuntimeException(ioe);
 					}

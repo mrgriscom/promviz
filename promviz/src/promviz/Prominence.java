@@ -141,7 +141,7 @@ public class Prominence {
 		boolean up;
 		Map<Long, List<PromFact>> promfacts;
 		Collection<Front> fronts;
-		// mst?
+		Set<Edge> mst;
 	}
 	
 	static class PromSearch extends WorkerPool<ChunkInput, ChunkOutput> {
@@ -198,6 +198,7 @@ public class Prominence {
 				Harness.outputPromInfo(output.up, e.getKey(), e.getValue());
 			}
 			writeFronts(output.p, output.fronts, up);
+			TopologyBuilder.Builder.writeEdges(output.mst, up, FileUtil.PHASE_MST);
 			Logging.log((i+1) + " " + output.p);
 		}
 
@@ -247,6 +248,8 @@ public class Prominence {
 		// front pairs that can and must be coalesced
 		MutablePriorityQueue<FrontMerge> pendingMerges;
 		Map<Long, List<PromFact>> promFacts;
+		Set<Edge> mst;
+		Map<Front, List<PromPair>> merged;
 		
 		public ChunkProcessor(ChunkInput input) {
 			this.input = input;
@@ -269,6 +272,12 @@ public class Prominence {
 					return new ArrayList<PromFact>();
 				}
 			};
+			mst = new HashSet<Edge>();
+			merged = new DefaultMap<Front, List<PromPair>>() {
+				public List<PromPair> defaultValue(Front key) {
+					return new ArrayList<PromPair>();
+				}
+			};
 			
 			load();
 			
@@ -278,13 +287,14 @@ public class Prominence {
 				mergeFronts(toMerge);
 			}
 			Logging.log("after " + fronts.size());
+
+			makeMST();
 			
 			if (input.finalLevel) {
 				finalizeRemaining();
 				fronts.removeAll(fronts);
 			}
 
-			// TODO make MST for chunk
 			for (Front f : fronts) {
 				f.prune();
 			}
@@ -294,6 +304,7 @@ public class Prominence {
 			output.up = up;
 			output.promfacts = (HashMap)((HashMap)promFacts).clone();
 			output.fronts = fronts;
+			output.mst = mst;
 			return output;
 		}
 		
@@ -482,6 +493,14 @@ public class Prominence {
 			i.p = newProm.peak;
 			i.saddle = newProm.saddle;
 			boolean notable = isNotablyProminent(newProm);
+			
+			if (!input.baseLevel) {
+				merged.get(parent).add(newProm);
+				if (merged.containsKey(child)) {
+					merged.get(parent).addAll(merged.get(child));
+					merged.remove(child);
+				}
+			}
 
 			List<Point> childThreshes = child.thresholds.traceUntil(saddle, i.p, child.c).getValue();
 			Entry<Point, List<Point>> e = parent.thresholds.traceUntil(saddle, i.p, parent.c);
@@ -652,6 +671,62 @@ public class Prominence {
 			f.pendingParentThresh.putAll(other.pendingParentThresh);
 		}
 		
+		void makeMST() {
+			if (input.baseLevel) {
+				makeMSTBase();
+			} else {
+				makeMSTCoalesce();
+			}
+		}
+
+		void makeMSTBase() {
+			for (Front f : fronts) {
+				for (Entry<Point, Point> e : f.bt.backtrace.entrySet()) {
+					Point cur = e.getKey();
+					Point next = e.getValue();
+					boolean isSaddle = (Point.cmpElev(up).compare(cur, next) < 0);
+					if (isSaddle) {
+						continue;
+					}
+					
+					Point nextNext = f.bt.get(next);
+					mst.add(new Edge(cur.ix, nextNext.ix, next.ix));
+				}
+			}
+		}
+		
+		void makeMSTCoalesce() {
+			for (Entry<Front, List<PromPair>> e : merged.entrySet()) {
+				Front f = e.getKey();
+				for (PromPair pp : e.getValue()) {
+					Point intersection = f.bt.getCommonPoint(pp.peak, pp.saddle);
+
+					List<Point> path = new ArrayList<Point>();
+					boolean breakNext = false;
+					for (Point p : f.bt.trace(pp.peak)) {
+						path.add(p);
+						if (breakNext) {
+							break;
+						}
+						if (p.equals(intersection)) {
+							if (intersection.equals(pp.saddle)) {
+								breakNext = true;
+							} else {
+								break;
+							}
+						}
+					}
+					assert path.size() % 2 == 1;
+					for (int i = 0; i + 1 < path.size(); i += 2) {
+						Point cur = path.get(i);
+						Point saddle = path.get(i+1);
+						Point next = path.get(i+2);
+						mst.add(new Edge(cur.ix, next.ix, saddle.ix));
+					}
+				}
+			}
+		}
+
 		void finalizeRemaining() {
 			Logging.log("finalizing remaining");
 			for (Front f : fronts) {
@@ -680,6 +755,8 @@ public class Prominence {
 				if (isNotablyProminent(pp)) {
 					f.flushPendingParents(pp, null, this, null, false);
 				}
+				
+				finalizeMST(f, saddle, other);
 			}
 		}
 		
@@ -709,6 +786,22 @@ public class Prominence {
 					pps.type = PromSubsaddle.TYPE_PROM;
 					emitFact(sub, pps);
 				}
+			}
+		}
+		
+		void finalizeMST(Front f, Point saddle, Front other) {
+			List<Point> path = new ArrayList<Point>();
+			path.add(other != null ? other.bt.get(saddle) : null);
+			for (Point p : f.bt.trace(saddle)) {
+				path.add(p);
+			}
+			Collections.reverse(path);
+			assert path.size() % 2 == 1;
+			for (int i = 0; i + 1 < path.size(); i += 2) {
+				Point cur = path.get(i);
+				Point s = path.get(i+1);
+				Point next = path.get(i+2);
+				mst.add(new Edge(cur.ix, next != null ? next.ix : PointIndex.NULL, s.ix));
 			}
 		}
 		
@@ -804,10 +897,6 @@ public class Prominence {
 		public boolean contains(Point p) {
 			return backtrace.containsKey(p) || p.equals(root);
 		}
-		
-//		public boolean isLoaded(Point p) {
-//			return backtrace.containsKey(p) || p.equals(root);
-//		}
 		
 		public int size() {
 			return backtrace.size();
@@ -911,6 +1000,43 @@ public class Prominence {
 			};
 		}
 		
+		Point getCommonPoint(Point a, Point b) {
+			List<Point> fromA = new ArrayList<Point>();
+			List<Point> fromB = new ArrayList<Point>();
+			Set<Point> inFromA = new HashSet<Point>();
+			Set<Point> inFromB = new HashSet<Point>();
+
+			Point intersection;
+			Point curA = a;
+			Point curB = b;
+			while (true) {
+				if (curA != null && curB != null && curA.equals(curB)) {
+					intersection = curA;
+					break;
+				}
+				
+				if (curA != null) {
+					fromA.add(curA);
+					inFromA.add(curA);
+					curA = this.get(curA);
+				}
+				if (curB != null) {
+					fromB.add(curB);
+					inFromB.add(curB);
+					curB = this.get(curB);
+				}
+					
+				if (inFromA.contains(curB)) {
+					intersection = curB;
+					break;
+				} else if (inFromB.contains(curA)) {
+					intersection = curA;
+					break;
+				}
+			}
+			return intersection;
+		}
+		
 		public Iterable<Point> getAtoB(Point pA, Point pB) {
 			if (pB == null) {
 				return trace(pA);
@@ -961,20 +1087,6 @@ public class Prominence {
 			path.addAll(path2);
 			return path;
 		}
-
-//		void load(MeshPoint p, TopologyNetwork tree, boolean isPeak) {
-//			MeshPoint next;
-//			while (!isLoaded(p)) {
-//				if (isPeak) {
-//					next = tree.get(p.getByTag(1, true));
-//				} else {
-//					next = tree.get(p.getByTag(0, false));					
-//				}
-//				this.add(p, next);
-//				p = next;
-//				isPeak = !isPeak;
-//			}
-//		}		
 	}
 	
 	static class Front {
