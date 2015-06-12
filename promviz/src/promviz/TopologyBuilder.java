@@ -33,7 +33,7 @@ public class TopologyBuilder {
 	static final int CHECKPOINT_LEN = CHECKPOINT_FREQ;
 	static final int CHECKPOINT_EXCL_BUFFER = PagedElevGrid.pageDim();
 	
-	static Prefix _chunk(long ix) {
+	public static Prefix _chunk(long ix) {
 		return new Prefix(ix, CHUNK_SIZE_EXP);
 	}
 	
@@ -647,10 +647,16 @@ public class TopologyBuilder {
 			for (Edge e : edges) {
 				Prefix bucket1 = _chunk(e.a);
 				Prefix bucket2 = (e.pending() ? null : _chunk(e.b));
+				Prefix bucketS = _chunk(e.saddle);
 				
 				e.write(f.get(bucket1));
 				if (!bucket1.equals(bucket2) && bucket2 != null) {
 					e.write(f.get(bucket2));
+				}
+				
+				// ensure we can still look up the edge by saddle
+				if (!bucket1.equals(bucketS) && (bucket2 == null || !bucket2.equals(bucketS))) {
+					e.write(f.get(bucketS));
 				}
 			}
 		

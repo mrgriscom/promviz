@@ -35,7 +35,7 @@ public class PointIndex {
 		}
 	}
 	
-	static final long NULL = -1;
+	public static final long NULL = -1;
 	
 	public static long make(int projId, int x, int y) {
 		return make(projId, x, y, 0);

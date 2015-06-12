@@ -107,8 +107,9 @@ def to_geojson(k):
         data['features'].append(saddle_feature(child, type='childsaddle', ix=child['ix']))
     if k.get('pthresh'):
         data['features'].append(summit_feature(meat(k['_pthresh']), type='pthresh'))
-    #if k.get('runoff'):
-    #    data['features'].append(feature(k['runoff'], type='domain'))
+
+    if k.get('runoff'):
+        data['features'].extend(_feature(t, type='domain') for t in k['runoff'])
 
     return data
 
@@ -119,6 +120,12 @@ class MapViewHandler(web.RequestHandler):
                 return json.load(f)
         
         data = loadgeo(tag)
+
+        if 'runoff' not in data:
+            print 'tracing runoff...'
+            os.popen('python ../runoff.py %s' % tag)
+            data = loadgeo(tag)
+
         data['_parent'] = loadgeo(data['parent']['geo']) if 'parent' in data else None
         data['_children'] = [loadgeo(c) for c in data.get('children', [])]
         for i, ch in enumerate(data['_children']):

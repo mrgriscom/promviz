@@ -23,7 +23,7 @@ public class GeoProjection extends Projection {
 		this.y0 = y0;
 	}
 	
-	static GeoProjection fromArcseconds(double res) {
+	public static GeoProjection fromArcseconds(double res) {
 		return new GeoProjection(res / 3600.);
 	}
 	
