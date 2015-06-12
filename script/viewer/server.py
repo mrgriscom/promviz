@@ -110,6 +110,9 @@ def to_geojson(k):
 
     if k.get('runoff'):
         data['features'].extend(_feature(t, type='domain') for t in k['runoff'])
+    for child in k.get('_children', []):
+        if child.get('runoff'):
+            data['features'].extend(_feature(t, type='child-domain') for t in child['runoff'])
 
     return data
 
@@ -128,6 +131,14 @@ class MapViewHandler(web.RequestHandler):
 
         data['_parent'] = loadgeo(data['parent']['geo']) if 'parent' in data else None
         data['_children'] = [loadgeo(c) for c in data.get('children', [])]
+
+        for i, ch in enumerate(data['_children']):
+            if 'runoff' not in ch:
+                print 'tracing child runoff...'
+                tag = meat(ch)['geo']
+                os.popen('python ../runoff.py %s' % tag)
+                data['_children'][i] = loadgeo(tag)
+
         for i, ch in enumerate(data['_children']):
             ch['ix'] = i + 1
         for sstype in ('height', 'prom'):

@@ -94,6 +94,8 @@ function loadData(map, data) {
                 return {color: '#f00'};
             } else if (props.type == 'domain') {
                 return {color: '#0f0'};
+            } else if (props.type == 'child-domain') {
+                return {color: '#a0a', weight: 2};
             }
         },
         pointToLayer: function(feature, latlng) {
