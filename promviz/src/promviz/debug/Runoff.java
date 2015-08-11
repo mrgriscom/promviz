@@ -8,21 +8,20 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-import com.google.gson.Gson;
-
 import promviz.Edge;
 import promviz.FileUtil;
 import promviz.Main;
+import promviz.Point;
 import promviz.PointIndex;
 import promviz.Prefix;
 import promviz.TopologyBuilder;
-import promviz.debug.Harness.PromInfo;
 import promviz.dem.GeoProjection;
 import promviz.dem.Projection;
-import promviz.util.DefaultMap;
 import promviz.util.GeoCode;
 import promviz.util.Logging;
 import promviz.util.Util;
+
+import com.google.gson.Gson;
 
 public class Runoff {
 
@@ -69,9 +68,9 @@ public class Runoff {
 		
 		for (Entry<Long, long[]> e : anchors(up, ixs).entrySet()) {
 			long ix = e.getKey();
-			Logging.log(Util.print(ix));
+			Logging.log("ss:"+Util.print(ix));
 			for (long anch : e.getValue()) {
-				Logging.log("  " + Util.print(anch));
+				Logging.log("  anch:" + Util.print(anch));
 				ro.add(chase(mst, up, ix, anch));
 			}
 		}
@@ -89,6 +88,7 @@ public class Runoff {
 			path.add(cur);
 			_inPath.add(cur);
 			
+			// still getting loop at eow?			
 			Edge e = mst.get(cur);
 			if (e == null) {
 				loadChunk(mst, TopologyBuilder._chunk(cur), !up);
@@ -100,9 +100,14 @@ public class Runoff {
 			path.add(e.saddle);
 			_inPath.add(e.saddle);
 			cur = e.b;
-			
+
 			if (_inPath.contains(cur)) {
 				Logging.log("loop?");
+				Logging.log(cur == path.get(path.size() - 4));
+				
+				Logging.log(new Point(cur, 0));
+				Logging.log(new Point(path.get(path.size() - 2), 0));
+				
 				break;
 			}
 		}
@@ -136,7 +141,9 @@ public class Runoff {
 		Logging.log("loading " + chunk);
 		Iterable<Edge> edges = FileUtil.loadEdges(up, chunk, FileUtil.PHASE_MST);
 		for (Edge e : edges) {
-			mst.put(e.a, e);
+			if (chunk.isParent(e.a)) {
+				mst.put(e.a, e);
+			}
 		}
 	}
 }

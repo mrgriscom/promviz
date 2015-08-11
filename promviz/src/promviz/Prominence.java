@@ -700,7 +700,8 @@ public class Prominence {
 				Front f = e.getKey();
 				for (PromPair pp : e.getValue()) {
 					Point intersection = f.bt.getCommonPoint(pp.peak, pp.saddle);
-
+					// check if intersection == saddle here, move saddle one up if so
+					
 					List<Point> path = new ArrayList<Point>();
 					boolean breakNext = false;
 					for (Point p : f.bt.trace(pp.peak)) {
