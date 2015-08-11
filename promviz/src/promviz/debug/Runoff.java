@@ -64,50 +64,172 @@ public class Runoff {
 	
 	public static List<List<Long>> runoff(boolean up, List<Long> ixs) {
 		Map<Long, Edge> mst = new HashMap<Long, Edge>();
-		List<List<Long>> ro = new ArrayList<List<Long>>();
 		
-		for (Entry<Long, long[]> e : anchors(up, ixs).entrySet()) {
-			long ix = e.getKey();
-			Logging.log("ss:"+Util.print(ix));
-			for (long anch : e.getValue()) {
-				Logging.log("  anch:" + Util.print(anch));
-				ro.add(chase(mst, up, ix, anch));
+		return chaseAll(up, mst, anchors(up, ixs));
+//		List<List<Long>> ro = new ArrayList<List<Long>>();
+//		for (Entry<Long, long[]> e : anchors(up, ixs).entrySet()) {
+//			long ix = e.getKey();
+//			Logging.log("ss:"+Util.print(ix));
+//			for (long anch : e.getValue()) {
+//				Logging.log("  anch:" + Util.print(anch));
+//				ro.add(chase(mst, up, ix, anch));
+//			}
+//		}
+//		return ro;
+	}
+
+	static class Trace {
+		List<Long> path = new ArrayList<Long>();
+		Set<Long> set = new HashSet<Long>();
+		
+		boolean contains(long ix) {
+			return set.contains(ix);
+		}
+		
+		void add(long ix) {
+			path.add(ix);
+			set.add(ix);
+		}
+		
+		long head() {
+			return path.get(path.size() - 1);
+		}
+		
+		void trimAfter(long ix) {
+			int i0 = path.indexOf(ix) + 1;
+			assert i0 > 0;
+			for (int i = i0; i < path.size(); i++) {
+				set.remove(path.get(i));
 			}
+			path = new ArrayList<Long>(path.subList(0, i0));
+		}
+	}
+
+	public static List<List<Long>> chaseAll(boolean up, Map<Long, Edge> mst, Map<Long, long[]> seed) {
+		List<Trace> traces = new ArrayList<Trace>();
+		Set<Trace> completed = new HashSet<Trace>();
+		for (Entry<Long, long[]> e : seed.entrySet()) {
+			long ix = e.getKey();
+			for (long anch : e.getValue()) {
+				Trace t = new Trace();
+				t.add(ix);
+				t.add(anch);
+				traces.add(t);
+			}
+		}
+
+		final long END_OF_WORLD = PointIndex.NULL - 1;
+		
+		int i = 0;
+		while (completed.size() < traces.size()) {
+			for (Trace t : traces) {
+				if (completed.contains(t)) {
+					continue;
+				}
+				
+				long cur = t.path.get(t.path.size() - 1);
+				if (cur == PointIndex.NULL) {
+					t.trimAfter(t.path.get(t.path.size() - 2));
+					completed.add(t);
+					continue;
+				}
+				
+				Trace intersected = null;
+				for (Trace ot : traces) {
+					if (t == ot) {
+						continue;
+					}
+					if (ot.contains(cur)) {
+						if (completed.contains(ot) && ot.head() == cur) {
+							//multi-fuckage
+							continue;
+						}
+						intersected = ot;
+						break;
+					}
+				}
+				if (intersected != null) {
+					completed.add(t);
+					if (completed.contains(intersected)) {
+						Trace other = null;
+						for (Trace o : completed) {
+							if (o != intersected && o.head() == intersected.head()) {
+								other = o;
+								break;
+							}
+						}
+						completed.remove(other);
+					}
+					completed.add(intersected);
+					intersected.trimAfter(cur);
+					continue;
+				}
+				
+				Edge e = mst.get(cur);
+				if (e == null) {
+					loadChunk(mst, TopologyBuilder._chunk(cur), !up);
+					e = mst.get(cur);
+					if (e == null) {
+						// we don't have end-of-world min-saddles
+						e = new Edge(cur, PointIndex.NULL, END_OF_WORLD);
+					}
+				}
+				if (e.saddle != END_OF_WORLD) {
+					t.add(e.saddle);
+				}
+
+				long next = e.b;
+				if (t.contains(next)) {
+					// loop check
+					Logging.log("mst loop detected");
+					assert next == t.path.get(t.path.size() - 4); // ensure loop only in last two steps
+					completed.add(t);
+				}
+				t.add(next);
+			}
+			
+			i++;
+		}
+		
+		List<List<Long>> ro = new ArrayList<List<Long>>();
+		for (Trace t : traces) {
+			ro.add(t.path);
 		}
 		return ro;
 	}
-
+	
 	public static List<Long> chase(Map<Long, Edge> mst, boolean up, long ix, long anch) {
 		List<Long> path = new ArrayList<Long>();
 		Set<Long> _inPath = new HashSet<Long>();
 		path.add(ix);
 		_inPath.add(ix);
 		
+		final long END_OF_WORLD = PointIndex.NULL - 1;
+		
 		long cur = anch;		
 		while (cur != PointIndex.NULL) {
 			path.add(cur);
 			_inPath.add(cur);
 			
-			// still getting loop at eow?			
 			Edge e = mst.get(cur);
 			if (e == null) {
 				loadChunk(mst, TopologyBuilder._chunk(cur), !up);
 				e = mst.get(cur);
-				if (e == null) { // necessary check because we don't have end-of-world min-saddles
-					break;
+				if (e == null) {
+					// we don't have end-of-world min-saddles
+					e = new Edge(cur, PointIndex.NULL, END_OF_WORLD);
 				}
 			}
-			path.add(e.saddle);
-			_inPath.add(e.saddle);
+			if (e.saddle != END_OF_WORLD) {
+				path.add(e.saddle);
+				_inPath.add(e.saddle);
+			}
 			cur = e.b;
 
+			// loop check
 			if (_inPath.contains(cur)) {
-				Logging.log("loop?");
-				Logging.log(cur == path.get(path.size() - 4));
-				
-				Logging.log(new Point(cur, 0));
-				Logging.log(new Point(path.get(path.size() - 2), 0));
-				
+				Logging.log("mst loop detected");
+				assert cur == path.get(path.size() - 4); // ensure loop only in last two steps
 				break;
 			}
 		}
@@ -133,6 +255,7 @@ public class Runoff {
 		for (long ix : ixs) {
 			Edge e = bySaddle.get(ix);
 			anch.put(ix, e != null ? new long[] {e.a, e.b} : new long[] {PointIndex.NULL, PointIndex.NULL});
+			// note: it's valid for one or both leads to be null (saddle indeterminate in opposite-world)
 		}
 		return anch;
 	}
