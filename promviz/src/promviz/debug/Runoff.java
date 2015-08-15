@@ -154,7 +154,6 @@ public class Runoff {
 				long cur = t.get(-1);
 				if (cur == PointIndex.NULL) {
 					// end of world
-					t.trimAt(-1);
 					completed.add(t);
 					continue;
 				}
@@ -179,7 +178,7 @@ public class Runoff {
 					// check if that trace had already intersected another trace; if so, resume
 					// the other intersected trace
 					if (completed.contains(intersected)) {
-						// t.head() == intersected.head() only if last node before end-of-world
+						assert t.head() != intersected.head();
 						Trace intersectedComplement = null;
 						for (Trace other : completed) {
 							if (other != intersected && other.head() == intersected.head()) {
@@ -210,7 +209,7 @@ public class Runoff {
 					Logging.log("mst loop detected");
 					assert next == t.get(-4); // ensure loop only in last two steps
 					t.trimAt(-1);
-					completed.add(t);
+					next = PointIndex.NULL; // treat as end of world
 				}
 				t.add(next);
 			}
