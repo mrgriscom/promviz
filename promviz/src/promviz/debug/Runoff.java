@@ -66,16 +66,6 @@ public class Runoff {
 		Map<Long, Edge> mst = new HashMap<Long, Edge>();
 		
 		return chaseAll(up, mst, anchors(up, ixs));
-//		List<List<Long>> ro = new ArrayList<List<Long>>();
-//		for (Entry<Long, long[]> e : anchors(up, ixs).entrySet()) {
-//			long ix = e.getKey();
-//			Logging.log("ss:"+Util.print(ix));
-//			for (long anch : e.getValue()) {
-//				Logging.log("  anch:" + Util.print(anch));
-//				ro.add(chase(mst, up, ix, anch));
-//			}
-//		}
-//		return ro;
 	}
 
 	static class Trace {
@@ -87,23 +77,47 @@ public class Runoff {
 		}
 		
 		void add(long ix) {
+			assert !contains(ix);
 			path.add(ix);
 			set.add(ix);
 		}
 		
-		long head() {
-			return path.get(path.size() - 1);
+		int len() {
+			return path.size();
+		}
+
+		int pos(int i) {
+			return i < 0 ? len() - i : i;
 		}
 		
-		void trimAfter(long ix) {
-			int i0 = path.indexOf(ix) + 1;
-			assert i0 > 0;
-			for (int i = i0; i < path.size(); i++) {
-				set.remove(path.get(i));
-			}
-			path = new ArrayList<Long>(path.subList(0, i0));
+		long get(int i) {
+			return path.get(pos(i));
+		}
+		
+		int find(long ix) {
+			return path.indexOf(ix);
+		}
+		
+		long head() {
+			return get(-1);
+		}
+
+		List<Long> trimAt(int i) { // removes path[i] and after
+			i = pos(i);
+			List<Long> trimmed = new ArrayList<Long>(path.subList(i, path.size()));
+			set.removeAll(trimmed); // requires no loop
+			path = new ArrayList<Long>(path.subList(0, i));
+			return trimmed;
+		}
+		
+		List<Long> trimAfter(long ix) {
+			int i = find(ix);
+			assert i >= 0;
+			return trimAt(i + 1);
 		}
 	}
+
+	static final long END_OF_WORLD = PointIndex.NULL - 1; // sentinel
 
 	public static List<List<Long>> chaseAll(boolean up, Map<Long, Edge> mst, Map<Long, long[]> seed) {
 		List<Trace> traces = new ArrayList<Trace>();
@@ -118,77 +132,88 @@ public class Runoff {
 			}
 		}
 
-		final long END_OF_WORLD = PointIndex.NULL - 1;
-		
-		int i = 0;
+		// cache the edges we fetch from mst to avoid reloading chunks if we need to recover parts of traces
+		Map<Long, Edge> cache = new HashMap<Long, Edge>();
 		while (completed.size() < traces.size()) {
+			int shortest = -1;
+			for (Trace t : traces) {
+				if (!completed.contains(t) && (shortest == -1 || t.len() < shortest)) {
+					shortest = t.len();
+				}
+			}
+			
 			for (Trace t : traces) {
 				if (completed.contains(t)) {
 					continue;
 				}
+				// let shorter traces catch up so ideally all active traces are the same length
+				if (t.len() != shortest) {
+					continue;
+				}
 				
-				long cur = t.path.get(t.path.size() - 1);
+				long cur = t.get(-1);
 				if (cur == PointIndex.NULL) {
-					t.trimAfter(t.path.get(t.path.size() - 2));
+					// end of world
+					t.trimAt(-1);
 					completed.add(t);
 					continue;
 				}
 				
+				// check if we've intersected another trace
 				Trace intersected = null;
-				for (Trace ot : traces) {
-					if (t == ot) {
+				// TODO replace iteration over traces with ix -> trace(s) index. probably not necessary as # traces is usually small
+				for (Trace other : traces) {
+					if (t == other) {
 						continue;
 					}
-					if (ot.contains(cur)) {
-						if (completed.contains(ot) && ot.head() == cur) {
-							//multi-fuckage
+					if (other.contains(cur)) {
+						if (other.head() == cur && completed.contains(other)) {
+							// this is a multi-intersection and current trace is odd one out; continue trace
 							continue;
 						}
-						intersected = ot;
+						intersected = other;
 						break;
 					}
 				}
 				if (intersected != null) {
-					completed.add(t);
+					// check if that trace had already intersected another trace; if so, resume
+					// the other intersected trace
 					if (completed.contains(intersected)) {
-						Trace other = null;
-						for (Trace o : completed) {
-							if (o != intersected && o.head() == intersected.head()) {
-								other = o;
+						// t.head() == intersected.head() only if last node before end-of-world
+						Trace intersectedComplement = null;
+						for (Trace other : completed) {
+							if (other != intersected && other.head() == intersected.head()) {
+								intersectedComplement = other;
 								break;
 							}
 						}
-						completed.remove(other);
+						if (intersectedComplement != null) {
+							completed.remove(intersectedComplement);
+						}
+					} else {
+						completed.add(intersected);
 					}
-					completed.add(intersected);
 					intersected.trimAfter(cur);
+					completed.add(t);
 					continue;
 				}
 				
-				Edge e = mst.get(cur);
-				if (e == null) {
-					loadChunk(mst, TopologyBuilder._chunk(cur), !up);
-					e = mst.get(cur);
-					if (e == null) {
-						// we don't have end-of-world min-saddles
-						e = new Edge(cur, PointIndex.NULL, END_OF_WORLD);
-					}
-				}
+				// no intersection; keep tracing
+				Edge e = getNext(cur, mst, cache, up);
 				if (e.saddle != END_OF_WORLD) {
 					t.add(e.saddle);
 				}
-
 				long next = e.b;
+				// loop check (in theory the MST data structure should not have loops;
+				// in practice, we protect against them)
 				if (t.contains(next)) {
-					// loop check
 					Logging.log("mst loop detected");
-					assert next == t.path.get(t.path.size() - 4); // ensure loop only in last two steps
+					assert next == t.get(-4); // ensure loop only in last two steps
+					t.trimAt(-1);
 					completed.add(t);
 				}
 				t.add(next);
 			}
-			
-			i++;
 		}
 		
 		List<List<Long>> ro = new ArrayList<List<Long>>();
@@ -197,44 +222,23 @@ public class Runoff {
 		}
 		return ro;
 	}
-	
-	public static List<Long> chase(Map<Long, Edge> mst, boolean up, long ix, long anch) {
-		List<Long> path = new ArrayList<Long>();
-		Set<Long> _inPath = new HashSet<Long>();
-		path.add(ix);
-		_inPath.add(ix);
-		
-		final long END_OF_WORLD = PointIndex.NULL - 1;
-		
-		long cur = anch;		
-		while (cur != PointIndex.NULL) {
-			path.add(cur);
-			_inPath.add(cur);
-			
-			Edge e = mst.get(cur);
-			if (e == null) {
-				loadChunk(mst, TopologyBuilder._chunk(cur), !up);
-				e = mst.get(cur);
-				if (e == null) {
-					// we don't have end-of-world min-saddles
-					e = new Edge(cur, PointIndex.NULL, END_OF_WORLD);
-				}
-			}
-			if (e.saddle != END_OF_WORLD) {
-				path.add(e.saddle);
-				_inPath.add(e.saddle);
-			}
-			cur = e.b;
 
-			// loop check
-			if (_inPath.contains(cur)) {
-				Logging.log("mst loop detected");
-				assert cur == path.get(path.size() - 4); // ensure loop only in last two steps
-				break;
-			}
+	static Edge getNext(long cur, Map<Long, Edge> mst, Map<Long, Edge> cache, boolean up) {
+		Edge e = cache.get(cur);
+		if (e == null) {
+			e = mst.get(cur);
 		}
-		return path;
-	}
+		if (e == null) {
+			loadChunk(mst, TopologyBuilder._chunk(cur), !up);
+			e = mst.get(cur);
+		}
+		if (e == null) {
+			// we don't have end-of-world min-saddles
+			e = new Edge(cur, PointIndex.NULL, END_OF_WORLD);
+		}
+		cache.put(cur, e);
+		return e;
+	}					
 	
 	public static Map<Long, long[]> anchors(boolean up, List<Long> ixs) {
 		Set<Prefix> chunks = new HashSet<Prefix>();
