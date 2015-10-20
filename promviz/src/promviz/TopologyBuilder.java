@@ -529,7 +529,7 @@ public class TopologyBuilder {
 					if (summit == PointIndex.NULL) {
 						// this situation was caught by the 'unconnected' cleaner, but it can crop up
 						// again in the 'down' network for multisaddles with >1 indeterminate lead
-						return true; // return empty to remove this entry
+						return true;
 					}
 					
 					int seq = PointIndex.split(summit)[3]; // checkpoints may already have a seq# set

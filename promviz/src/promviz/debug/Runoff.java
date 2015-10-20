@@ -11,7 +11,6 @@ import java.util.Set;
 import promviz.Edge;
 import promviz.FileUtil;
 import promviz.Main;
-import promviz.Point;
 import promviz.PointIndex;
 import promviz.Prefix;
 import promviz.TopologyBuilder;
@@ -22,6 +21,16 @@ import promviz.util.Logging;
 import promviz.util.Util;
 
 import com.google.gson.Gson;
+
+/* TODO
+ * test trisaddle
+ * test multi-convergence
+ * test resume of completed trace
+ * test explicit eow in traces
+ * 
+ * true polygonization (needs saddle trace #)
+ * bulk processing
+ */
 
 public class Runoff {
 
@@ -267,6 +276,7 @@ public class Runoff {
 		Logging.log("loading " + chunk);
 		Iterable<Edge> edges = FileUtil.loadEdges(up, chunk, FileUtil.PHASE_MST);
 		for (Edge e : edges) {
+			// needed due to directionality of graph and issues with incremental updates across chunk seams
 			if (chunk.isParent(e.a)) {
 				mst.put(e.a, e);
 			}
