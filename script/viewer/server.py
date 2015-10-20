@@ -124,7 +124,7 @@ class MapViewHandler(web.RequestHandler):
         
         data = loadgeo(tag)
 
-        if 'runoff' not in data:
+        if False and 'runoff' not in data:
             print 'tracing runoff...'
             os.popen('python ../runoff.py %s' % tag)
             data = loadgeo(tag)
@@ -133,7 +133,7 @@ class MapViewHandler(web.RequestHandler):
         data['_children'] = [loadgeo(c) for c in data.get('children', [])]
 
         for i, ch in enumerate(data['_children']):
-            if 'runoff' not in ch:
+            if False and 'runoff' not in ch:
                 print 'tracing child runoff...'
                 tag = meat(ch)['geo']
                 os.popen('python ../runoff.py %s' % tag)

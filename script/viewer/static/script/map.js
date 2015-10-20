@@ -9,14 +9,18 @@ function init($div, data) {
     };
 
     var layers = {
-        'Hypso': L.tileLayer('http://s3.amazonaws.com/oilslick/{z}/{x}/{y}.jpg', {maxZoom: 11}),
-        'Hypso-old': L.tileLayer('http://maps-for-free.com/layer/relief/z{z}/row{y}/{z}_{x}-{y}.jpg', {maxZoom: 11}),
+        'Oilslick': L.tileLayer('http://s3.amazonaws.com/oilslick/{z}/{x}/{y}.jpg', {maxZoom: 11}),
+        'Classroom': L.tileLayer('http://maps-for-free.com/layer/relief/z{z}/row{y}/{z}_{x}-{y}.jpg', {maxZoom: 11}),
         'Topo': L.tileLayer('http://services.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}', {maxZoom: 15}),
         'Satellite': mapboxLayer('examples.map-qfyrx5r8'),
         'Terrain': L.tileLayer('http://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {subdomains: '0123'}),
     }
-    var layerOrder = ['Hypso', 'Hypso-old', 'Terrain', 'Topo', 'Satellite'];
+    var layerOrder = ['Oilslick', 'Classroom', 'Terrain', 'Topo', 'Satellite'];
     L.control.layers(layers).addTo(map);
+
+    var attr = L.control.attribution();
+    attr.addTo(map);
+    attr.setPrefix('\'L\' to toggle basemap');
 
     var activeLayer = null;
     map.on('baselayerchange', function(e) {
@@ -30,7 +34,7 @@ function init($div, data) {
         map.addLayer(layers[tag]);
     };
 
-    setLayer('Hypso');
+    setLayer('Terrain');
 
     L.control.scale().addTo(map);
 
@@ -70,7 +74,7 @@ function singleStyle(props, highlight) {
     } else if (props.type == 'subsaddle') {
         style = {fillColor: '#000', radius: props.domain ? 8 : 5};
     } else if (props.type == 'childsaddle') {
-        style = {fillColor: '#00f', radius: 3};
+        style = {fillColor: '#00f', radius: 3, fillOpacity: 0, opacity: 0};
     }
     if (highlight) {
         style.color = '#ff0';
@@ -101,10 +105,14 @@ function loadData(map, data) {
         pointToLayer: function(feature, latlng) {
             if (MODE == 'single') {
                 var props = feature.properties;
+                var self = (props.type == 'peak' || props.type == 'pit');
                 if (props.type == 'child') {
                     var m = L.marker(latlng, {icon: circledNumber(props.ix, 8, '#0ff', 1.5)});
                 } else {
                     var m = L.circleMarker(latlng, singleStyle(props));
+                    if (self) {
+                        SELF = m;
+                    }
                 }
                 if (props.type == 'child' || props.type == 'childsaddle') {
                     if (!CHILDREN[props.ix]) {
@@ -143,17 +151,24 @@ function loadData(map, data) {
                 var $div = $('<div>');
                 var self = (props.type == 'peak' || props.type == 'pit');
                 if (self || props.type == 'parent' || props.type == 'child' || props.type == 'pthresh') {
-                    var title = props.name || props.geo;
+                    var title = 'Peak ' + (props.name || props.geo);
                     if (!self) {
                         title = '<a target="_blank" href="/view/' + props.geo + '">' + title + '</a>';
+                    } else {
+                        title = '<b>' + title + '</b>';
                     }
-                    var html = '<div>' + title + '</div>';
+                    var html = '';
                     if (props.type == 'child') {
-                        html += '<div>#' + props.ix + '</div>';
+                        html += '<div>Child Peak #' + props.ix + '</div>';
+                    } else if (props.type == 'parent') {
+                        html += '<div>Parent Peak</div>';
+                    } else if (props.type == 'pthresh') {
+                        html += '<div>1st Higher Peak (Prom. > 20m)</div>';
                     }
-                    html += '<div>' + dispdist(props, 'prom') + (props.min_bound ? '*' : '') + '</div><div>' + dispdist(props, 'elev') + '</div>';
+                    html += '<div>' + title + '</div>';
+                    html += '<div><span style="display: inline-block; width: 3em;">Prom:</span> ' + dispdist(props, 'prom') + (props.min_bound ? '*' : '') + '</div><div><span style="display: inline-block; width: 3em;">Elev:</span> ' + dispdist(props, 'elev') + '</div>';
                     if (self) {
-                        html += '<hr><div style="max-height: 400px; overflow-x: hidden; overflow-y: auto;"><table style="font-size: 12px;">';
+                        html += '<hr><div style="max-height: 150px; overflow-x: hidden; overflow-y: auto;"><table style="font-size: 12px;"><tr><td>#</td><td>Child Peak</td><td>Prominence</td></tr>';
                         _.each(DATA.features, function(e) {
                             var p = e.properties;
                             if (p.type == 'child') {
@@ -164,7 +179,7 @@ function loadData(map, data) {
                     }
                     $div.html(html);
                 } else if (props.type == 'saddle' || props.type == 'subsaddle') {
-                    var html = '<div>' + (props.name || '') + '</div><div>' + dispdist(props, 'elev') + '</div>';
+                    var html = '<div>' + (props.type == 'saddle' ? 'Key Saddle<br>(lowest point on highest path to higher ground)' : 'Secondary Saddle<br>(lowest point on another path to higher ground)') + '</div><div>' + (props.name || '') + '</div><div>Elev: ' + dispdist(props, 'elev') + '</div>';
                     if (props.type == 'subsaddle') {
                         html += (function(props) {
                             var title = props.name || props.geo;
@@ -175,6 +190,8 @@ function loadData(map, data) {
                         })(props.peak.properties);
                     }
                     $div.html(html);
+                } else if (props.type == 'threshold') {
+                    $div.html('1st higher ground');
                 } else {
                     return;
                 }
@@ -190,7 +207,7 @@ function loadData(map, data) {
                 //$div.find('tr.childentry').mouseleave(function(e) { highlightChild(e, false) });
             } else {
                 var $div = $('<div>');
-                $div.html('<div><a target="_blank" href="/view/' + props.geo + '">' + (props.name || props.geo) + '</a></div><div>' + dispdist(props, 'prom') + (props.min_bound ? '*' : '') + '</div><div>' + dispdist(props, 'elev') + '</div>');
+                $div.html('<div><a target="_blank" href="/view/' + props.geo + '">Peak ' + (props.name || props.geo) + '</a></div><div><span style="display: inline-block; width: 3em;">Prom:</span> ' + dispdist(props, 'prom') + (props.min_bound ? '*' : '') + '</div><div><span style="display: inline-block; width: 3em;">Elev:</span> ' + dispdist(props, 'elev') + '</div>');
                 layer.bindPopup($div[0]);
             }
         },
@@ -204,6 +221,7 @@ function loadData(map, data) {
         map.removeLayer(OVERLAY);
     }
     OVERLAY = overlay;
+    SELF.openPopup();
 }
 
 function round(x, digits) {
