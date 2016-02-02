@@ -63,6 +63,10 @@ public class Runoff {
 			List<double[]> seg = new ArrayList<double[]>();
 			paths.add(seg);
 			for (long ix : roseg) {
+				if (ix == PointIndex.NULL) {
+					// EOW
+					continue;
+				}
 				seg.add(PointIndex.toLatLon(ix));
 			}
 		}
@@ -96,7 +100,7 @@ public class Runoff {
 		}
 
 		int pos(int i) {
-			return i < 0 ? len() - i : i;
+			return i < 0 ? len() + i : i;
 		}
 		
 		long get(int i) {
@@ -160,7 +164,7 @@ public class Runoff {
 					continue;
 				}
 				
-				long cur = t.get(-1);
+				long cur = t.head();
 				if (cur == PointIndex.NULL) {
 					// end of world
 					completed.add(t);
