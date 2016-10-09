@@ -124,7 +124,7 @@ class MapViewHandler(web.RequestHandler):
         
         data = loadgeo(tag)
 
-        if False and 'runoff' not in data:
+        if 'runoff' not in data:
             print 'tracing runoff...'
             os.popen('python ../runoff.py %s' % tag)
             data = loadgeo(tag)
@@ -133,7 +133,7 @@ class MapViewHandler(web.RequestHandler):
         data['_children'] = [loadgeo(c) for c in data.get('children', [])]
 
         for i, ch in enumerate(data['_children']):
-            if False and 'runoff' not in ch:
+            if 'runoff' not in ch:
                 print 'tracing child runoff...'
                 tag = meat(ch)['geo']
                 os.popen('python ../runoff.py %s' % tag)
@@ -176,6 +176,9 @@ def _load_points(mode):
             break
         with open(path) as f:
             for p in json.load(f):
+                if mode == 'down' and p['elev'] == 0:
+                    # spurious?
+                    continue
                 yield p
 
 def load_points(mode, maxnum):

@@ -10,6 +10,7 @@ function init($div, data) {
 
     var layers = {
         'Oilslick': L.tileLayer('http://s3.amazonaws.com/oilslick/{z}/{x}/{y}.jpg', {maxZoom: 11}),
+        'NGI': L.tileLayer('http://htonl.dev.openstreetmap.org/ngi-tiles/tiles/50k/{z}/{x}/{y}.png', {tms: true, maxZoom: 15}),
         'Classroom': L.tileLayer('http://maps-for-free.com/layer/relief/z{z}/row{y}/{z}_{x}-{y}.jpg', {maxZoom: 11}),
         'Topo': L.tileLayer('http://services.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}', {maxZoom: 15}),
         'Satellite': mapboxLayer('examples.map-qfyrx5r8'),
@@ -74,7 +75,7 @@ function singleStyle(props, highlight) {
     } else if (props.type == 'subsaddle') {
         style = {fillColor: '#000', radius: props.domain ? 8 : 5};
     } else if (props.type == 'childsaddle') {
-        style = {fillColor: '#00f', radius: 3, fillOpacity: 0, opacity: 0};
+        style = {fillColor: '#00f', radius: 3};
     }
     if (highlight) {
         style.color = '#ff0';

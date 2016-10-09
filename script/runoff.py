@@ -17,7 +17,7 @@ def runoff(up, saddles):
 
     projroot = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'promviz')
     f = os.popen(' '.join([
-            '/usr/lib/jvm/java-7-openjdk-amd64/bin/java',
+            '/usr/lib/jvm/java-8-openjdk-amd64/bin/java',
             '-ea',
             '-Xms%(memory)s',
             '-Xloggc:/tmp/gc',
