@@ -1,6 +1,7 @@
 package com.mrgris.prominence;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -12,6 +13,7 @@ import java.util.Set;
 
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.values.PCollectionView;
+import org.apache.beam.sdk.values.TupleTag;
 
 import com.mrgris.prominence.MeshPoint.Lead;
 import com.mrgris.prominence.dem.DEMFile;
@@ -21,9 +23,11 @@ import com.mrgris.prominence.util.Util;
 public class TopologyBuilder extends DoFn<Prefix, Edge> {
 
     PCollectionView<Map<Prefix, Iterable<DEMFile>>> coverageSideInput;
+    TupleTag<Edge> sideOutput;
     
-    public TopologyBuilder(PCollectionView<Map<Prefix, Iterable<DEMFile>>> coverageSideInput) {
+    public TopologyBuilder(PCollectionView<Map<Prefix, Iterable<DEMFile>>> coverageSideInput, TupleTag<Edge> sideOutput) {
     	this.coverageSideInput = coverageSideInput;
+    	this.sideOutput = sideOutput;
     }
 			
     public static abstract class Builder {
@@ -66,44 +70,43 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
        	}
     	
 		void processSaddle(MeshPoint saddle) {
-			// TODO break up multisaddles here
-			/*
-			TopologyCleaner multisaddle = new TopologyCleaner() {
-				public boolean clean(List<HalfEdge> additions, SaddleAndDir k, Set<SummitAndTag> vset) {
-					// break up multisaddles
-					if (vset.size() <= 2) {
-						return false;
-					}
+			Lead[][] leads = saddle.leads(mesh);
+			if (leads[0].length > 2) {
+				// multi-saddle
+				
+				for (int dir = 0; dir < 2; dir++) {
+					Lead[] dirLeads = leads[dir];
+					boolean up = dirLeads[0].up;
 					
-					List<SummitAndTag> v = new ArrayList<SummitAndTag>(vset);
-					Collections.sort(v, new Comparator<SummitAndTag>() {
-						public int compare(SummitAndTag a, SummitAndTag b) {
-							return Integer.compare(a.tag, b.tag);
+					Arrays.sort(dirLeads, new Comparator<Lead>() {
+						public int compare(Lead a, Lead b) {
+							return Integer.compare(a.i, b.i);
 						}
 					});
-		
-					long vPeak = PointIndex.clone(k.saddle, 1);
-					for (int i = 0; i < v.size(); i++) {
-						SummitAndTag st = v.get(i);
-						long vSaddle = PointIndex.clone(k.saddle, -i); // would be nice to randomize the saddle ordering
+							
+					List<Lead> newLeads = new ArrayList<>();
+					long vPeak = PointIndex.clone(saddle.ix, 1);
+					for (int i = 0; i < dirLeads.length; i++) {
+						Lead l = dirLeads[i];
+						long vSaddle = PointIndex.clone(saddle.ix, -i); // would be nice to randomize the saddle ordering
+						MeshPoint vSaddlePt = new MeshPoint(vSaddle, saddle.elev);
 						
 						// the disambiguation pattern is not symmetrical between the 'up' and 'down' networks;
 						// this is the cost of making them consistent with each other
-						if (k.up) {
-							additions.add(new HalfEdge(vSaddle, st.summit, k.up, st.tag));
-							additions.add(new HalfEdge(vSaddle, vPeak, k.up, Edge.TAG_NULL));
+						if (up) {
+							newLeads.add(new Lead(up, vSaddlePt, l.p, l.i));
+							halfEdges.put(new SaddleAndDir(vSaddle, up), new SummitAndTag(vPeak, Edge.TAG_NULL));
 						} else {
-							SummitAndTag st_prev = v.get(Util.mod(i - 1, v.size()));
-							additions.add(new HalfEdge(vSaddle, st.summit, k.up, st.tag));
-							additions.add(new HalfEdge(vSaddle, st_prev.summit, k.up, st_prev.tag));
+							Lead l_prev = dirLeads[Util.mod(i - 1, dirLeads.length)];
+							newLeads.add(new Lead(up, vSaddlePt, l.p, l.i));
+							newLeads.add(new Lead(up, vSaddlePt, l_prev.p, l_prev.i));
 						}
 					}
-					return true;
+					leads[dir] = newLeads.toArray(new Lead[0]);
 				}
-			};
-*/
+			}
 			
-			for (Lead[] dirLeads : saddle.leads(mesh)) {				
+			for (Lead[] dirLeads : leads) {				
 				for (Lead lead : dirLeads) {
 					processLead(lead);
 				}
@@ -319,16 +322,20 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
     public void processElement(ProcessContext c) {
     	new Builder(c.element(), c.sideInput(coverageSideInput)) {
     		void emitEdge(boolean up, Edge edge) {
-    			
+    			if (up) {
+    				c.output(edge);
+    			} else {
+    				c.output(sideOutput, edge);
+    			}
     		}
     	}.build();
     }    	
 
 	static PagedElevGrid _createMesh(Map<Prefix, Iterable<DEMFile>> coverage) {
-		int maxSize = (int)Math.max(
+		int maxSize = 1000 * Util.pow2(2*StarterPipeline.PAGE_SIZE_EXP); /*(int)Math.max(
 				1.5 * Util.pow2(2 * StarterPipeline.CHUNK_SIZE_EXP),
 				1.25 * Math.pow(Util.pow2(StarterPipeline.CHUNK_SIZE_EXP) + 2 * PagedElevGrid.pageDim(), 2)
-			);
+			);*/
 		return new PagedElevGrid(coverage, maxSize);
 	}
 	

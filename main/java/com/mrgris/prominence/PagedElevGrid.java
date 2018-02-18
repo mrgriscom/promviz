@@ -11,13 +11,11 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 
-import com.google.api.Logging;
 import com.google.common.collect.Iterables;
 import com.mrgris.prominence.dem.DEMFile;
+import com.mrgris.prominence.util.DefaultMap;
 import com.mrgris.prominence.util.SaneIterable;
 import com.mrgris.prominence.util.Util;
-
-import com.mrgris.prominence.util.DefaultMap;
 
 public class PagedElevGrid implements IMesh {
 
@@ -118,27 +116,6 @@ public class PagedElevGrid implements IMesh {
 		}
 	}
 
-	public static Map<Prefix, Set<DEMFile>> partitionDEM(List<DEMFile> DEMs) {
-		class PartitionMap extends DefaultMap<Prefix, Set<DEMFile>> {
-			@Override
-			public Set<DEMFile> defaultValue(Prefix _) {
-				return new HashSet<DEMFile>();
-			}
-		};
-		PartitionMap partitions = new PartitionMap();
-
-		for (DEMFile dem : DEMs) {
-			int[] pmin = PointIndex.split(segmentPrefix(dem.genIx(0, 0)).prefix);
-			int[] pmax = PointIndex.split(segmentPrefix(dem.genAbsIx(dem.xmax(), dem.ymax())).prefix);
-			int proj = pmin[0], x0 = pmin[1], y0 = pmin[2], x1 = pmax[1], y1 = pmax[2];
-			Prefix[] pages = Prefix.tileInclusive(proj, x0, y0, x1, y1, PAGE_SIZE_EXP);
-			for (Prefix page : pages) {
-				partitions.get(page).add(dem);
-			}
-		}
-		return partitions;
-	}
-	
 	public MeshPoint get(long ix) {
 		Segment seg = segments.get(segmentPrefix(ix));
 		if (seg == null) {
@@ -171,7 +148,7 @@ public class PagedElevGrid implements IMesh {
 		};
 		DEMtoPrefixMap map = new DEMtoPrefixMap();
 		for (Prefix prefix : prefixes) {
-			for (DEMFile dem : coverage.get(prefix)) {
+			for (DEMFile dem : coverage.getOrDefault(prefix, new ArrayList<DEMFile>())) {
 				map.get(dem).add(prefix);
 			}
 		}
