@@ -332,7 +332,7 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
     }    	
 
 	static PagedElevGrid _createMesh(Map<Prefix, Iterable<DEMFile>> coverage) {
-		int maxSize = 1000 * Util.pow2(2*StarterPipeline.PAGE_SIZE_EXP); /*(int)Math.max(
+		int maxSize = 1000 * Util.pow2(2*TopologyNetworkPipeline.PAGE_SIZE_EXP); /*(int)Math.max(
 				1.5 * Util.pow2(2 * StarterPipeline.CHUNK_SIZE_EXP),
 				1.25 * Math.pow(Util.pow2(StarterPipeline.CHUNK_SIZE_EXP) + 2 * PagedElevGrid.pageDim(), 2)
 			);*/
