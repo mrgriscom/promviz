@@ -247,7 +247,7 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
 			
 			if (halfEdges.containsKey(k)) {
 				SummitAndTag otherHalf = halfEdges.remove(k);
-				if (v.tag == PointIndex.NULL && otherHalf.tag == PointIndex.NULL) {
+				if (v.summit == PointIndex.NULL && otherHalf.summit == PointIndex.NULL) {
 					// saddle not connected to anything; drop it
 				} else {
 					Edge e = new Edge(v.summit, otherHalf.summit, k.saddle, v.tag, otherHalf.tag);

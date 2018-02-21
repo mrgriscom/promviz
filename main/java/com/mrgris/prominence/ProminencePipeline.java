@@ -17,15 +17,23 @@
  */
 package com.mrgris.prominence;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
+import org.apache.avro.reflect.Nullable;
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.coders.AvroCoder;
+import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.transforms.Combine;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.Values;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
@@ -36,6 +44,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mrgris.prominence.Prominence.PromFact;
+import com.mrgris.prominence.Prominence.PromFact.Subsaddle;
 import com.mrgris.prominence.dem.DEMFile;
 
 /**
@@ -69,13 +78,20 @@ public class ProminencePipeline {
 
     // TODO separate but identical sub-pipelines for the up and down networks
 
+    // TODO verify edges since read from outside source
     PCollection<Edge> network = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-up-*"));
     PCollection<KV<Long, Iterable<Long>>> minimalFronts = network.apply(ParDo.of(new DoFn<Edge, KV<Long, Long>>() {
 	      @ProcessElement
 	      public void processElement(ProcessContext c) {
 	    	  Edge e = c.element();
+	    	  if (e.a == PointIndex.NULL) {
+	    		  throw new RuntimeException(e.toString());
+	    	  }
 	    	  c.output(KV.of(e.a, e.saddle));
 	    	  if (!e.pending()) {
+		    	  if (e.b == PointIndex.NULL) {
+		    		  throw new RuntimeException(e.toString() + " " + e.pending());
+		    	  }
 		    	  c.output(KV.of(e.b, e.saddle));
 	    	  }
 	      }
@@ -86,21 +102,40 @@ public class ProminencePipeline {
     		.apply(GroupByKey.create());
     final TupleTag<Edge> promFactsTag = new TupleTag<Edge>(){};
     final TupleTag<Edge> pendingFrontsTag = new TupleTag<Edge>(){};    
-    PCollection<PromFact> pfacts = initialChunks.apply(ParDo.of(new Prominence(true, 20., pageCoverage /*, promFactsTag, pendingFrontsTag*/))
+    PCollection<PromFact> promfacts = initialChunks.apply(ParDo.of(new Prominence(true, 20., pageCoverage /*, promFactsTag, pendingFrontsTag*/))
     		.withSideInputs(pageCoverage)
     		/*.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag))*/);
         
-    pfacts.apply("dumprawfacts",
+    PCollection<PromFact> promInfo = promfacts.apply(MapElements.into(new TypeDescriptor<KV<Long, PromFact>>() {}).via(pf -> KV.of(pf.p.ix, pf)))
+	    .apply(Combine.perKey(new SerializableFunction<Iterable<PromFact>, PromFact>() {
+		  	  @Override
+		  	  public PromFact apply(Iterable<PromFact> input) {
+		  	    PromFact combined = new PromFact();
+		  	    for (PromFact pf : input) {
+		  	    	if (combined.p == null) {
+		  	    		combined.p = pf.p;
+		  	    	}
+		  	    	if (pf.saddle != null) {
+		  	    		combined.saddle = pf.saddle;
+		  	    	}
+		  	    	if (pf.thresh != null) {
+		  	    		combined.thresh = pf.thresh;
+		  	    	}
+		  	    	if (pf.pthresh != null) {
+		  	    		combined.pthresh = pf.pthresh;
+		  	    	}
+		  	    	if (pf.parent != null) {
+		  	    		combined.parent = pf.parent;
+		  	    	}
+		  	    	combined.elevSubsaddles.addAll(pf.elevSubsaddles);
+		  	    	combined.promSubsaddles.addAll(pf.promSubsaddles);
+		  	    }
+		  	    return combined;
+		  	  }
+	  	  })).apply(Values.create());
+    
+    promInfo.apply("dumpfacts",
     	    AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstest"));
-
-    
-    
-    // read edges
-    // turn edges into fronts
-    // parition fronts by chunks
-    // -> promfacts, pending fronts, mst network + overrides
-    
-    
     
     // coalesce steps -- must pre-populated all the way to global, even if many are no-ops
     // what if chunk size is such that there is only one processing level (extreme edge case but try to handle it)

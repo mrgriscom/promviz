@@ -24,6 +24,9 @@ public class Point {
 	 * if p is adjacent to points both higher and lower, isodist = 0
 	 */
 
+	// for deserialization
+	public Point() {}
+	
 	public Point(long ix, float elev) {
 		this(ix, elev, 0);
 
