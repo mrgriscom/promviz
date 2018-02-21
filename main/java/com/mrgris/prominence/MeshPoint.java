@@ -38,6 +38,10 @@ public class MeshPoint extends Point {
 		super(ix, elev, isodist);
 	}
 	
+	public MeshPoint(Point p) {
+		super(p.ix, p.elev, p.isodist);
+	}
+	
 	public long[] adjIx() {
 		return _adjacent;
 	}
@@ -49,15 +53,7 @@ public class MeshPoint extends Point {
 		}
 		return adj;
 	}
-	
-	public static MeshPoint read(DataInputStream in) throws IOException {
-		return new MeshPoint(
-				in.readLong(),
-				in.readFloat(),
-				in.readInt()
-			);
-	}
-	
+		
 	public int classify(IMesh m) {
 		boolean is_summit = true;
 		boolean is_pit = true;

@@ -1,8 +1,5 @@
 package com.mrgris.prominence;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -23,9 +20,11 @@ import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollectionView;
+import org.apache.beam.sdk.values.TupleTag;
 
 import com.google.common.collect.Lists;
 import com.mrgris.prominence.Prominence.Backtrace.BacktracePruner;
+import com.mrgris.prominence.Prominence.Front.AvroFront;
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.dem.DEMFile;
 import com.mrgris.prominence.util.DefaultMap;
@@ -38,11 +37,14 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 	boolean up;
 	double cutoff;
 	PCollectionView<Map<Prefix, Iterable<DEMFile>>> coverageSideInput;
+	TupleTag<AvroFront> pendingFrontsTag;
 	
-	public Prominence(boolean up, double cutoff, PCollectionView<Map<Prefix, Iterable<DEMFile>>> coverageSideInput) {
+	public Prominence(boolean up, double cutoff, PCollectionView<Map<Prefix, Iterable<DEMFile>>> coverageSideInput,
+			TupleTag<AvroFront> pendingFrontsTag) {
 		this.up = up;
 		this.cutoff = cutoff;
 		this.coverageSideInput = coverageSideInput;
+		this.pendingFrontsTag = pendingFrontsTag;
 	}
 
 	@DefaultCoder(AvroCoder.class)
@@ -91,15 +93,12 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
     		public void emitFact(PromFact pf) {
     			c.output(pf);
     		}
+    		
+    		public void emitPendingFront(Front f) {
+    			c.output(pendingFrontsTag, new AvroFront(f));
+    		}
     	}.search();
-    	
-    	// output:
-    	// - promfacts
-    	// - pending fronts
-    	// - mst
-    	
     }    	
-	
 	
 	static final int COALESCE_STEP = 2;
 
@@ -160,11 +159,10 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 		Set<Edge> mst;
 		Map<Front, List<PromPair>> merged;
 		
-		public Searcher(boolean up, double cutoff, Iterable<KV<Long, Iterable<Long>>> protoFronts, Map<Prefix, Iterable<DEMFile>> coverage) {
+		public Searcher(boolean up, double cutoff) {
 			this.up = up;
 			this.cutoff = cutoff;
-			this.mesh = TopologyBuilder._createMesh(coverage);
-
+			
 			mst = new HashSet<Edge>();
 			merged = new DefaultMap<Front, List<PromPair>>() {
 				public List<PromPair> defaultValue(Front key) {
@@ -184,9 +182,18 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 					}
 					return -c;
 				}
-			});
-
+			});			
+		}
+		
+		public Searcher(boolean up, double cutoff, Iterable<KV<Long, Iterable<Long>>> protoFronts, Map<Prefix, Iterable<DEMFile>> coverage) {
+			this(up, cutoff);
+			this.mesh = TopologyBuilder._createMesh(coverage);
 			loadForBase(protoFronts);
+		}
+		
+		public Searcher(boolean up, double cutoff, Iterable<AvroFront> fronts) {
+			this(up, cutoff);
+			loadForCoalesce(fronts);
 		}
 		
 		public boolean isNotablyProminent(PromPair pp) {
@@ -211,9 +218,8 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 
 			for (Front f : fronts) {
 				f.prune();
+				emitPendingFront(f);
 			}
-			
-			// emit the shit
 		}
 		
 		static class FrontMerge {
@@ -251,6 +257,9 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			// build atomic fronts (summit + immediate saddles)
 			for (KV<Long, Iterable<Long>> protoFront : protoFronts) {
 				MeshPoint summit = mesh.get(protoFront.getKey());
+				if (summit == null) {
+					throw new RuntimeException("null summit " + protoFront.getKey());
+				}
 				Front f = new Front(summit, up);
 				for (long saddleIx : protoFront.getValue()) {
 					MeshPoint saddle = mesh.get(saddleIx);
@@ -314,8 +323,10 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			//Logging.log("" + pendingMerges.size());
 		}
 
-		void loadForCoalesce() {
-			// populate 'fronts' from pending fronts of previous step
+		void loadForCoalesce(Iterable<AvroFront> serializedFronts) {
+			for (AvroFront f : serializedFronts) {
+				fronts.add(f.toFront());
+			}
 		}
 		
 		void newPendingMerge(Front f) {
@@ -368,7 +379,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			List<Point> childThreshes = child.thresholds.traceUntil(saddle, newProm.peak, child.c).getValue();
 			Entry<Point, List<Point>> e = parent.thresholds.traceUntil(saddle, newProm.peak, parent.c);
 			Point thresh = e.getKey();
-			
 			List<Point> parentThreshes = e.getValue();
 
 			PromPair promThresh = null;
@@ -695,6 +705,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 		}
 		
 		public abstract void emitFact(PromFact pf);
+		public abstract void emitPendingFront(Front f);
 	}
 	
 	public static class Path {
@@ -1159,91 +1170,95 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			}
 		}
 		
-		public void write(DataOutputStream out) throws IOException {
-			Set<Point> mesh = new HashSet<Point>();
-			mesh.add(peak);
-			mesh.addAll(queue);
-			mesh.addAll(thresholds.backtrace.keySet());
-			mesh.addAll(thresholds.backtrace.values());
-			mesh.addAll(bt.backtrace.keySet());
-			mesh.addAll(bt.backtrace.values());
-			mesh.addAll(promPoints.keySet());
-			mesh.addAll(promPoints.values());
-			mesh.addAll(pendingParent.keySet());
-			mesh.addAll(pendingParent.values());
+		@DefaultCoder(AvroCoder.class)
+		static class AvroFront {
+			Set<Point> points;
+			boolean up;
+			long peakIx;
+			List<Long> queue;
+			Map<Long, Long> thresholds;
+			Map<Long, Long> backtrace;
+			Map<Long, Long> promPoints;
+			Map<Long, Long> pendingParent;
+			Map<Long, Long> pendingParentThresh;
+			List<Long> pendingPThresh;
 
-			out.writeInt(mesh.size());
-			for (Point p : mesh) {
-				p.write(out);
-			}			
-
-			out.writeBoolean(c == Point.cmpElev(true));
-			out.writeLong(peak.ix);
-
-			out.writeInt(queue.size());
-			for (MeshPoint p : queue) {
-				out.writeLong(p.ix);
-			}
-
-			writePointMap(out, thresholds.backtrace);
-			writePointMap(out, bt.backtrace);
-			writePointMap(out, promPoints);
+			// for deserialization
+			public AvroFront() {}
 			
-			out.writeInt(pendingPThresh.size());
-			for (long ix : pendingPThresh) {
-				out.writeLong(ix);
-			}
-			
-			writePointMap(out, pendingParent);
-			writePointMap(out, pendingParentThresh);
-		}
-		
-		public void writePointMap(DataOutputStream out, Map<? extends Point, ? extends Point> pointMap) throws IOException {
-			out.writeInt(pointMap.size());
-			for (Entry<? extends Point, ? extends Point> e : pointMap.entrySet()) {
-				out.writeLong(e.getKey().ix);
-				out.writeLong(e.getValue().ix);
-			}
-		}
+			public AvroFront(Front f) {
+				Set<Point> _mesh = new HashSet<Point>();
+				_mesh.add(f.peak);
+				_mesh.addAll(f.queue);
+				_mesh.addAll(f.thresholds.backtrace.keySet());
+				_mesh.addAll(f.thresholds.backtrace.values());
+				_mesh.addAll(f.bt.backtrace.keySet());
+				_mesh.addAll(f.bt.backtrace.values());
+				_mesh.addAll(f.promPoints.keySet());
+				_mesh.addAll(f.promPoints.values());
+				_mesh.addAll(f.pendingParent.keySet());
+				_mesh.addAll(f.pendingParent.values());
+				points = new HashSet<Point>();
+				for (Point p : _mesh) {
+					points.add(new Point(p));
+				}
+
+				up = (f.c == Point.cmpElev(true));
+				peakIx = f.peak.ix;
+
+				queue = new ArrayList<Long>();
+				for (Point p : f.queue) {
+					queue.add(p.ix);
+				}
+
+				thresholds = encodePointMap(f.thresholds.backtrace);
+				backtrace = encodePointMap(f.bt.backtrace);
+				promPoints = encodePointMap(f.promPoints);
 				
-		public static Front read(DataInputStream in) throws IOException {
-			Map<Long, MeshPoint> mesh = new HashMap<Long, MeshPoint>();
-			int nPoints = in.readInt();
-			for (int i = 0; i < nPoints; i++) {
-				MeshPoint p = MeshPoint.read(in);
-				mesh.put(p.ix, p);
+				pendingPThresh = new ArrayList<>(f.pendingPThresh);
+				pendingParent = encodePointMap(f.pendingParent);
+				pendingParentThresh = encodePointMap(f.pendingParentThresh);
+
 			}
 			
-			boolean up = in.readBoolean();
-			Front f = new Front(mesh.get(in.readLong()), up);
-
-			int nFront = in.readInt();
-			for (int i = 0; i < nFront; i++) {
-				MeshPoint p = mesh.get(in.readLong());
-				f.add(p, false);
+			public Map<Long, Long> encodePointMap(Map<? extends Point, ? extends Point> pointMap) {
+				Map<Long, Long> ixMap = new HashMap<>();
+				for (Entry<? extends Point, ? extends Point> e : pointMap.entrySet()) {
+					ixMap.put(e.getKey().ix, e.getValue().ix);
+				}
+				return ixMap;
 			}
 
-			readPointMap(in, mesh, f.thresholds.backtrace);
-			readPointMap(in, mesh, f.bt.backtrace);
-			readPointMap(in, mesh, f.promPoints);
-			
-			int nPendPT = in.readInt();
-			for (int i = 0; i < nPendPT; i++) {
-				f.pendingPThresh.add(in.readLong());
+			public Front toFront() {
+				Map<Long, MeshPoint> mesh = new HashMap<>();
+				for (Point p : points) {
+					mesh.put(p.ix, new MeshPoint(p));
+				}
+				
+				Front f = new Front(mesh.get(peakIx), up);
+
+				for (long ix : queue) {
+					MeshPoint p = mesh.get(ix);
+					f.add(p, false);
+				}
+
+				decodePointMap(thresholds, mesh, f.thresholds.backtrace);
+				decodePointMap(backtrace, mesh, f.bt.backtrace);
+				decodePointMap(promPoints, mesh, f.promPoints);
+				
+				f.pendingPThresh.addAll(pendingPThresh);		
+				decodePointMap(pendingParent, mesh, f.pendingParent);
+				decodePointMap(pendingParentThresh, mesh, f.pendingParentThresh);
+				
+				return f;
 			}
-			
-			readPointMap(in, mesh, f.pendingParent);
-			readPointMap(in, mesh, f.pendingParentThresh);
-			
-			return f;
-		}
 		
-		static void readPointMap(DataInputStream in, Map<Long, MeshPoint> mesh, Map<? super MeshPoint, ? super MeshPoint> pointMap) throws IOException {
-			int nEntries = in.readInt();
-			for (int i = 0; i < nEntries; i++) {
-				MeshPoint k = mesh.get(in.readLong());
-				MeshPoint v = mesh.get(in.readLong());
-				pointMap.put(k, v);
+			static void decodePointMap(Map<Long, Long> ixMap, Map<Long, MeshPoint> mesh, Map<? super MeshPoint, ? super MeshPoint> pointMap) {
+				for (Entry<Long, Long> e : ixMap.entrySet()) {
+					MeshPoint k = mesh.get(e.getKey());
+					MeshPoint v = mesh.get(e.getValue());
+					pointMap.put(k, v);
+				}
 			}
 		}
 	}

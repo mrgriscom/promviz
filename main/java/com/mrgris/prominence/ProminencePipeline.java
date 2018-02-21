@@ -17,18 +17,14 @@
  */
 package com.mrgris.prominence;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
-import org.apache.avro.reflect.Nullable;
 import org.apache.beam.sdk.Pipeline;
-import org.apache.beam.sdk.coders.AvroCoder;
-import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.transforms.Combine;
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -37,14 +33,17 @@ import org.apache.beam.sdk.transforms.Values;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionList;
+import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
+import org.apache.beam.sdk.values.TupleTagList;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mrgris.prominence.Prominence.Front.AvroFront;
 import com.mrgris.prominence.Prominence.PromFact;
-import com.mrgris.prominence.Prominence.PromFact.Subsaddle;
 import com.mrgris.prominence.dem.DEMFile;
 
 /**
@@ -66,6 +65,8 @@ import com.mrgris.prominence.dem.DEMFile;
 public class ProminencePipeline {
   private static final Logger LOG = LoggerFactory.getLogger(ProminencePipeline.class);
       
+  
+  
   public static void main(String[] args) {
 	
 	// TODO: custom options and validation
@@ -96,23 +97,46 @@ public class ProminencePipeline {
 	    	  }
 	      }
     })).apply(GroupByKey.create());
+    // TODO insert stage that generates the fronts before invoking searcher? or too much overhead?
     PCollection<KV<Prefix, Iterable<KV<Long, Iterable<Long>>>>> initialChunks = minimalFronts.apply(
     		MapElements.into(new TypeDescriptor<KV<Prefix, KV<Long, Iterable<Long>>>>() {}).via(
     				front -> KV.of(new Prefix(front.getKey(), TopologyNetworkPipeline.CHUNK_SIZE_EXP), front)))
     		.apply(GroupByKey.create());
-    final TupleTag<Edge> promFactsTag = new TupleTag<Edge>(){};
-    final TupleTag<Edge> pendingFrontsTag = new TupleTag<Edge>(){};    
-    PCollection<PromFact> promfacts = initialChunks.apply(ParDo.of(new Prominence(true, 20., pageCoverage /*, promFactsTag, pendingFrontsTag*/))
+    final TupleTag<PromFact> promFactsTag = new TupleTag<PromFact>(){};
+    final TupleTag<AvroFront> pendingFrontsTag = new TupleTag<AvroFront>(){};    
+    PCollectionTuple searchOutput = initialChunks.apply(ParDo.of(new Prominence(true, 20., pageCoverage, pendingFrontsTag))
     		.withSideInputs(pageCoverage)
-    		/*.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag))*/);
-        
-    PCollection<PromFact> promInfo = promfacts.apply(MapElements.into(new TypeDescriptor<KV<Long, PromFact>>() {}).via(pf -> KV.of(pf.p.ix, pf)))
+    		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag)));
+
+    PCollectionList<PromFact> promFacts = PCollectionList.of(searchOutput.get(promFactsTag)); 
+    		
+    int chunkSize = TopologyNetworkPipeline.CHUNK_SIZE_EXP;
+    while (chunkSize < 20) { // NOT GLOBAL!!!   TODO check this later
+      chunkSize += Prominence.COALESCE_STEP;
+
+      final int cs = chunkSize;
+      PCollection<KV<Prefix, Iterable<AvroFront>>> coalescedChunks = searchOutput.get(pendingFrontsTag).apply(
+      		MapElements.into(new TypeDescriptor<KV<Prefix, AvroFront>>() {}).via(
+      				front -> KV.of(new Prefix(front.peakIx, cs), front)))
+      		.apply(GroupByKey.create());
+      searchOutput = coalescedChunks.apply(ParDo.of(new Prominence2(true, 20., pendingFrontsTag))
+      		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag)));
+
+      promFacts = promFacts.and(searchOutput.get(promFactsTag));
+    }
+    // TODO finalize remaining pending
+    
+    PCollection<PromFact> promInfo = promFacts.apply(Flatten.pCollections()).apply(MapElements.into(new TypeDescriptor<KV<Long, PromFact>>() {}).via(pf -> KV.of(pf.p.ix, pf)))
 	    .apply(Combine.perKey(new SerializableFunction<Iterable<PromFact>, PromFact>() {
 		  	  @Override
 		  	  public PromFact apply(Iterable<PromFact> input) {
 		  	    PromFact combined = new PromFact();
 		  	    for (PromFact pf : input) {
 		  	    	if (combined.p == null) {
+		  	    		combined.p = pf.p;
+		  	    	}
+		  	    	// debug -- what facts are emitting elev 0 for p?
+		  	    	if (combined.p.elev == 0 && pf.p.elev != 0) {
 		  	    		combined.p = pf.p;
 		  	    	}
 		  	    	if (pf.saddle != null) {
@@ -135,39 +159,13 @@ public class ProminencePipeline {
 	  	  })).apply(Values.create());
     
     promInfo.apply("dumpfacts",
-    	    AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstest"));
+    	    AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstest").withoutSharding());
     
     // coalesce steps -- must pre-populated all the way to global, even if many are no-ops
     // what if chunk size is such that there is only one processing level (extreme edge case but try to handle it)
     // actually 'final level' is when there is only one remaining chunk, so useful to catch this early and avoid redundant work
     
     p.run();
-    
-    
-    
-    
-
-/*
-		public void coalesce() {
-			this.level += COALESCE_STEP;
-			this.chunks = TopologyBuilder.clusterPrefixes(this.chunks, this.level);
-			Logging.log(chunks.size() + " chunks @ L" + level);
-			
-			launch(numWorkers, Iterables.transform(chunks, new Function<Prefix, ChunkInput>() {
-				public ChunkInput apply(Prefix p) {
-					return makeInput(p, up, cutoff);
-				}
-			}));
-		}
-	*/
-    
-    
-    
-    
-    
-    
-    
-    
     
     
     ////////////////////////////
