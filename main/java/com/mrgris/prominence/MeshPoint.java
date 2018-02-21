@@ -1,11 +1,14 @@
 package com.mrgris.prominence;
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+
+import org.apache.avro.reflect.AvroIgnore;
+import org.apache.beam.sdk.coders.AvroCoder;
+import org.apache.beam.sdk.coders.DefaultCoder;
 
 
 /* extends Point with the concept of being part of a network or mesh, i.e., being

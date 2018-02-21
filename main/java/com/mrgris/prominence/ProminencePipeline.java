@@ -22,7 +22,6 @@ import java.util.Map;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
-import org.apache.beam.sdk.transforms.Distinct;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.MapElements;
@@ -31,10 +30,12 @@ import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionView;
+import org.apache.beam.sdk.values.TupleTag;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.dem.DEMFile;
 
 /**
@@ -68,14 +69,14 @@ public class ProminencePipeline {
 
     // TODO separate but identical sub-pipelines for the up and down networks
 
-    PCollection<Edge> network = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-up")); // sharding?
+    PCollection<Edge> network = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-up-*"));
     PCollection<KV<Long, Iterable<Long>>> minimalFronts = network.apply(ParDo.of(new DoFn<Edge, KV<Long, Long>>() {
 	      @ProcessElement
 	      public void processElement(ProcessContext c) {
 	    	  Edge e = c.element();
-	    	  c.output(KV.of(e.saddle, e.a));
+	    	  c.output(KV.of(e.a, e.saddle));
 	    	  if (!e.pending()) {
-		    	  c.output(KV.of(e.saddle, e.b));
+		    	  c.output(KV.of(e.b, e.saddle));
 	    	  }
 	      }
     })).apply(GroupByKey.create());
@@ -83,7 +84,15 @@ public class ProminencePipeline {
     		MapElements.into(new TypeDescriptor<KV<Prefix, KV<Long, Iterable<Long>>>>() {}).via(
     				front -> KV.of(new Prefix(front.getKey(), TopologyNetworkPipeline.CHUNK_SIZE_EXP), front)))
     		.apply(GroupByKey.create());
-    initialChunks.apply(ParDo.of(new BasePromSearch()));
+    final TupleTag<Edge> promFactsTag = new TupleTag<Edge>(){};
+    final TupleTag<Edge> pendingFrontsTag = new TupleTag<Edge>(){};    
+    PCollection<PromFact> pfacts = initialChunks.apply(ParDo.of(new Prominence(true, 20., pageCoverage /*, promFactsTag, pendingFrontsTag*/))
+    		.withSideInputs(pageCoverage)
+    		/*.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag))*/);
+        
+    pfacts.apply("dumprawfacts",
+    	    AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstest"));
+
     
     
     // read edges

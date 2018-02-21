@@ -4,10 +4,14 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Comparator;
 
+import org.apache.beam.sdk.coders.AvroCoder;
+import org.apache.beam.sdk.coders.DefaultCoder;
+
 import com.mrgris.prominence.util.ReverseComparator;
 import com.mrgris.prominence.util.Util;
 
 /* basic representation of a point/elevation sample in isolation */
+@DefaultCoder(AvroCoder.class)
 public class Point {
 	
 	public long ix;      // a PointIndex

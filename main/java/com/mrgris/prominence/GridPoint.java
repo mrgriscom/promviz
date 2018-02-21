@@ -3,9 +3,11 @@ package com.mrgris.prominence;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.beam.sdk.coders.AvroCoder;
+import org.apache.beam.sdk.coders.DefaultCoder;
+
 import com.mrgris.prominence.dem.DEMFile;
 import com.mrgris.prominence.util.Util;
-
 
 public class GridPoint extends MeshPoint {
 
