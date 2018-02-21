@@ -189,11 +189,13 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			this(up, cutoff);
 			this.mesh = TopologyBuilder._createMesh(coverage);
 			loadForBase(protoFronts);
+			loadPostprocess();
 		}
 		
 		public Searcher(boolean up, double cutoff, Iterable<AvroFront> fronts) {
 			this(up, cutoff);
 			loadForCoalesce(fronts);
+			loadPostprocess();
 		}
 		
 		public boolean isNotablyProminent(PromPair pp) {
@@ -268,8 +270,12 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				fronts.add(f);
 				f.validateThresh();
 			}
-			
-			loadPostprocess();
+		}
+		
+		void loadForCoalesce(Iterable<AvroFront> serializedFronts) {
+			for (AvroFront f : serializedFronts) {
+				fronts.add(f.toFront());
+			}
 		}
 		
 		public void loadPostprocess() {			
@@ -323,12 +329,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			//Logging.log("" + pendingMerges.size());
 		}
 
-		void loadForCoalesce(Iterable<AvroFront> serializedFronts) {
-			for (AvroFront f : serializedFronts) {
-				fronts.add(f.toFront());
-			}
-		}
-		
 		void newPendingMerge(Front f) {
 			Front primary = primaryFront(f);
 			if (primary != null && f.c.compare(primary.peak, f.peak) > 0) {
@@ -1172,15 +1172,15 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 		
 		@DefaultCoder(AvroCoder.class)
 		static class AvroFront {
-			Set<Point> points;
+			List<Point> points;
 			boolean up;
 			long peakIx;
 			List<Long> queue;
-			Map<Long, Long> thresholds;
-			Map<Long, Long> backtrace;
-			Map<Long, Long> promPoints;
-			Map<Long, Long> pendingParent;
-			Map<Long, Long> pendingParentThresh;
+			HashMap<Long, Long> thresholds;
+			HashMap<Long, Long> backtrace;
+			HashMap<Long, Long> promPoints;
+			HashMap<Long, Long> pendingParent;
+			HashMap<Long, Long> pendingParentThresh;
 			List<Long> pendingPThresh;
 
 			// for deserialization
@@ -1198,7 +1198,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				_mesh.addAll(f.promPoints.values());
 				_mesh.addAll(f.pendingParent.keySet());
 				_mesh.addAll(f.pendingParent.values());
-				points = new HashSet<Point>();
+				points = new ArrayList<Point>();
 				for (Point p : _mesh) {
 					points.add(new Point(p));
 				}
@@ -1221,8 +1221,8 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 
 			}
 			
-			public Map<Long, Long> encodePointMap(Map<? extends Point, ? extends Point> pointMap) {
-				Map<Long, Long> ixMap = new HashMap<>();
+			public HashMap<Long, Long> encodePointMap(Map<? extends Point, ? extends Point> pointMap) {
+				HashMap<Long, Long> ixMap = new HashMap<>();
 				for (Entry<? extends Point, ? extends Point> e : pointMap.entrySet()) {
 					ixMap.put(e.getKey().ix, e.getValue().ix);
 				}
