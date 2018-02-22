@@ -212,16 +212,14 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 
 			//makeMST();
 			
-			// TODO handle finalization
-//			if (input.finalLevel) {
-//				finalizeRemaining();
-//				fronts.removeAll(fronts);
-//			}
-
 			for (Front f : fronts) {
 				f.prune();
 				emitPendingFront(f);
 			}
+		}
+		
+		public void finalizePending() {
+			finalizeRemaining();
 		}
 		
 		static class FrontMerge {
@@ -608,22 +606,21 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			}
 		}
 
-		/*
 		void finalizeRemaining() {
-			Logging.log("finalizing remaining");
+			//Logging.log("finalizing remaining");
 			for (Front f : fronts) {
 				if (f.first() == null) {
-					Logging.log("'global' max: ignoring");
+					//Logging.log("'global' max: ignoring");
 					continue;
 				}
 
 				PromPair pp = new PromPair(f.peak, f.first());
 				if (isNotablyProminent(pp)) {
-					PromPending pend = new PromPending();
-					pend.p = pp.peak;
-					pend.pendingSaddle = pp.saddle;
-					pend.path = pathToUnknown(f);
-					emitFact(pend.p, pend);
+					PromFact pend = new PromFact();
+					pend.p = new Point(pp.peak);
+					pend.saddle = new Point(pp.saddle);
+					//pend.path = pathToUnknown(f);
+					emitFact(pend);
 				}
 				
 				Point saddle = f.first();
@@ -635,10 +632,10 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 					finalizeDomainSubsaddles(other, f, saddle, f.peak);
 				}
 				if (isNotablyProminent(pp)) {
-					f.flushPendingParents(pp, null, null, false);
+					f.flushPendingParents(pp, null, null, false, this);
 				}
 				
-				finalizeMST(f, saddle, other);
+				//finalizeMST(f, saddle, other);
 			}
 		}		
 		
@@ -646,10 +643,10 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			Map.Entry<Point, List<Point>> e = f.thresholds.traceUntil(saddle, peak, f.c);
 			for (Point sub : e.getValue()) {
 				if (this.isNotablyProminent(f.getProm(sub))) {
-					PromSubsaddle ps = new PromSubsaddle();
-					ps.subsaddle = new PromPair(peak, saddle);
-					ps.type = PromSubsaddle.TYPE_ELEV;
-					emitFact(sub, ps);
+					PromFact ps = new PromFact();
+					ps.p = new Point(sub);
+					ps.elevSubsaddles.add(new PromFact.Subsaddle(saddle, peak));
+					emitFact(ps);
 				}
 			}
 		}
@@ -663,14 +660,15 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 						(promThresh == null || subpp.compareTo(promThresh) > 0)) {
 					promThresh = subpp;
 
-					PromSubsaddle pps = new PromSubsaddle();
-					pps.subsaddle = new PromPair(peak, saddle);
-					pps.type = PromSubsaddle.TYPE_PROM;
-					emitFact(sub, pps);
+					PromFact pps = new PromFact();
+					pps.p = new Point(sub);
+					pps.promSubsaddles.add(new PromFact.Subsaddle(saddle, peak));
+					emitFact(pps);
 				}
 			}
 		}
 		
+		/*
 		void finalizeMST(Front f, Point saddle, Front other) {
 			List<Point> path = new ArrayList<Point>();
 			path.add(other != null ? other.bt.get(saddle) : null);

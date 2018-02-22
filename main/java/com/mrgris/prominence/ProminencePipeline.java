@@ -110,6 +110,7 @@ public class ProminencePipeline {
 
     PCollectionList<PromFact> promFacts = PCollectionList.of(searchOutput.get(promFactsTag)); 
     		
+    // TODO add offset during coalescing to avoid overlapping boundaries across multiple steps
     int chunkSize = TopologyNetworkPipeline.CHUNK_SIZE_EXP;
     while (chunkSize < 20) { // NOT GLOBAL!!!   TODO check this later
       chunkSize += Prominence.COALESCE_STEP;
@@ -124,7 +125,10 @@ public class ProminencePipeline {
 
       promFacts = promFacts.and(searchOutput.get(promFactsTag));
     }
-    // TODO finalize remaining pending
+        
+    PCollection<Iterable<AvroFront>> finalChunk = searchOutput.get(pendingFrontsTag).apply(MapElements.into(new TypeDescriptor<KV<Integer, AvroFront>>() {})
+    		.via(front -> KV.of(0, front))).apply(GroupByKey.create()).apply(Values.create());
+    promFacts = promFacts.and(finalChunk.apply(ParDo.of(new PromFinalize(true, 20.))));
     
     PCollection<PromFact> promInfo = promFacts.apply(Flatten.pCollections()).apply(MapElements.into(new TypeDescriptor<KV<Long, PromFact>>() {}).via(pf -> KV.of(pf.p.ix, pf)))
 	    .apply(Combine.perKey(new SerializableFunction<Iterable<PromFact>, PromFact>() {
@@ -170,9 +174,7 @@ public class ProminencePipeline {
     
     ////////////////////////////
     /*
-     * output format
-     * 
-     * 
+     * interim output format
      * 
      * primary key = s2 code for summit
 
@@ -208,6 +210,88 @@ point {
 }
 
 // TOOD runoff
+ * 
+ * 
+ *
+ * 
+ * final output:
+ * 
+ * TODO (isodist?)
+ * 
+ * type PEAK|PIT
+min_bound bool
+point {
+  prominence float (m)
+  elevation float (m)
+  latlon double[2]
+  s2code int64
+}
+saddle {
+  elevation
+  latlon double[2]
+  s2code int64
+}
+threshold_path {
+  // terminal point is threshold
+  ... format?
+}
+parent s2
+parent_path ...
+children* { // in order (unneeded if sql indexing)
+  prominence
+  elevation
+  latlon
+  s2code
+}
+pthresh s2
+elev_subsaddles*
+prom_subsaddles*
+- subsaddle {
+    saddle {
+      elevation
+      latlon
+      s2code
+    }
+    forpeak s2code (unneeded if sql indexing)
+  }
+
+domain boundary?
+island?
+
+
+relational:
+
+point {
+  type PEAK|PIT|SADDLE
+  elevation float (m)
+  latlon double[2]
+  s2code int64
+  isodist
+
+  ref_ids
+  names, soft info
+}
+prompair {
+  point (point)
+  saddle (point)
+  prominence
+  min_bound
+  threshold_path
+  pthresh (point)
+  parent (point)
+  child_ix
+  parent_path
+}
+subsaddle {
+  point (point)
+  subsaddle (point)
+  type ELEV|PROM
+}
+
+domain boundary?
+island?
+
+
      */
   }
 }

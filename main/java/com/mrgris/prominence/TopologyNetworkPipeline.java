@@ -63,6 +63,9 @@ public class TopologyNetworkPipeline {
   final static int CHUNK_SIZE_EXP = 11;
   static Prefix segmentPrefix(long ix) { return new Prefix(ix, PAGE_SIZE_EXP); }
     
+  // TODO make avro datastructures first-class citizens
+  
+  // TODO convert to transform: polygon (+ other metadata?) => set of DEMs
   static PCollection<KV<Prefix, DEMFile>> makePageFileMapping (Pipeline p) {
 	    PCollection<DEMFile> DEMs = p.apply(Create.of(
 	    	    new DEMFile("https://storage.googleapis.com/mrgris-dem/ferranti3/N38W075.hgt.gz", DEMFile.GRID_GEO_3AS, DEMFile.FORMAT_SRTM_HGT, 1201, 1201, 38., -75.),
