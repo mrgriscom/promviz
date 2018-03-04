@@ -70,7 +70,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			
 			public Subsaddle(Point saddle, Point peak) {
 				subsaddle = new Point(saddle);
-				forPeak = new Point(peak);
+				forPeak = new Point(peak); // don't really need this
 			}
 		}
 		
@@ -202,6 +202,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			return pp != null && pp.prominence() >= cutoff;
 		}
 		
+		// TODO what happens to rings?
 		public void search() {
 			//Logging.log("before " + fronts.size());
 			while (pendingMerges.size() > 0) {
