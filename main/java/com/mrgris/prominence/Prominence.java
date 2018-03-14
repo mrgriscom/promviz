@@ -15,12 +15,15 @@ import java.util.Objects;
 import java.util.Set;
 
 import org.apache.avro.reflect.Nullable;
+import org.apache.beam.runners.direct.repackaged.com.google.common.collect.Sets;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Lists;
 import com.mrgris.prominence.Prominence.Backtrace.BacktracePruner;
@@ -33,6 +36,8 @@ import com.mrgris.prominence.util.ReverseComparator;
 import com.mrgris.prominence.util.SaneIterable;
 
 public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>>>>, PromFact> {
+	
+    private static final Logger LOG = LoggerFactory.getLogger(Prominence.class);
 	
 	boolean up;
 	double cutoff;
@@ -262,7 +267,32 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 					throw new RuntimeException("null summit " + protoFront.getKey());
 				}
 				Front f = new Front(summit, up);
+				
+				// TODO: clean up once ring situation is clearer?
+				// need to remove duplicate saddles caused by rings (which are inherently basin saddles)
+				// ideally front handles this situation directly
+				Map<Long, Integer> saddleCounts = new DefaultMap<Long, Integer>() {
+					@Override
+					public Integer defaultValue(Long key) {
+						return 0;
+					}
+				};
 				for (long saddleIx : protoFront.getValue()) {
+					saddleCounts.put(saddleIx, saddleCounts.get(saddleIx) + 1);
+				}
+				Set<Long> nonBasinSaddles = new HashSet<>();
+				for (Entry<Long, Integer> e : saddleCounts.entrySet()) {
+					long saddleIx = e.getKey();
+					int count = e.getValue();
+					if (count < 1 || count > 2) {
+						throw new RuntimeException();
+					}
+					if (count == 1) {
+						nonBasinSaddles.add(saddleIx);
+					}
+				}
+				
+				for (long saddleIx : nonBasinSaddles) {
 					MeshPoint saddle = mesh.get(saddleIx);
 					f.add(saddle, true);
 				}

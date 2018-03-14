@@ -136,20 +136,22 @@ public class AvroToDb {
 				}
 				
 	            if (i % batchSize == 0) {
-	            	int[] counts;
-	            	counts = stInsPt.executeBatch();
-	            	counts = stInsProm.executeBatch();
-	            	counts = stInsSS.executeBatch();
+	            	stInsPt.executeBatch();
+	            	stInsProm.executeBatch();
+	            	stInsSS.executeBatch();
 	            	System.out.println("batching " + i);
 	            }
 				i++;
 			}
 
+        	stInsPt.executeBatch();
+        	stInsProm.executeBatch();
+        	stInsSS.executeBatch();
+        	System.out.println("finalizing " + i);
+			
             conn.commit();
             conn.close();
 			
-			System.out.println(i);
-
 		} catch (Exception e) {
 			throw new RuntimeException(e);
 		}
