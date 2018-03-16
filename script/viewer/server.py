@@ -22,7 +22,7 @@ import settings
 import util
 
 def fetch_prom(where_clause, args):
-    results = conn.execute('select point, saddle, prom_mm, min_bound, prom_parent, line_parent from prom where %s' % where_clause, args)
+    results = conn.execute('select point, saddle, prom_mm, min_bound, prom_parent, line_parent, prom_rank from prom where %s' % where_clause, args)
     def to_rec(row):
         return {
             'point': geo_itos(row[0]),
@@ -31,6 +31,7 @@ def fetch_prom(where_clause, args):
             'min_bound': bool(row[3]),
             'parent': tx(geo_itos, row[4]),
             'pthresh': tx(geo_itos, row[5]),
+            'prom_rank': row[6],
         }
     return map(to_rec, results)
 
@@ -145,7 +146,7 @@ class MapViewHandler(web.RequestHandler):
                 summit_feature(info, main['parent'], type='parent'),
                 #_feature(k['parent_path'], type='toparent'),
             ])
-        for i, ch in enumerate(sorted(children, key=lambda prom: -prom['prom'])):
+        for i, ch in enumerate(sorted(children, key=lambda ch: ch['prom_rank'])):
             ix = i + 1
             data['features'].extend([
                 summit_feature(info, ch['point'], type='child', ix=ix),
