@@ -188,10 +188,10 @@ class SummitsHandler(web.RequestHandler):
         results = conn.execute('''
           select point, AsWkt(loc), elev_mm, prom_mm, min_bound
           from prom join points on (prom.point = points.geocode)
-          where point between ? and ?
+          where point between ? and ? and type = ?
           order by prom_mm desc
           limit ?;
-        ''', (geo_min, geo_max, max_n))
+        ''', (geo_min, geo_max, {'up': 1, 'down': -1}[self.mode], max_n))
         results = list(results)
         
         def to_prom(row): 
