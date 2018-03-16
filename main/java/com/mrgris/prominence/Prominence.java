@@ -15,7 +15,6 @@ import java.util.Objects;
 import java.util.Set;
 
 import org.apache.avro.reflect.Nullable;
-import org.apache.beam.runners.direct.repackaged.com.google.common.collect.Sets;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.transforms.DoFn;

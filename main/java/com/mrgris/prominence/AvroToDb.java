@@ -82,10 +82,11 @@ public class AvroToDb {
                     "  point int64 references prom," +
                     "  saddle int64 references prom(saddle) not null," +
                     "  is_elev int not null," +
-                    "  is_prom int not null," +
-                    "  primary key (point, saddle)" +
-                    ") without rowid;"
+                    "  is_prom int not null" + //," +
+                    //"  primary key (point, saddle)" +
+                    ");"// without rowid;"
                 );
+            // TODO: multisaddles can make subsaddles not unique?
             
             conn.setAutoCommit(false);
             int batchSize = 10000;            
@@ -104,7 +105,7 @@ public class AvroToDb {
 			while (dataFileReader.hasNext()) {
 				pf = dataFileReader.next(pf);
 
-				addPoint(stInsPt, pf.p, TYPE_SUMMIT);
+				addPoint(stInsPt, pf.p, Point.compareElev(pf.p, pf.saddle) > 0 ? TYPE_SUMMIT : TYPE_SINK);
 				addPoint(stInsPt, pf.saddle, TYPE_SADDLE);
 				
 				stInsProm.setLong(1, geocode(pf.p));

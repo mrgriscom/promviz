@@ -71,7 +71,6 @@ import com.mrgris.prominence.util.ReverseComparator;
 public class ProminencePipeline {
   private static final Logger LOG = LoggerFactory.getLogger(ProminencePipeline.class);
       
-  
   static PCollection<PromFact> consolidatePromFacts(PCollectionList<PromFact> promFacts) {
 	  return promFacts.apply(Flatten.pCollections()).apply(MapElements.into(new TypeDescriptor<KV<Long, PromFact>>() {}).via(pf -> KV.of(pf.p.ix, pf)))
 	    	    .apply(Combine.perKey(new SerializableFunction<Iterable<PromFact>, PromFact>() {
@@ -109,6 +108,92 @@ public class ProminencePipeline {
 	    	  	  })).apply(Values.create());
   }
   
+  public static PCollection<PromFact> dirPipeline(Pipeline p, boolean up, String networkPath, PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage) {
+	    // TODO verify edges since read from outside source
+	  PCollection<Edge> network = p.apply(AvroIO.read(Edge.class).from(networkPath));
+	  PCollection<KV<Long, Iterable<Long>>> minimalFronts = network.apply(ParDo.of(new DoFn<Edge, KV<Long, Long>>() {
+		      @ProcessElement
+		      public void processElement(ProcessContext c) {
+		    	  Edge e = c.element();
+		    	  if (e.a == PointIndex.NULL) {
+		    		  throw new RuntimeException(e.toString());
+		    	  }
+		    	  c.output(KV.of(e.a, e.saddle));
+		    	  if (!e.pending()) {
+			    	  if (e.b == PointIndex.NULL) {
+			    		  throw new RuntimeException(e.toString() + " " + e.pending());
+			    	  }
+			    	  c.output(KV.of(e.b, e.saddle));
+		    	  }
+		      }
+	    })).apply(GroupByKey.create());
+	    // TODO insert stage that generates the fronts before invoking searcher? or too much overhead?
+	    PCollection<KV<Prefix, Iterable<KV<Long, Iterable<Long>>>>> initialChunks = minimalFronts.apply(
+	    		MapElements.into(new TypeDescriptor<KV<Prefix, KV<Long, Iterable<Long>>>>() {}).via(
+	    				front -> KV.of(new Prefix(front.getKey(), TopologyNetworkPipeline.CHUNK_SIZE_EXP), front)))
+	    		.apply(GroupByKey.create());
+	    final TupleTag<PromFact> promFactsTag = new TupleTag<PromFact>(){};
+	    final TupleTag<AvroFront> pendingFrontsTag = new TupleTag<AvroFront>(){};    
+	    PCollectionTuple searchOutput = initialChunks.apply(ParDo.of(new Prominence(up, 20., pageCoverage, pendingFrontsTag))
+	    		.withSideInputs(pageCoverage)
+	    		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag)));
+
+	    PCollectionList<PromFact> promFacts = PCollectionList.of(searchOutput.get(promFactsTag)); 
+	    		
+	    // TODO add offset during coalescing to avoid overlapping boundaries across multiple steps
+	    int chunkSize = TopologyNetworkPipeline.CHUNK_SIZE_EXP;
+	    while (chunkSize < 20) { // NOT GLOBAL!!!   TODO check this later
+	      chunkSize += Prominence.COALESCE_STEP;
+
+	      final int cs = chunkSize;
+	      PCollection<KV<Prefix, Iterable<AvroFront>>> coalescedChunks = searchOutput.get(pendingFrontsTag).apply(
+	      		MapElements.into(new TypeDescriptor<KV<Prefix, AvroFront>>() {}).via(
+	      				front -> KV.of(new Prefix(front.peakIx, cs), front)))
+	      		.apply(GroupByKey.create());
+	      searchOutput = coalescedChunks.apply(ParDo.of(new Prominence2(up, 20., pendingFrontsTag))
+	      		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag)));
+
+	      promFacts = promFacts.and(searchOutput.get(promFactsTag));
+	    }
+	    // coalesce steps -- must pre-populated all the way to global, even if many are no-ops
+	    // what if chunk size is such that there is only one processing level (extreme edge case but try to handle it)
+	        
+	    PCollection<Iterable<AvroFront>> finalChunk = searchOutput.get(pendingFrontsTag).apply(MapElements.into(new TypeDescriptor<KV<Integer, AvroFront>>() {})
+	    		.via(front -> KV.of(0, front))).apply(GroupByKey.create()).apply(Values.create());
+	    promFacts = promFacts.and(finalChunk.apply(ParDo.of(new PromFinalize(up, 20.))));
+
+	    PCollection<PromFact> promInfo = consolidatePromFacts(promFacts);
+	    
+	    PCollection<PromFact> promRank = promInfo.apply(MapElements.into(new TypeDescriptor<KV<Integer, KV<Point, Point>>>() {})
+	    		.via(pf -> KV.of(0, KV.of(pf.p, pf.saddle)))).apply(GroupByKey.create()).apply(Values.create())
+	    		.apply(ParDo.of(new DoFn<Iterable<KV<Point, Point>>, PromFact>() {
+	    		      @ProcessElement
+	    		      public void processElement(ProcessContext c) {
+	    		    	  Iterable<KV<Point, Point>> allProms = c.element();
+	    		    	  List<KV<Point, Point>> proms = Lists.newArrayList(allProms);
+	    		    	  proms.sort(new ReverseComparator<KV<Point, Point>>(new Comparator<KV<Point, Point>>() {
+	    						@Override
+	    						public int compare(KV<Point, Point> a, KV<Point, Point> b) {
+	    							return new PromPair(a.getKey(), a.getValue()).compareTo(new PromPair(b.getKey(), b.getValue()));
+	    						}	    		  
+	    		    	  }));
+	    		    	  ListIterator<KV<Point, Point>> it = proms.listIterator();
+	    		    	  while (it.hasNext()) {
+	    		    		  int i = it.nextIndex();
+	    		    		  KV<Point, Point> pp = it.next();
+	    		    		  
+	    		    		  PromFact rank = new PromFact();
+	    		    		  rank.p = new Point(pp.getKey());
+	    		    		  rank.promRank = i;
+	    		    		  c.output(rank);
+	    		    	  }
+	    		      }		  
+	    			
+	    		}));
+	    
+	    return consolidatePromFacts(PCollectionList.of(promInfo).and(promRank));
+  }
+  
   public static void main(String[] args) {
 	
 	// TODO: custom options and validation
@@ -119,95 +204,11 @@ public class ProminencePipeline {
     PCollection<KV<Prefix, DEMFile>> pageFileMapping = TopologyNetworkPipeline.makePageFileMapping(p);
     final PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage = pageFileMapping.apply(View.asMultimap());
 
-    // TODO separate but identical sub-pipelines for the up and down networks
-
-    // TODO verify edges since read from outside source
-    PCollection<Edge> network = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-up-*"));
-    PCollection<KV<Long, Iterable<Long>>> minimalFronts = network.apply(ParDo.of(new DoFn<Edge, KV<Long, Long>>() {
-	      @ProcessElement
-	      public void processElement(ProcessContext c) {
-	    	  Edge e = c.element();
-	    	  if (e.a == PointIndex.NULL) {
-	    		  throw new RuntimeException(e.toString());
-	    	  }
-	    	  c.output(KV.of(e.a, e.saddle));
-	    	  if (!e.pending()) {
-		    	  if (e.b == PointIndex.NULL) {
-		    		  throw new RuntimeException(e.toString() + " " + e.pending());
-		    	  }
-		    	  c.output(KV.of(e.b, e.saddle));
-	    	  }
-	      }
-    })).apply(GroupByKey.create());
-    // TODO insert stage that generates the fronts before invoking searcher? or too much overhead?
-    PCollection<KV<Prefix, Iterable<KV<Long, Iterable<Long>>>>> initialChunks = minimalFronts.apply(
-    		MapElements.into(new TypeDescriptor<KV<Prefix, KV<Long, Iterable<Long>>>>() {}).via(
-    				front -> KV.of(new Prefix(front.getKey(), TopologyNetworkPipeline.CHUNK_SIZE_EXP), front)))
-    		.apply(GroupByKey.create());
-    final TupleTag<PromFact> promFactsTag = new TupleTag<PromFact>(){};
-    final TupleTag<AvroFront> pendingFrontsTag = new TupleTag<AvroFront>(){};    
-    PCollectionTuple searchOutput = initialChunks.apply(ParDo.of(new Prominence(true, 20., pageCoverage, pendingFrontsTag))
-    		.withSideInputs(pageCoverage)
-    		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag)));
-
-    PCollectionList<PromFact> promFacts = PCollectionList.of(searchOutput.get(promFactsTag)); 
-    		
-    // TODO add offset during coalescing to avoid overlapping boundaries across multiple steps
-    int chunkSize = TopologyNetworkPipeline.CHUNK_SIZE_EXP;
-    while (chunkSize < 20) { // NOT GLOBAL!!!   TODO check this later
-      chunkSize += Prominence.COALESCE_STEP;
-
-      final int cs = chunkSize;
-      PCollection<KV<Prefix, Iterable<AvroFront>>> coalescedChunks = searchOutput.get(pendingFrontsTag).apply(
-      		MapElements.into(new TypeDescriptor<KV<Prefix, AvroFront>>() {}).via(
-      				front -> KV.of(new Prefix(front.peakIx, cs), front)))
-      		.apply(GroupByKey.create());
-      searchOutput = coalescedChunks.apply(ParDo.of(new Prominence2(true, 20., pendingFrontsTag))
-      		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag)));
-
-      promFacts = promFacts.and(searchOutput.get(promFactsTag));
-    }
-        
-    PCollection<Iterable<AvroFront>> finalChunk = searchOutput.get(pendingFrontsTag).apply(MapElements.into(new TypeDescriptor<KV<Integer, AvroFront>>() {})
-    		.via(front -> KV.of(0, front))).apply(GroupByKey.create()).apply(Values.create());
-    promFacts = promFacts.and(finalChunk.apply(ParDo.of(new PromFinalize(true, 20.))));
-
-    PCollection<PromFact> promInfo = consolidatePromFacts(promFacts);
+    PCollection<PromFact> promInfoUp = dirPipeline(p, true, "gs://mrgris-dataflow-test/network-up-*", pageCoverage);
+    PCollection<PromFact> promInfoDown = dirPipeline(p, false, "gs://mrgris-dataflow-test/network-down-*", pageCoverage);
     
-    PCollection<PromFact> promRank = promInfo.apply(MapElements.into(new TypeDescriptor<KV<Integer, KV<Point, Point>>>() {})
-    		.via(pf -> KV.of(0, KV.of(pf.p, pf.saddle)))).apply(GroupByKey.create()).apply(Values.create())
-    		.apply(ParDo.of(new DoFn<Iterable<KV<Point, Point>>, PromFact>() {
-    		      @ProcessElement
-    		      public void processElement(ProcessContext c) {
-    		    	  Iterable<KV<Point, Point>> allProms = c.element();
-    		    	  List<KV<Point, Point>> proms = Lists.newArrayList(allProms);
-    		    	  proms.sort(new ReverseComparator<KV<Point, Point>>(new Comparator<KV<Point, Point>>() {
-    						@Override
-    						public int compare(KV<Point, Point> a, KV<Point, Point> b) {
-    							return new PromPair(a.getKey(), a.getValue()).compareTo(new PromPair(b.getKey(), b.getValue()));
-    						}	    		  
-    		    	  }));
-    		    	  ListIterator<KV<Point, Point>> it = proms.listIterator();
-    		    	  while (it.hasNext()) {
-    		    		  int i = it.nextIndex();
-    		    		  KV<Point, Point> pp = it.next();
-    		    		  
-    		    		  PromFact rank = new PromFact();
-    		    		  rank.p = new Point(pp.getKey());
-    		    		  rank.promRank = i;
-    		    		  c.output(rank);
-    		    	  }
-    		      }		  
-    			
-    		}));
-    
-    promInfo = consolidatePromFacts(PCollectionList.of(promInfo).and(promRank));
-    
-    promInfo.apply("dumpfacts",
+    PCollectionList.of(promInfoUp).and(promInfoDown).apply(Flatten.pCollections()).apply("dumpfacts",
     	    AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstest").withoutSharding());
-    
-    // coalesce steps -- must pre-populated all the way to global, even if many are no-ops
-    // what if chunk size is such that there is only one processing level (extreme edge case but try to handle it)
     
     p.run();
     

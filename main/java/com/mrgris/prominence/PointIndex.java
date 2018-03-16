@@ -1,10 +1,6 @@
 package com.mrgris.prominence;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import com.mrgris.prominence.dem.DEMFile;
-import com.mrgris.prominence.dem.Projection;
 import com.mrgris.prominence.util.GeoCode;
 import com.mrgris.prominence.util.Util;
 

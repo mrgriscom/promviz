@@ -1,8 +1,5 @@
 package com.mrgris.prominence;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
 import java.util.Objects;
 
 import org.apache.beam.sdk.coders.AvroCoder;
