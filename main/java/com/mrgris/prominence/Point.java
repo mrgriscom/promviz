@@ -45,13 +45,13 @@ public class Point {
 		this(p.ix, p.elev, p.isodist);
 	}
 	
+	// a point's "height" is effectively (elev, isodist, pseudorandom id (geocode with reversed bits, seq #)
 	public static int compareElev(Point a, Point b) {
 		if (a.elev != b.elev) {
 			return Float.compare(a.elev, b.elev);
 		} else if (a.isodist != b.isodist) {
 			return Integer.compare(a.isodist, b.isodist);
 		} else {
-			//return Long.compare(a.ix, b.ix); // simple method
 			return PointIndex.compare(a.ix, b.ix);
 		}
 	}

@@ -27,13 +27,8 @@ public class AvroToDb {
 	static final int TYPE_SADDLE = 0;
 	static final int TYPE_SINK = -1;
 
-	static long geocode(long ix) {
-		double coords[] = PointIndex.toLatLon(ix);
-		return GeoCode.fromCoord(coords[0], coords[1]);		
-	}
-	
 	static long geocode(Point p) {
-		return geocode(p.ix);
+		return PointIndex.iGeocode(p.ix);
 	}
 	
 	public static void addPoint(PreparedStatement ps, Point p, int type) throws SQLException {
@@ -75,6 +70,7 @@ public class AvroToDb {
                 "  point int64 primary key references points," +
                 "  saddle int64 references points not null," +
                 "  prom_mm int not null," +
+                "  prom_rank int not null," +
                 "  min_bound int not null," +
                 "  prom_parent int64 references points," +
                 "  line_parent int64 references points" +
@@ -95,7 +91,7 @@ public class AvroToDb {
             int batchSize = 10000;            
             String insPt = "replace into points values (?,?,?,GeomFromText(?, 4326))";
             PreparedStatement stInsPt = conn.prepareStatement(insPt);
-            String insProm = "insert into prom values (?,?,?,?,?,?)";
+            String insProm = "insert into prom values (?,?,?,?,?,?,?)";
             PreparedStatement stInsProm = conn.prepareStatement(insProm);
             String insSS = "insert into subsaddles values (?,?,?,?)";
             PreparedStatement stInsSS = conn.prepareStatement(insSS);
@@ -114,9 +110,10 @@ public class AvroToDb {
 				stInsProm.setLong(1, geocode(pf.p));
 				stInsProm.setLong(2, geocode(pf.saddle));
 				stInsProm.setInt(3, (int)(1000. * Math.abs(pf.p.elev - pf.saddle.elev)));
-				stInsProm.setInt(4, pf.thresh == null ? 1 : 0);
-				stInsProm.setObject(5, pf.parent != null ? geocode(pf.parent) : null);
-				stInsProm.setObject(6, pf.pthresh != null ? geocode(pf.pthresh) : null);
+				stInsProm.setInt(4, pf.promRank);
+				stInsProm.setInt(5, pf.thresh == null ? 1 : 0);
+				stInsProm.setObject(6, pf.parent != null ? geocode(pf.parent) : null);
+				stInsProm.setObject(7, pf.pthresh != null ? geocode(pf.pthresh) : null);
 				stInsProm.addBatch();
 				
 				Set<Long> ssElev = new HashSet<>();
@@ -129,7 +126,7 @@ public class AvroToDb {
 				}
 				for (Long ss : Sets.union(ssElev, ssProm)) {
 					stInsSS.setLong(1, geocode(pf.p));
-					stInsSS.setLong(2, geocode(ss));
+					stInsSS.setLong(2, PointIndex.iGeocode(ss));
 					stInsSS.setInt(3, ssElev.contains(ss) ? 1 : 0);
 					stInsSS.setInt(4, ssProm.contains(ss) ? 1 : 0);
 					stInsSS.addBatch();

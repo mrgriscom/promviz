@@ -65,6 +65,8 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 		Point pthresh;
 		@Nullable
 		Point parent;
+		@Nullable
+		Integer promRank;
 		
 		@DefaultCoder(AvroCoder.class)
 		public static class Subsaddle {
@@ -108,6 +110,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 	static final int COALESCE_STEP = 2;
 
 	public static double prominence(Point peak, Point saddle) {
+		// think saddle null is to handle mt. everest?
 		return (saddle != null ? Math.abs(peak.elev - saddle.elev) : Double.POSITIVE_INFINITY);
 	}
 	
@@ -126,21 +129,83 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			return Prominence.prominence(peak, saddle);
 		}
 
+		static void longSubtractWithOverflow(long a, long b, long[] result) {
+			if (a > -1 && b < a - Long.MAX_VALUE) {
+				result[0] = 1;
+			} else if (a < -1 && b > a - Long.MIN_VALUE) {
+				result[0] = -1;
+			} else {
+				result[0] = 0;
+			}
+			result[1] = a - b;
+		}
+		
+		static int diffCompare(long a0, long a1, long b0, long b1) {
+			long[] diffA = new long[2];
+			long[] diffB = new long[2];
+			longSubtractWithOverflow(a0, a1, diffA);
+			longSubtractWithOverflow(b0, b1, diffB);
+			int c = Long.compare(diffA[0], diffB[0]);
+			if (c != 0) {
+				return c;
+			}
+			return Long.compare(diffA[1], diffB[1]);
+		}
+		
+		static int diffCompare(int a0, int a1, int b0, int b1) {
+			long diffA = (long)a0 - (long)a1;
+			long diffB = (long)b0 - (long)b1;
+			return Long.compare(diffA, diffB);
+		}
+		
 		public static int compare(PromPair ppa, PromPair ppb, Comparator<Point> cmp) {
 			int c = Double.compare(ppa.prominence(), ppb.prominence());
-			if (c == 0) {
-				if (cmp == null) {
-					return 0;
-				}
-				
-				int cp = cmp.compare(ppa.peak, ppb.peak);
-				int cs = cmp.compare(ppa.saddle, ppb.saddle);
-				if (cp > 0 && cs < 0) {
-					c = 1;
-				} else if (cp < 0 && cs > 0) {
-					c = -1;
-				}
+			if (c != 0) {
+				return c;
 			}
+			if (Double.isInfinite(ppa.prominence())) {
+				// should only be one global max, so meaningless to sub-compare
+				return 0;
+			}
+			
+			boolean up = (cmp == Point._cmpElev);
+
+			c = diffCompare(ppa.peak.isodist, ppa.saddle.isodist, ppb.peak.isodist, ppb.saddle.isodist);
+			if (c != 0) {
+				return (up ? 1 : -1) * c;
+			}
+			c = diffCompare(
+					PointIndex.pseudorandId(ppa.peak.ix),
+					PointIndex.pseudorandId(ppa.saddle.ix),
+					PointIndex.pseudorandId(ppb.peak.ix),
+					PointIndex.pseudorandId(ppb.saddle.ix)
+			);
+			if (c != 0) {
+				return (up ? 1 : -1) * c;
+			}
+			c = diffCompare(
+					PointIndex.split(ppa.peak.ix)[3],
+					PointIndex.split(ppa.saddle.ix)[3],
+					PointIndex.split(ppb.peak.ix)[3],
+					PointIndex.split(ppb.saddle.ix)[3]
+			);
+			if (c != 0) {
+				return (up ? 1 : -1) * c;
+			}
+			
+			c = Long.compare(PointIndex.pseudorandId(ppa.peak.ix), PointIndex.pseudorandId(ppb.peak.ix));
+			if (c != 0) {
+				return (up ? 1 : -1) * c;
+			}
+			c = Long.compare(PointIndex.pseudorandId(ppa.saddle.ix), PointIndex.pseudorandId(ppb.saddle.ix));
+			if (c != 0) {
+				return (up ? 1 : -1) * c;
+			}
+			c = Integer.compare(PointIndex.split(ppa.saddle.ix)[3], PointIndex.split(ppb.saddle.ix)[3]);
+			if (c != 0) {
+				return (up ? 1 : -1) * c;
+			}
+			c = Integer.compare(PointIndex.split(ppa.peak.ix)[3], PointIndex.split(ppb.peak.ix)[3]);
 			return c;
 		}
 		
