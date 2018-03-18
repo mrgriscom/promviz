@@ -25,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Lists;
+import com.mrgris.prominence.Edge.HalfEdge;
 import com.mrgris.prominence.Prominence.Backtrace.BacktracePruner;
 import com.mrgris.prominence.Prominence.Front.AvroFront;
 import com.mrgris.prominence.Prominence.PromFact;
@@ -34,7 +35,7 @@ import com.mrgris.prominence.util.MutablePriorityQueue;
 import com.mrgris.prominence.util.ReverseComparator;
 import com.mrgris.prominence.util.SaneIterable;
 
-public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>>>>, PromFact> {
+public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfEdge>>>>, PromFact> {
 	
     private static final Logger LOG = LoggerFactory.getLogger(Prominence.class);
 	
@@ -93,7 +94,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
     @ProcessElement
     public void processElement(ProcessContext c) {
     	Prefix prefix = c.element().getKey();
-    	Iterable<KV<Long, Iterable<Long>>> protoFronts = c.element().getValue();
+    	Iterable<KV<Long, Iterable<HalfEdge>>> protoFronts = c.element().getValue();
     	Map<Prefix, Iterable<DEMFile>> coverage = c.sideInput(coverageSideInput);
     	
     	new Searcher(up, cutoff, protoFronts, coverage) {
@@ -103,6 +104,10 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
     		
     		public void emitPendingFront(Front f) {
     			c.output(pendingFrontsTag, new AvroFront(f));
+    		}
+    		
+    		public void emitBacktraceEdge(Edge e) {
+    			
     		}
     	}.search();
     }    	
@@ -256,7 +261,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			});			
 		}
 		
-		public Searcher(boolean up, double cutoff, Iterable<KV<Long, Iterable<Long>>> protoFronts, Map<Prefix, Iterable<DEMFile>> coverage) {
+		public Searcher(boolean up, double cutoff, Iterable<KV<Long, Iterable<HalfEdge>>> protoFronts, Map<Prefix, Iterable<DEMFile>> coverage) {
 			this(up, cutoff);
 			this.mesh = TopologyBuilder._createMesh(coverage);
 			loadForBase(protoFronts);
@@ -313,21 +318,21 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			}
 		}
 		
-		void loadForBase(Iterable<KV<Long, Iterable<Long>>> protoFronts) {
+		void loadForBase(Iterable<KV<Long, Iterable<HalfEdge>>> protoFronts) {
 			baseLevel = true;
 			
 			// load necessary DEM pages for graph
 			final Set<Prefix> pages = new HashSet<Prefix>();
-			for (KV<Long, Iterable<Long>> front : protoFronts) {
+			for (KV<Long, Iterable<HalfEdge>> front : protoFronts) {
 				pages.add(PagedElevGrid.segmentPrefix(front.getKey()));
-				for (long saddle : front.getValue()) {
-					pages.add(PagedElevGrid.segmentPrefix(saddle));					
+				for (HalfEdge he : front.getValue()) {
+					pages.add(PagedElevGrid.segmentPrefix(he.saddle));					
 				}
 			}
 			mesh.bulkLoadPage(pages);
 
 			// build atomic fronts (summit + immediate saddles)
-			for (KV<Long, Iterable<Long>> protoFront : protoFronts) {
+			for (KV<Long, Iterable<HalfEdge>> protoFront : protoFronts) {
 				MeshPoint summit = mesh.get(protoFront.getKey());
 				if (summit == null) {
 					throw new RuntimeException("null summit " + protoFront.getKey());
@@ -343,8 +348,8 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 						return 0;
 					}
 				};
-				for (long saddleIx : protoFront.getValue()) {
-					saddleCounts.put(saddleIx, saddleCounts.get(saddleIx) + 1);
+				for (HalfEdge he : protoFront.getValue()) {
+					saddleCounts.put(he.saddle, saddleCounts.get(he.saddle) + 1);
 				}
 				Set<Long> nonBasinSaddles = new HashSet<>();
 				for (Entry<Long, Integer> e : saddleCounts.entrySet()) {
@@ -513,7 +518,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			}
 			List<Point[]> newParents = new ArrayList<Point[]>(); // temp list because we can't do path stuff till post-merge
 			if (notable || !child.pendingParent.isEmpty()) {
-				this.parentage(newProm, parent, child, newParents);
+				parentage(newProm, parent, child, newParents);
 			}
 
 			// unlist child front, merge into parent, and remove connection between the two
@@ -579,7 +584,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			}
 
 			if (notable) {
-				//baseInfo.path = new Path(parent.bt.getAtoB(baseInfo.thresh, baseInfo.p), baseInfo.p);
 				parent.promPoints.put((MeshPoint)newProm.peak, (MeshPoint)newProm.saddle);
 
 				PromFact base = new PromFact();
@@ -594,7 +598,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				PromFact parentInfo = new PromFact();
 				parentInfo.p = new Point(p);
 				parentInfo.parent = new Point(par);
-				//parentInfo.path = new Path(parent.bt.getAtoB(p, par), null);
 				emitFact(parentInfo);
 			}
 		}
@@ -717,7 +720,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 					PromFact pend = new PromFact();
 					pend.p = new Point(pp.peak);
 					pend.saddle = new PromFact.Saddle(pp.saddle, -1);
-					//pend.path = pathToUnknown(f);
 					emitFact(pend);
 				}
 				
@@ -781,7 +783,8 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				mst.add(new Edge(cur.ix, next != null ? next.ix : PointIndex.NULL, s.ix));
 			}
 		}
-		
+
+		/*
 		Path pathToUnknown(Front f) {
 			List<Point> path = new ArrayList<Point>();
 			Point start = f.peak;
@@ -797,6 +800,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			}
 			return new Path(Lists.reverse(path), null);
 		}
+		*/
 		
 		public abstract void emitFact(PromFact pf);
 		public abstract void emitPendingFront(Front f);
@@ -1013,6 +1017,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			return intersection;
 		}
 		
+		/*
 		public Iterable<Point> getAtoB(Point pA, Point pB) {
 			if (pB == null) {
 				return trace(pA);
@@ -1063,6 +1068,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			path.addAll(path2);
 			return path;
 		}
+		*/
 	}
 	
 	static class Front {
@@ -1077,7 +1083,9 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 		
 		// mapping of notably prominent peaks to saddles within the front
 		Map<MeshPoint, MeshPoint> promPoints;
+		// set of peaks in front that are still searching for a minimally prominent threshold ("line parent")
 		Set<Long> pendingPThresh;
+		// set of peaks in front that are still searching for prominence parents (mapped to their saddle)
 		Map<MeshPoint, MeshPoint> pendingParent; // could probably be a set, since saddles are stored in promPoints?
 		Map<MeshPoint, MeshPoint> pendingParentThresh;
 		
@@ -1204,6 +1212,9 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			}
 		}
 		
+		// we're in child front
+		// cand is ascending thresholds up the parent
+		
 		public void flushPendingParents(PromPair cand, Front other, List<Point[]> newParents, boolean nosubsaddle, Searcher s) {
 			for (Iterator<Entry<MeshPoint, MeshPoint>> it = this.pendingParent.entrySet().iterator(); it.hasNext(); ) {
 				Entry<MeshPoint, MeshPoint> e = it.next();
@@ -1215,6 +1226,13 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				}
 			}
 			if (!nosubsaddle) {
+				// cand prom <= pend prom
+				// cand thresh is NOT prom parent for pend
+				
+				// threshes is really like a step tree
+				// 'i am blocked by peaks with this prominence, so they should get the subsaddle not me'
+				
+				// adds a prom subsaddle for CAND (saddle for pend
 				for (Entry<MeshPoint, MeshPoint> e : this.pendingParent.entrySet()) {
 					PromPair pend = new PromPair(e.getKey(), e.getValue());
 					Point _thresh = this.pendingParentThresh.get(pend.peak);
@@ -1234,7 +1252,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 					if (thresh == null || thresh.compareTo(cand) < 0) { // not lte
 						PromFact pps = new PromFact();
 						pps.p = new Point(cand.peak);
-						pps.promSubsaddles.add(new PromFact.Saddle(pend.saddle, -1 /* which trace# wtf?? (ss peak is pend.peak) */));
+						pps.promSubsaddles.add(new PromFact.Saddle(pend.saddle, -1 /* trace *away* from pend.peak */));
 						s.emitFact(pps);
 						
 						this.pendingParentThresh.put((MeshPoint)pend.peak, (MeshPoint)cand.peak);

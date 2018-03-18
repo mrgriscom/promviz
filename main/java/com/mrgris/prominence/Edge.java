@@ -22,9 +22,11 @@ public class Edge {
 	public Edge() {}
 	
 	public Edge(long a, long b, long saddle, int tagA, int tagB) {
-		// this assert is no longer valid?
-		assert (a != b && a != saddle && b != saddle) : String.format("%s %s %s", Util.print(a), Util.print(b), Util.print(saddle));
-		assert (saddle != PointIndex.NULL);
+		if (saddle == PointIndex.NULL || a == saddle || b == saddle ||
+				(a == PointIndex.NULL && b == PointIndex.NULL) ||
+				(a == b && tagA == tagB)) {
+			throw new RuntimeException("invalid edge: " + String.format("%s %s %s", Util.print(a), Util.print(b), Util.print(saddle)));
+		}
 		
 		this.a = a;
 		this.b = b;
@@ -41,10 +43,29 @@ public class Edge {
 		this(a, b, saddle, TAG_NULL, TAG_NULL);
 	}
 	
-	public boolean pending() {
-		return b == PointIndex.NULL;
-	}
+	@DefaultCoder(AvroCoder.class)
+	public static class HalfEdge {
+		public long p;
+		public long saddle;
+		public int tag;
+		
+		// for deserialization
+		public HalfEdge() {}
 
+		public HalfEdge(long p, long saddle, int tag) {
+			this.p = p;
+			this.saddle = saddle;
+			this.tag = tag;
+		}
+	}
+	
+	public HalfEdge[] split() {
+		HalfEdge[] spl = new HalfEdge[2];
+		spl[0] = (a != PointIndex.NULL ? new HalfEdge(a, saddle, tagA) : null);
+		spl[1] = (b != PointIndex.NULL ? new HalfEdge(b, saddle, tagB) : null);
+		return spl;
+	}
+	
 	public void reverse() {
 		long tmpIx = a;
 		a = b;

@@ -120,7 +120,7 @@ public class TopologyNetworkPipeline {
   }
   
   static PCollection<KV<Prefix, DEMFile>> makePageFileMapping (Pipeline p) {
-	  final String region = westernUS;
+	  final String region = northeastUS;
 
 	  Set<String> index = loadDemIndex();
 	  int res = 1; // degrees

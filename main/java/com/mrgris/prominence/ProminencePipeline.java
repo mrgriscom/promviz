@@ -46,6 +46,7 @@ import org.apache.beam.sdk.values.TypeDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mrgris.prominence.Edge.HalfEdge;
 import com.mrgris.prominence.Prominence.Front.AvroFront;
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.Prominence.PromPair;
@@ -111,25 +112,20 @@ public class ProminencePipeline {
   public static PCollection<PromFact> dirPipeline(Pipeline p, boolean up, String networkPath, PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage) {
 	    // TODO verify edges since read from outside source
 	  PCollection<Edge> network = p.apply(AvroIO.read(Edge.class).from(networkPath));
-	  PCollection<KV<Long, Iterable<Long>>> minimalFronts = network.apply(ParDo.of(new DoFn<Edge, KV<Long, Long>>() {
+	  PCollection<KV<Long, Iterable<HalfEdge>>> minimalFronts = network.apply(ParDo.of(new DoFn<Edge, KV<Long, HalfEdge>>() {
 		      @ProcessElement
 		      public void processElement(ProcessContext c) {
 		    	  Edge e = c.element();
-		    	  if (e.a == PointIndex.NULL) {
-		    		  throw new RuntimeException(e.toString());
-		    	  }
-		    	  c.output(KV.of(e.a, e.saddle));
-		    	  if (!e.pending()) {
-			    	  if (e.b == PointIndex.NULL) {
-			    		  throw new RuntimeException(e.toString() + " " + e.pending());
-			    	  }
-			    	  c.output(KV.of(e.b, e.saddle));
+		    	  for (HalfEdge he : e.split()) {
+		    		  if (he != null) {
+				    	  c.output(KV.of(he.p, he));		    			  
+		    		  }
 		    	  }
 		      }
 	    })).apply(GroupByKey.create());
 	    // TODO insert stage that generates the fronts before invoking searcher? or too much overhead?
-	    PCollection<KV<Prefix, Iterable<KV<Long, Iterable<Long>>>>> initialChunks = minimalFronts.apply(
-	    		MapElements.into(new TypeDescriptor<KV<Prefix, KV<Long, Iterable<Long>>>>() {}).via(
+	    PCollection<KV<Prefix, Iterable<KV<Long, Iterable<HalfEdge>>>>> initialChunks = minimalFronts.apply(
+	    		MapElements.into(new TypeDescriptor<KV<Prefix, KV<Long, Iterable<HalfEdge>>>>() {}).via(
 	    				front -> KV.of(new Prefix(front.getKey(), TopologyNetworkPipeline.CHUNK_SIZE_EXP), front)))
 	    		.apply(GroupByKey.create());
 	    final TupleTag<PromFact> promFactsTag = new TupleTag<PromFact>(){};

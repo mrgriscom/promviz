@@ -99,7 +99,7 @@ public class AvroToDb {
             
             conn.setAutoCommit(false);
             int batchSize = 10000;            
-            String insPt = "replace into points values (?,?,?,GeomFromText(?, 4326))";
+            String insPt = "replace into points values (?,?,?,?,GeomFromText(?, 4326))";
             PreparedStatement stInsPt = conn.prepareStatement(insPt);
             String insProm = "insert into prom values (?,?,?,?,?,?,?)";
             PreparedStatement stInsProm = conn.prepareStatement(insProm);
