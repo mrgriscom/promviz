@@ -53,10 +53,24 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 
 	@DefaultCoder(AvroCoder.class)
 	public static class PromFact {
+		
+		@DefaultCoder(AvroCoder.class)
+		public static class Saddle {
+			Point s;
+			int traceNumTowardsP;
+			
+			public Saddle() {}
+			
+			public Saddle(Point saddle, int traceNumTowardsP) {
+				this.s = new Point(saddle);
+				this.traceNumTowardsP = traceNumTowardsP;
+			}
+		}
+				
 		Point p;
 		
 		@Nullable
-		Point saddle;
+		Saddle saddle;
 		@Nullable
 		Point thresh;
 		
@@ -67,21 +81,8 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 		@Nullable
 		Integer promRank;
 		
-		@DefaultCoder(AvroCoder.class)
-		public static class Subsaddle {
-			Point subsaddle;
-			Point forPeak;
-			
-			public Subsaddle() {}
-			
-			public Subsaddle(Point saddle, Point peak) {
-				subsaddle = new Point(saddle);
-				forPeak = new Point(peak); // don't really need this
-			}
-		}
-		
-		List<Subsaddle> elevSubsaddles;
-		List<Subsaddle> promSubsaddles;
+		List<Saddle> elevSubsaddles;
+		List<Saddle> promSubsaddles;
 		
 		public PromFact() {
 			elevSubsaddles = new ArrayList<>();
@@ -226,6 +227,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 		// front pairs that can and must be coalesced
 		MutablePriorityQueue<FrontMerge> pendingMerges;
 		Set<Edge> mst;
+		// used solely for tracking segments of MST that may need to be reversed from higher coalescing steps
 		Map<Front, List<PromPair>> merged;
 		
 		public Searcher(boolean up, double cutoff) {
@@ -361,7 +363,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 					f.add(saddle, true);
 				}
 				fronts.add(f);
-				f.validateThresh();
 			}
 		}
 		
@@ -469,6 +470,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				}
 			}
 
+			///////
 			List<Point> childThreshes = child.thresholds.traceUntil(saddle, newProm.peak, child.c).getValue();
 			Entry<Point, List<Point>> e = parent.thresholds.traceUntil(saddle, newProm.peak, parent.c);
 			Point thresh = e.getKey();
@@ -479,7 +481,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				if (child.promPoints.containsKey(sub)) {
 					PromFact ps = new PromFact();
 					ps.p = new Point(sub);
-					ps.elevSubsaddles.add(new PromFact.Subsaddle(saddle, newProm.peak));
+					ps.elevSubsaddles.add(new PromFact.Saddle(saddle, -1 /* child front */));
 					emitFact(ps);
 					
 					PromPair subpp = new PromPair(sub, child.promPoints.get(sub));
@@ -488,7 +490,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 
 						PromFact pps = new PromFact();
 						pps.p = new Point(sub);
-						pps.promSubsaddles.add(new PromFact.Subsaddle(saddle, newProm.peak));
+						pps.promSubsaddles.add(new PromFact.Saddle(saddle, -1 /* child front */));
 						emitFact(pps);
 					}
 				}
@@ -497,10 +499,11 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				if (parent.promPoints.containsKey(sub)) {
 					PromFact ps = new PromFact();
 					ps.p = new Point(sub);
-					ps.elevSubsaddles.add(new PromFact.Subsaddle(saddle, newProm.peak));
+					ps.elevSubsaddles.add(new PromFact.Saddle(saddle, -1 /* parent front */));
 					emitFact(ps);
 				}
 			}
+			///////
 			
 			if (notable || !child.pendingPThresh.isEmpty()) {
 				this.pthresh(newProm, thresh, parent, child);
@@ -581,7 +584,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 
 				PromFact base = new PromFact();
 				base.p = new Point(newProm.peak);
-				base.saddle = new Point(newProm.saddle);
+				base.saddle = new PromFact.Saddle(newProm.saddle, -1);
 				base.thresh = new Point(thresh);
 				emitFact(base);
 			}
@@ -713,7 +716,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				if (isNotablyProminent(pp)) {
 					PromFact pend = new PromFact();
 					pend.p = new Point(pp.peak);
-					pend.saddle = new Point(pp.saddle);
+					pend.saddle = new PromFact.Saddle(pp.saddle, -1);
 					//pend.path = pathToUnknown(f);
 					emitFact(pend);
 				}
@@ -740,7 +743,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				if (this.isNotablyProminent(f.getProm(sub))) {
 					PromFact ps = new PromFact();
 					ps.p = new Point(sub);
-					ps.elevSubsaddles.add(new PromFact.Subsaddle(saddle, peak));
+					ps.elevSubsaddles.add(new PromFact.Saddle(saddle, -1 /* front f */));
 					emitFact(ps);
 				}
 			}
@@ -757,13 +760,12 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 
 					PromFact pps = new PromFact();
 					pps.p = new Point(sub);
-					pps.promSubsaddles.add(new PromFact.Subsaddle(saddle, peak));
+					pps.promSubsaddles.add(new PromFact.Saddle(saddle, -1 /* front f */));
 					emitFact(pps);
 				}
 			}
 		}
 		
-		/*
 		void finalizeMST(Front f, Point saddle, Front other) {
 			List<Point> path = new ArrayList<Point>();
 			path.add(other != null ? other.bt.get(saddle) : null);
@@ -779,7 +781,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 				mst.add(new Edge(cur.ix, next != null ? next.ix : PointIndex.NULL, s.ix));
 			}
 		}
-		*/
 		
 		Path pathToUnknown(Front f) {
 			List<Point> path = new ArrayList<Point>();
@@ -1065,11 +1066,16 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 	}
 	
 	static class Front {
+		// highest peak in the front
 		MeshPoint peak;
+		// list of saddles connecting to adjoining fronts
 		MutablePriorityQueue<MeshPoint> queue; // the set of saddles delineating the cell for which 'peak' is the highest point
+		// a path from 'key points' back to the highest peak
 		Backtrace bt;
+		// a heap-like structure storing the 'next highest' points you'd encounter on a journey from each saddle back towards the peak
 		Backtrace thresholds;
 		
+		// mapping of notably prominent peaks to saddles within the front
 		Map<MeshPoint, MeshPoint> promPoints;
 		Set<Long> pendingPThresh;
 		Map<MeshPoint, MeshPoint> pendingParent; // could probably be a set, since saddles are stored in promPoints?
@@ -1077,12 +1083,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 		
 		Comparator<Point> c;
 
-		void validateThresh() {
-			for (Point p : queue) {
-				thresholds.get(p);
-			}
-		}
-		
 		public Front(MeshPoint peak, boolean up) {
 			this.peak = peak;
 			this.c = Point.cmpElev(up);
@@ -1136,21 +1136,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 		
 		// assumes 'saddle' has already been popped from 'other'
 		public boolean mergeFrom(Front other, MeshPoint saddle) {
-//			StringBuilder debug = new StringBuilder();
-//			debug.append("thispeak: " + this.peak + "\n");
-//			debug.append("saddle: " + saddle + "\n");
-//			debug.append("otherpeak: " + other.peak + "\n");
-//			debug.append("this:\n");
-//			for (Point p : this.queue) {
-//				debug.append(p+"\n");
-//			}
-//			debug.append("other:\n");
-//			for (Point p : other.queue) {
-//				debug.append(p+"\n");
-//			}
-			
-//			validateThresh();
-//			other.validateThresh();
 			if (other.queue.contains(saddle)) {
 				throw new RuntimeException("saddle still in other: " + saddle);
 			}
@@ -1166,11 +1151,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 			bt.mergeFromAsNetwork(other.bt, saddle);
 			thresholds.mergeFromAsTree(other.thresholds, saddle, this.c);
 			
-//			try {
-//				validateThresh();
-//			} catch (RuntimeException e) {
-//				throw new RuntimeException(e.getMessage() + "\n" + debug.toString());
-//			}
 			return firstChanged;
 		}
 
@@ -1254,7 +1234,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<Long>
 					if (thresh == null || thresh.compareTo(cand) < 0) { // not lte
 						PromFact pps = new PromFact();
 						pps.p = new Point(cand.peak);
-						pps.promSubsaddles.add(new PromFact.Subsaddle(pend.saddle, pend.peak));
+						pps.promSubsaddles.add(new PromFact.Saddle(pend.saddle, -1 /* which trace# wtf?? (ss peak is pend.peak) */));
 						s.emitFact(pps);
 						
 						this.pendingParentThresh.put((MeshPoint)pend.peak, (MeshPoint)cand.peak);

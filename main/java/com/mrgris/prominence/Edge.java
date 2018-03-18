@@ -22,6 +22,7 @@ public class Edge {
 	public Edge() {}
 	
 	public Edge(long a, long b, long saddle, int tagA, int tagB) {
+		// this assert is no longer valid?
 		assert (a != b && a != saddle && b != saddle) : String.format("%s %s %s", Util.print(a), Util.print(b), Util.print(saddle));
 		assert (saddle != PointIndex.NULL);
 		

@@ -165,7 +165,7 @@ public class ProminencePipeline {
 	    PCollection<PromFact> promInfo = consolidatePromFacts(promFacts);
 	    
 	    PCollection<PromFact> promRank = promInfo.apply(MapElements.into(new TypeDescriptor<KV<Integer, KV<Point, Point>>>() {})
-	    		.via(pf -> KV.of(0, KV.of(pf.p, pf.saddle)))).apply(GroupByKey.create()).apply(Values.create())
+	    		.via(pf -> KV.of(0, KV.of(pf.p, pf.saddle.s)))).apply(GroupByKey.create()).apply(Values.create())
 	    		.apply(ParDo.of(new DoFn<Iterable<KV<Point, Point>>, PromFact>() {
 	    		      @ProcessElement
 	    		      public void processElement(ProcessContext c) {

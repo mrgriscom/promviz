@@ -16,7 +16,6 @@ import org.apache.beam.runners.direct.repackaged.runners.core.java.repackaged.co
 import org.sqlite.SQLiteConfig;
 
 import com.mrgris.prominence.Prominence.PromFact;
-import com.mrgris.prominence.Prominence.PromFact.Subsaddle;
 import com.mrgris.prominence.util.GeoCode;
 
 // use jts for building wkt's
@@ -39,7 +38,8 @@ public class AvroToDb {
         ps.setLong(1, geo);
         ps.setInt(2, type);
         ps.setInt(3, (int)(p.elev * 1000.));
-        ps.setString(4, String.format("POINT(%f %f)", coords[1], coords[0]));
+        ps.setInt(4, p.isodist == 0 ? 0 : p.isodist > 0 ? p.isodist - Integer.MAX_VALUE : p.isodist - Integer.MIN_VALUE);
+        ps.setString(5, String.format("POINT(%f %f)", coords[1], coords[0]));
         ps.addBatch();
 	}
 	
@@ -49,6 +49,13 @@ public class AvroToDb {
 		
 		try {
 
+			/* TODO known_point table
+			 * geo + latlon
+			 * names
+			 * highpoints of
+			 * ref ids (gnis, peakbagger, etc.)
+			 */
+			
             SQLiteConfig config = new SQLiteConfig();
             config.enableLoadExtension(true);
 	        Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbname, config.toProperties());
@@ -61,7 +68,8 @@ public class AvroToDb {
                 "create table points (" +
             	"  geocode int64 primary key," +
                 "  type int not null," +
-            	"  elev_mm int not null" +
+            	"  elev_mm int not null," +
+                "  isodist_cm int not null" +
             	");"
             );
             stmt.execute("SELECT AddGeometryColumn('points', 'loc', 4326, 'POINT', 'XY');");
@@ -87,6 +95,7 @@ public class AvroToDb {
                     ");"// without rowid;"
                 );
             // TODO: multisaddles can make subsaddles not unique?
+            // could they have different elev/prom flags?
             
             conn.setAutoCommit(false);
             int batchSize = 10000;            
@@ -105,25 +114,26 @@ public class AvroToDb {
 			while (dataFileReader.hasNext()) {
 				pf = dataFileReader.next(pf);
 
-				addPoint(stInsPt, pf.p, Point.compareElev(pf.p, pf.saddle) > 0 ? TYPE_SUMMIT : TYPE_SINK);
-				addPoint(stInsPt, pf.saddle, TYPE_SADDLE);
+				addPoint(stInsPt, pf.p, Point.compareElev(pf.p, pf.saddle.s) > 0 ? TYPE_SUMMIT : TYPE_SINK);
+				addPoint(stInsPt, pf.saddle.s, TYPE_SADDLE);
 				
 				stInsProm.setLong(1, geocode(pf.p));
-				stInsProm.setLong(2, geocode(pf.saddle));
-				stInsProm.setInt(3, (int)(1000. * Math.abs(pf.p.elev - pf.saddle.elev)));
+				stInsProm.setLong(2, geocode(pf.saddle.s));
+				stInsProm.setInt(3, (int)(1000. * Math.abs(pf.p.elev - pf.saddle.s.elev)));
 				stInsProm.setInt(4, pf.promRank);
 				stInsProm.setInt(5, pf.thresh == null ? 1 : 0);
 				stInsProm.setObject(6, pf.parent != null ? geocode(pf.parent) : null);
 				stInsProm.setObject(7, pf.pthresh != null ? geocode(pf.pthresh) : null);
 				stInsProm.addBatch();
 				
+				// TODO: key this set by geocode, not pointix
 				Set<Long> ssElev = new HashSet<>();
 				Set<Long> ssProm = new HashSet<>();
-				for (Subsaddle ss : pf.elevSubsaddles) {
-					ssElev.add(ss.subsaddle.ix);
+				for (PromFact.Saddle ss : pf.elevSubsaddles) {
+					ssElev.add(ss.s.ix);
 				}
-				for (Subsaddle ss : pf.promSubsaddles) {
-					ssProm.add(ss.subsaddle.ix);
+				for (PromFact.Saddle ss : pf.promSubsaddles) {
+					ssProm.add(ss.s.ix);
 				}
 				for (Long ss : Sets.union(ssElev, ssProm)) {
 					stInsSS.setLong(1, geocode(pf.p));
