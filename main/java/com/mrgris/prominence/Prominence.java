@@ -407,10 +407,14 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 						nonBasinSaddles.add(saddleIx);
 					}
 				}
+				Map<Long, Integer> traceNums = new HashMap<>();
+				for (HalfEdge he : protoFront.getValue()) {
+					traceNums.put(he.saddle, he.tag);
+				}
 				
 				for (long saddleIx : nonBasinSaddles) {
 					MeshPoint saddle = mesh.get(saddleIx);
-					f.add(saddle, true);
+					f.add(saddle, traceNums.get(saddleIx), true);
 				}
 				fronts.add(f);
 			}
@@ -525,25 +529,27 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 			TraceResult tr = parent.thresholds.traceUntil(saddle, newProm.peak, parent.c);
 			Point thresh = tr.threshold;
 			List<Point> parentThreshes = tr.belowThresh;
-
+			int traceNumTowards = child.traceNums.get(newProm.saddle);
+			int traceNumAway = parent.traceNums.get(newProm.saddle);
+			
 			if (notablyProminent) {
-				emitFact(PromFact.baseFact(newProm.peak, newProm.saddle, thresh, -1 /* child front */));
+				emitFact(PromFact.baseFact(newProm.peak, newProm.saddle, thresh, traceNumTowards));
 			}
 			
 			PromPair promThresh = null;
 			for (Point sub : childThreshes) {
 				PromPair subpp = child.getThreshold(sub);
 				if (subpp != null) {
-					emitFact(PromFact.subsaddleFact(sub, saddle, -1 /* child front */, PromFact.SS_ELEV));
+					emitFact(PromFact.subsaddleFact(sub, saddle, traceNumTowards, PromFact.SS_ELEV));
 					if (promThresh == null || subpp.compareTo(promThresh) > 0) {
 						promThresh = subpp;
-						emitFact(PromFact.subsaddleFact(sub, saddle, -1 /* child front */, PromFact.SS_PROM));
+						emitFact(PromFact.subsaddleFact(sub, saddle, traceNumTowards, PromFact.SS_PROM));
 					}
 				}
 			}
 			for (Point sub : parentThreshes) {
 				if (parent.getThreshold(sub) != null) {
-					emitFact(PromFact.subsaddleFact(sub, saddle, -1 /* parent front */, PromFact.SS_ELEV));
+					emitFact(PromFact.subsaddleFact(sub, saddle, traceNumAway, PromFact.SS_ELEV));
 				}
 			}
 			///////
@@ -661,7 +667,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 				PeakWithoutParent pwp = new PeakWithoutParent();
 				pwp.prom = pp;
 				pwp.minVisibility = null;
-				pwp.traceNumAway = -1; /* trace *away* from pend.peak */
+				pwp.traceNumAway = f.traceNums.get(pp.saddle);
 				other.parentPending.add(pwp);
 			}
 
@@ -751,7 +757,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 
 				PromPair pp = new PromPair(f.peak, f.first());
 				if (isNotablyProminent(pp)) {
-					emitFact(PromFact.baseFact(pp.peak, pp.saddle, null, -1 /* front f */));
+					emitFact(PromFact.baseFact(pp.peak, pp.saddle, null, f.traceNums.get(pp.saddle)));
 				}
 				
 				Point saddle = f.first();
@@ -773,7 +779,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 		void finalizeSubsaddles(Front f, Front other, Point saddle, Point peak) {
 			for (Point sub : f.thresholds.traceUntil(saddle, peak, f.c).belowThresh) {
 				if (this.isNotablyProminent(f.getThreshold(sub))) {
-					emitFact(PromFact.subsaddleFact(sub, saddle, -1 /* front f */, PromFact.SS_ELEV));
+					emitFact(PromFact.subsaddleFact(sub, saddle, f.traceNums.get(saddle), PromFact.SS_ELEV));
 				}
 			}
 		}
@@ -785,7 +791,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 				if (this.isNotablyProminent(subpp) &&
 						(promThresh == null || subpp.compareTo(promThresh) > 0)) {
 					promThresh = subpp;
-					emitFact(PromFact.subsaddleFact(sub, saddle, -1 /* front f */, PromFact.SS_PROM));
+					emitFact(PromFact.subsaddleFact(sub, saddle, f.traceNums.get(saddle), PromFact.SS_PROM));
 				}
 			}
 		}
@@ -1182,6 +1188,9 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 		MutablePriorityQueue<MeshPoint> queue; // the set of saddles delineating the cell for which 'peak' is the highest point
 		// a path from 'key points' back to the highest peak
 		//Backtrace bt;
+		
+		Map<Point, Integer> traceNums;
+		
 		// a heap-like structure storing the 'next highest' points you'd encounter on a journey from each saddle back towards the peak
 		Thresholds thresholds;
 		
@@ -1207,6 +1216,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 			queue = new MutablePriorityQueue<MeshPoint>(new ReverseComparator<Point>(c));
 			//bt = new Backtrace();
 			//bt.add(peak, null);
+			traceNums = new HashMap<>();
 			thresholds = new Thresholds();
 			thresholds.add(peak, null);
 			
@@ -1232,8 +1242,9 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 			return getProm(thresholds.getProm(p));
 		}
 		
-		public void add(MeshPoint p, boolean initial) {
+		public void add(MeshPoint p, int traceNum, boolean initial) {
 			queue.add(p);
+			traceNums.put(p, traceNum);
 			if (initial) {
 				//bt.add(p, peak);
 				thresholds.add(p, peak);
@@ -1243,11 +1254,15 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 		// remove element, return whether item existed
 		// does not affect backtrace, etc.
 		public boolean remove(MeshPoint p) {
-			return queue.remove(p);
+			boolean inQueue = queue.remove(p);
+			traceNums.remove(p);
+			return inQueue;
 		}
 		
 		public MeshPoint pop() {
-			return queue.poll();
+			MeshPoint p = queue.poll();
+			traceNums.remove(p);
+			return p;
 		}
 		
 		public MeshPoint first() {
@@ -1264,7 +1279,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 			remove(saddle);
 			
 			for (MeshPoint s : other.queue) {
-				add(s, false);
+				add(s, other.traceNums.get(s), false);
 			}
 
 			//bt.mergeFromAsNetwork(other.bt, saddle);
@@ -1311,7 +1326,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 		
 		// we're in child front
 		// cand is ascending thresholds up the parent
-		
 		public void flushPendingParents(PromPair cand, boolean nosubsaddle, Searcher s) {
 			parentPending.removeIf(new Predicate<PeakWithoutParent>() {
 				@Override
@@ -1344,6 +1358,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 			long peakIx;
 			List<Long> queue;
 			HashMap<Long, Long> prompairs;
+			HashMap<Long, Integer> traceNums;
 			HashMap<Long, Long> thresholds;
 			//HashMap<Long, Long> backtrace;
 			List<PeakWithoutParent> parentPending;
@@ -1396,6 +1411,11 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 				prompairs = encodePointMap(_prompairs);
 				//backtrace = encodePointMap(f.bt.backtrace);
 				
+				traceNums = new HashMap<Long, Integer>();
+				for (Entry<Point, Integer> e : f.traceNums.entrySet()) {
+					traceNums.put(e.getKey().ix, e.getValue());
+				}
+				
 				pendingPThresh = new ArrayList<>(f.pendingPThresh);
 				parentPending = new ArrayList<>();
 				for (Front.PeakWithoutParent _pwp : f.parentPending) {
@@ -1427,7 +1447,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 
 				for (long ix : queue) {
 					MeshPoint p = mesh.get(ix);
-					f.add(p, false);
+					f.add(p, traceNums.get(ix), false);
 				}
 
 				decodePointMap(thresholds, mesh, f.thresholds.backtrace);
