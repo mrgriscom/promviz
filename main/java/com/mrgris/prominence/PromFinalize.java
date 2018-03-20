@@ -1,6 +1,7 @@
 package com.mrgris.prominence;
 
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.values.TupleTag;
 
 import com.mrgris.prominence.Prominence.Front;
 import com.mrgris.prominence.Prominence.Front.AvroFront;
@@ -11,10 +12,12 @@ public class PromFinalize extends DoFn<Iterable<AvroFront>, PromFact> {
 	
 	boolean up;
 	double cutoff;
-	
-	public PromFinalize(boolean up, double cutoff) {
+	TupleTag<Edge> mstTag;
+
+	public PromFinalize(boolean up, double cutoff, TupleTag<Edge> mstTag) {
 		this.up = up;
 		this.cutoff = cutoff;
+		this.mstTag = mstTag;
 	}
 	
     @ProcessElement
@@ -28,6 +31,10 @@ public class PromFinalize extends DoFn<Iterable<AvroFront>, PromFact> {
     		
     		public void emitPendingFront(Front f) {
     			throw new RuntimeException();
+    		}
+    		
+    		public void emitBacktraceEdge(Edge e) {
+    			c.output(mstTag, e);
     		}
     	}.finalizePending();
     }    	

@@ -129,10 +129,11 @@ public class ProminencePipeline {
 	    				front -> KV.of(new Prefix(front.getKey(), TopologyNetworkPipeline.CHUNK_SIZE_EXP), front)))
 	    		.apply(GroupByKey.create());
 	    final TupleTag<PromFact> promFactsTag = new TupleTag<PromFact>(){};
-	    final TupleTag<AvroFront> pendingFrontsTag = new TupleTag<AvroFront>(){};    
-	    PCollectionTuple searchOutput = initialChunks.apply(ParDo.of(new Prominence(up, 20., pageCoverage, pendingFrontsTag))
+	    final TupleTag<AvroFront> pendingFrontsTag = new TupleTag<AvroFront>(){};   
+	    final TupleTag<Edge> mstTag = new TupleTag<Edge>(){};
+	    PCollectionTuple searchOutput = initialChunks.apply(ParDo.of(new Prominence(up, 20., pageCoverage, pendingFrontsTag, mstTag))
 	    		.withSideInputs(pageCoverage)
-	    		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag)));
+	    		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag).and(mstTag)));
 
 	    PCollectionList<PromFact> promFacts = PCollectionList.of(searchOutput.get(promFactsTag)); 
 	    		
@@ -146,8 +147,8 @@ public class ProminencePipeline {
 	      		MapElements.into(new TypeDescriptor<KV<Prefix, AvroFront>>() {}).via(
 	      				front -> KV.of(new Prefix(front.peakIx, cs), front)))
 	      		.apply(GroupByKey.create());
-	      searchOutput = coalescedChunks.apply(ParDo.of(new Prominence2(up, 20., pendingFrontsTag))
-	      		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag)));
+	      searchOutput = coalescedChunks.apply(ParDo.of(new Prominence2(up, 20., pendingFrontsTag, mstTag))
+	      		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag).and(mstTag)));
 
 	      promFacts = promFacts.and(searchOutput.get(promFactsTag));
 	    }
@@ -156,7 +157,10 @@ public class ProminencePipeline {
 	        
 	    PCollection<Iterable<AvroFront>> finalChunk = searchOutput.get(pendingFrontsTag).apply(MapElements.into(new TypeDescriptor<KV<Integer, AvroFront>>() {})
 	    		.via(front -> KV.of(0, front))).apply(GroupByKey.create()).apply(Values.create());
-	    promFacts = promFacts.and(finalChunk.apply(ParDo.of(new PromFinalize(up, 20.))));
+	    
+	    searchOutput = finalChunk.apply(ParDo.of(new PromFinalize(up, 20., mstTag))
+	    		.withOutputTags(promFactsTag, TupleTagList.of(mstTag)));
+	    promFacts = promFacts.and(searchOutput.get(promFactsTag));
 
 	    PCollection<PromFact> promInfo = consolidatePromFacts(promFacts);
 	    

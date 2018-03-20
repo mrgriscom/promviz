@@ -14,11 +14,13 @@ public class Prominence2 extends DoFn<KV<Prefix, Iterable<AvroFront>>, PromFact>
 	boolean up;
 	double cutoff;
 	TupleTag<AvroFront> pendingFrontsTag;
+	TupleTag<Edge> mstTag;
 	
-	public Prominence2(boolean up, double cutoff, TupleTag<AvroFront> pendingFrontsTag) {
+	public Prominence2(boolean up, double cutoff, TupleTag<AvroFront> pendingFrontsTag, TupleTag<Edge> mstTag) {
 		this.up = up;
 		this.cutoff = cutoff;
 		this.pendingFrontsTag = pendingFrontsTag;
+		this.mstTag = mstTag;
 	}
 	
     @ProcessElement
@@ -33,6 +35,10 @@ public class Prominence2 extends DoFn<KV<Prefix, Iterable<AvroFront>>, PromFact>
     		
     		public void emitPendingFront(Front f) {
     			c.output(pendingFrontsTag, new AvroFront(f));
+    		}
+    		
+    		public void emitBacktraceEdge(Edge e) {
+    			c.output(mstTag, e);
     		}
     	}.search();
     }    	
