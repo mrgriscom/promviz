@@ -693,24 +693,20 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 		}
 		
 		void emitMST(Front f) {
-			// memory concerns?
-			Set<Point> peaks = new HashSet<>();
-			for (Point saddle : f.queue) {
-				boolean isPeak = false;
-				for (Point p : f.bt.trace(saddle)) {
-					if (peaks.contains(p) || p.equals(f.bt.root)) {
-						break;
-					} else if (isPeak) {
-						peaks.add(p);
-					}
-					isPeak = !isPeak;
+			// TODO might change to emit only changed paths during coalesce steps rather than everything (but i think it'll be ok)
+
+			// would be nice if we didn't need to compare elev and could just use the topology of backtrace to determine peaks/saddles
+			for (Entry<Point, Point> e : f.bt.backtrace.entrySet()) {
+				Point cur = e.getKey();
+				Point next = e.getValue();
+				boolean isSaddle = (Point.cmpElev(up).compare(cur, next) < 0);
+				if (isSaddle) {
+					continue;
 				}
-			}
-			for (Point peak : peaks) {
-				Point saddle = f.bt.get(peak);
-				Point nextPeak = f.bt.get(saddle); 
-				emitBacktraceEdge(new Edge(peak.ix, nextPeak.ix, saddle.ix));
-			}
+				
+				Point nextNext = f.bt.get(next);
+				emitBacktraceEdge(new Edge(cur.ix, nextNext.ix, next.ix));
+			}			
 		}
 
 		void finalizeSubsaddles(Front f, Front other, Point saddle, Point peak) {
@@ -1324,6 +1320,9 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 				_mesh.addAll(_prompairs.keySet());
 				_mesh.addAll(_prompairs.values());
 				f.thresholds.allPoints().forEach(_mesh::add);
+				// backtrace points need elev to determine peaks/saddles
+				_mesh.addAll(f.bt.backtrace.keySet());
+				_mesh.addAll(f.bt.backtrace.values());
 				points = new ArrayList<Point>();
 				for (Point p : _mesh) {
 					points.add(new Point(p));
@@ -1386,7 +1385,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 						f.thresholds.extraInfo.put(p, prompoints.get(p));
 					}
 				}
-				decodeRawPointMap(backtrace, f.bt.backtrace);
+				decodePointMap(backtrace, mesh, f.bt.backtrace);
 				
 				f.pendingPThresh.addAll(pendingPThresh);
 				for (PeakWithoutParent _pwp : parentPending) {
@@ -1411,13 +1410,6 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 					pointMap.put(k, v);
 				}
 			}
-
-			static void decodeRawPointMap(Map<Long, Long> ixMap, Map<? super MeshPoint, ? super MeshPoint> pointMap) {
-				for (Entry<Long, Long> e : ixMap.entrySet()) {
-					pointMap.put(new MeshPoint(e.getKey(), 0), new MeshPoint(e.getValue(), 0));
-				}
-			}
-
 		}
 	}
 	
