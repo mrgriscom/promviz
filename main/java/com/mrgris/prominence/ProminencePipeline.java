@@ -109,6 +109,21 @@ public class ProminencePipeline {
 	    	  	  })).apply(Values.create());
   }
   
+  static Prefix chunkingPrefix(long ix, int chunkLevel) {
+	  int offset = 0;  // in base half-chunks
+	  int level = TopologyNetworkPipeline.CHUNK_SIZE_EXP;
+	  while (level < chunkLevel) {
+		  offset = (1 << Prominence.COALESCE_STEP) * offset + 1;
+		  level += Prominence.COALESCE_STEP;
+	  }
+	  offset *= (1 << (TopologyNetworkPipeline.CHUNK_SIZE_EXP - 1));
+	  int[] pcs = PointIndex.split(ix);
+	  // eventually have to think about overflow here -- offset approaches 1/6 of chunk size
+	  pcs[1] -= offset;
+	  pcs[2] -= offset;	  
+	  return new Prefix(PointIndex.make(pcs[0], pcs[1], pcs[2]), chunkLevel);
+  }
+  
   public static PCollection<PromFact> dirPipeline(Pipeline p, boolean up, String networkPath, PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage) {
 	    // TODO verify edges since read from outside source
 	  PCollection<Edge> network = p.apply(AvroIO.read(Edge.class).from(networkPath));
@@ -124,10 +139,10 @@ public class ProminencePipeline {
 		      }
 	    })).apply(GroupByKey.create());
 	    // TODO insert stage that generates the fronts before invoking searcher? or too much overhead?
-	    PCollection<KV<Prefix, Iterable<KV<Long, Iterable<HalfEdge>>>>> initialChunks = minimalFronts.apply(
+	    PCollection<Iterable<KV<Long, Iterable<HalfEdge>>>> initialChunks = minimalFronts.apply(
 	    		MapElements.into(new TypeDescriptor<KV<Prefix, KV<Long, Iterable<HalfEdge>>>>() {}).via(
-	    				front -> KV.of(new Prefix(front.getKey(), TopologyNetworkPipeline.CHUNK_SIZE_EXP), front)))
-	    		.apply(GroupByKey.create());
+	    				front -> KV.of(chunkingPrefix(front.getKey(), TopologyNetworkPipeline.CHUNK_SIZE_EXP), front)))
+	    		.apply(GroupByKey.create()).apply(Values.create());
 	    final TupleTag<PromFact> promFactsTag = new TupleTag<PromFact>(){};
 	    final TupleTag<AvroFront> pendingFrontsTag = new TupleTag<AvroFront>(){};   
 	    final TupleTag<Edge> mstTag = new TupleTag<Edge>(){};
@@ -136,21 +151,24 @@ public class ProminencePipeline {
 	    		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag).and(mstTag)));
 
 	    PCollectionList<PromFact> promFacts = PCollectionList.of(searchOutput.get(promFactsTag)); 
-	    		
+	    searchOutput.get(mstTag).apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/msttest-base").withoutSharding());
+		
+	    
 	    // TODO add offset during coalescing to avoid overlapping boundaries across multiple steps
 	    int chunkSize = TopologyNetworkPipeline.CHUNK_SIZE_EXP;
 	    while (chunkSize < 20) { // NOT GLOBAL!!!   TODO check this later
 	      chunkSize += Prominence.COALESCE_STEP;
 
 	      final int cs = chunkSize;
-	      PCollection<KV<Prefix, Iterable<AvroFront>>> coalescedChunks = searchOutput.get(pendingFrontsTag).apply(
+	      PCollection<Iterable<AvroFront>> coalescedChunks = searchOutput.get(pendingFrontsTag).apply(
 	      		MapElements.into(new TypeDescriptor<KV<Prefix, AvroFront>>() {}).via(
-	      				front -> KV.of(new Prefix(front.peakIx, cs), front)))
-	      		.apply(GroupByKey.create());
+	      				front -> KV.of(chunkingPrefix(front.peakIx, cs), front)))
+	      		.apply(GroupByKey.create()).apply(Values.create());
 	      searchOutput = coalescedChunks.apply(ParDo.of(new Prominence2(up, 20., pendingFrontsTag, mstTag))
 	      		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag).and(mstTag)));
 
 	      promFacts = promFacts.and(searchOutput.get(promFactsTag));
+ 	      searchOutput.get(mstTag).apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/msttest-coalesce-" + chunkSize).withoutSharding());
 	    }
 	    // coalesce steps -- must pre-populated all the way to global, even if many are no-ops
 	    // what if chunk size is such that there is only one processing level (extreme edge case but try to handle it)
@@ -161,6 +179,7 @@ public class ProminencePipeline {
 	    searchOutput = finalChunk.apply(ParDo.of(new PromFinalize(up, 20., mstTag))
 	    		.withOutputTags(promFactsTag, TupleTagList.of(mstTag)));
 	    promFacts = promFacts.and(searchOutput.get(promFactsTag));
+	    searchOutput.get(mstTag).apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/msttest-final").withoutSharding());
 
 	    PCollection<PromFact> promInfo = consolidatePromFacts(promFacts);
 	    

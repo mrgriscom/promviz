@@ -9,7 +9,7 @@ import com.mrgris.prominence.Prominence.Front.AvroFront;
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.Prominence.Searcher;
 
-public class Prominence2 extends DoFn<KV<Prefix, Iterable<AvroFront>>, PromFact> {
+public class Prominence2 extends DoFn<Iterable<AvroFront>, PromFact> {
 	
 	boolean up;
 	double cutoff;
@@ -25,8 +25,7 @@ public class Prominence2 extends DoFn<KV<Prefix, Iterable<AvroFront>>, PromFact>
 	
     @ProcessElement
     public void processElement(ProcessContext c) {
-    	Prefix prefix = c.element().getKey();
-    	Iterable<AvroFront> fronts = c.element().getValue();
+    	Iterable<AvroFront> fronts = c.element();
     	
     	new Searcher(up, cutoff, fronts) {
     		public void emitFact(PromFact pf) {

@@ -37,7 +37,7 @@ import com.mrgris.prominence.util.MutablePriorityQueue;
 import com.mrgris.prominence.util.ReverseComparator;
 import com.mrgris.prominence.util.SaneIterable;
 
-public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfEdge>>>>, PromFact> {
+public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, PromFact> {
 	
     private static final Logger LOG = LoggerFactory.getLogger(Prominence.class);
 	
@@ -137,8 +137,7 @@ public class Prominence extends DoFn<KV<Prefix, Iterable<KV<Long, Iterable<HalfE
 	
     @ProcessElement
     public void processElement(ProcessContext c) {
-    	Prefix prefix = c.element().getKey();
-    	Iterable<KV<Long, Iterable<HalfEdge>>> protoFronts = c.element().getValue();
+    	Iterable<KV<Long, Iterable<HalfEdge>>> protoFronts = c.element();
     	Map<Prefix, Iterable<DEMFile>> coverage = c.sideInput(coverageSideInput);
     	
     	new Searcher(up, cutoff, protoFronts, coverage) {
