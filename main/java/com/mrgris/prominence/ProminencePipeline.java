@@ -17,6 +17,7 @@
  */
 package com.mrgris.prominence;
 
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.ListIterator;
@@ -46,6 +47,7 @@ import org.apache.beam.sdk.values.TypeDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Ordering;
 import com.mrgris.prominence.Edge.HalfEdge;
 import com.mrgris.prominence.Prominence.Front.AvroFront;
 import com.mrgris.prominence.Prominence.PromFact;
@@ -72,6 +74,9 @@ import com.mrgris.prominence.util.ReverseComparator;
 public class ProminencePipeline {
   private static final Logger LOG = LoggerFactory.getLogger(ProminencePipeline.class);
       
+  static final TupleTag<PromFact> promFactsTag = new TupleTag<PromFact>(){};
+  static final TupleTag<Edge> mstTag = new TupleTag<Edge>(){};
+  
   static PCollection<PromFact> consolidatePromFacts(PCollectionList<PromFact> promFacts) {
 	  return promFacts.apply(Flatten.pCollections()).apply(MapElements.into(new TypeDescriptor<KV<Long, PromFact>>() {}).via(pf -> KV.of(pf.p.ix, pf)))
 	    	    .apply(Combine.perKey(new SerializableFunction<Iterable<PromFact>, PromFact>() {
@@ -124,7 +129,7 @@ public class ProminencePipeline {
 	  return new Prefix(PointIndex.make(pcs[0], pcs[1], pcs[2]), chunkLevel);
   }
   
-  public static PCollection<PromFact> dirPipeline(Pipeline p, boolean up, String networkPath, PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage) {
+  public static PCollectionTuple dirPipeline(Pipeline p, boolean up, String networkPath, PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage) {
 	    // TODO verify edges since read from outside source
 	  PCollection<Edge> network = p.apply(AvroIO.read(Edge.class).from(networkPath));
 	  PCollection<KV<Long, Iterable<HalfEdge>>> minimalFronts = network.apply(ParDo.of(new DoFn<Edge, KV<Long, HalfEdge>>() {
@@ -143,16 +148,15 @@ public class ProminencePipeline {
 	    		MapElements.into(new TypeDescriptor<KV<Prefix, KV<Long, Iterable<HalfEdge>>>>() {}).via(
 	    				front -> KV.of(chunkingPrefix(front.getKey(), TopologyNetworkPipeline.CHUNK_SIZE_EXP), front)))
 	    		.apply(GroupByKey.create()).apply(Values.create());
-	    final TupleTag<PromFact> promFactsTag = new TupleTag<PromFact>(){};
 	    final TupleTag<AvroFront> pendingFrontsTag = new TupleTag<AvroFront>(){};   
-	    final TupleTag<Edge> mstTag = new TupleTag<Edge>(){};
 	    PCollectionTuple searchOutput = initialChunks.apply(ParDo.of(new Prominence(up, 20., pageCoverage, pendingFrontsTag, mstTag))
 	    		.withSideInputs(pageCoverage)
 	    		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag).and(mstTag)));
 
 	    PCollectionList<PromFact> promFacts = PCollectionList.of(searchOutput.get(promFactsTag)); 
-	    searchOutput.get(mstTag).apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/msttest-base").withoutSharding());
-		
+	    PCollectionList<KV<Long, KV<Integer, Edge>>> mstEdges = PCollectionList.of(searchOutput.get(mstTag).apply(
+	    				MapElements.into(new TypeDescriptor<KV<Long, KV<Integer, Edge>>>() {})
+	    	    		.via(e -> KV.of(e.saddle, KV.of(TopologyNetworkPipeline.CHUNK_SIZE_EXP, e)))));
 	    
 	    // TODO add offset during coalescing to avoid overlapping boundaries across multiple steps
 	    int chunkSize = TopologyNetworkPipeline.CHUNK_SIZE_EXP;
@@ -168,7 +172,9 @@ public class ProminencePipeline {
 	      		.withOutputTags(promFactsTag, TupleTagList.of(pendingFrontsTag).and(mstTag)));
 
 	      promFacts = promFacts.and(searchOutput.get(promFactsTag));
- 	      searchOutput.get(mstTag).apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/msttest-coalesce-" + chunkSize).withoutSharding());
+	      mstEdges = mstEdges.and(searchOutput.get(mstTag).apply(
+    				MapElements.into(new TypeDescriptor<KV<Long, KV<Integer, Edge>>>() {})
+    	    		.via(e -> KV.of(e.saddle, KV.of(cs, e)))));
 	    }
 	    // coalesce steps -- must pre-populated all the way to global, even if many are no-ops
 	    // what if chunk size is such that there is only one processing level (extreme edge case but try to handle it)
@@ -179,7 +185,23 @@ public class ProminencePipeline {
 	    searchOutput = finalChunk.apply(ParDo.of(new PromFinalize(up, 20., mstTag))
 	    		.withOutputTags(promFactsTag, TupleTagList.of(mstTag)));
 	    promFacts = promFacts.and(searchOutput.get(promFactsTag));
-	    searchOutput.get(mstTag).apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/msttest-final").withoutSharding());
+        mstEdges = mstEdges.and(searchOutput.get(mstTag).apply(
+  				MapElements.into(new TypeDescriptor<KV<Long, KV<Integer, Edge>>>() {})
+  	    		.via(e -> KV.of(e.saddle, KV.of(9999, e)))));
+
+        PCollection<Edge> mst = mstEdges.apply(Flatten.pCollections()).apply(Combine.perKey(
+        				new SerializableFunction<Iterable<KV<Integer, Edge>>, KV<Integer, Edge>>() {
+		  	  @Override
+		  	  // simple combine functions must be associative, so cannot drop the int key yet
+		  	  public KV<Integer, Edge> apply(Iterable<KV<Integer, Edge>> input) {
+		  		  return new Ordering<KV<Integer, Edge>>() {
+					@Override
+					public int compare(KV<Integer, Edge> a, KV<Integer, Edge> b) {
+						return Integer.compare(a.getKey(), b.getKey());
+					}
+		  		  }.max(input);
+		  	  }
+        })).apply(Values.create()).apply(Values.create());
 
 	    PCollection<PromFact> promInfo = consolidatePromFacts(promFacts);
 	    
@@ -210,7 +232,9 @@ public class ProminencePipeline {
 	    			
 	    		}));
 	    
-	    return consolidatePromFacts(PCollectionList.of(promInfo).and(promRank));
+	    promInfo = consolidatePromFacts(PCollectionList.of(promInfo).and(promRank));
+	    
+	    return PCollectionTuple.of(promFactsTag, promInfo).and(mstTag, mst);
   }
   
   public static void main(String[] args) {
@@ -223,11 +247,14 @@ public class ProminencePipeline {
     PCollection<KV<Prefix, DEMFile>> pageFileMapping = TopologyNetworkPipeline.makePageFileMapping(p);
     final PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage = pageFileMapping.apply(View.asMultimap());
 
-    PCollection<PromFact> promInfoUp = dirPipeline(p, true, "gs://mrgris-dataflow-test/network-up-*", pageCoverage);
-    PCollection<PromFact> promInfoDown = dirPipeline(p, false, "gs://mrgris-dataflow-test/network-down-*", pageCoverage);
+    PCollectionTuple promSearchUp = dirPipeline(p, true, "gs://mrgris-dataflow-test/network-up-*", pageCoverage);
+    PCollectionTuple promSearchDown = dirPipeline(p, false, "gs://mrgris-dataflow-test/network-down-*", pageCoverage);
     
-    PCollectionList.of(promInfoUp).and(promInfoDown).apply(Flatten.pCollections()).apply("dumpfacts",
-    	    AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstest").withoutSharding());
+    PCollectionList.of(promSearchUp.get(promFactsTag)).and(promSearchDown.get(promFactsTag)).apply(Flatten.pCollections())
+    	.apply("dumpfacts", AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstest").withoutSharding());
+    
+    promSearchUp.get(mstTag).apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/mst-up").withoutSharding());
+    promSearchDown.get(mstTag).apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/mst-down").withoutSharding());
     
     p.run();
     
