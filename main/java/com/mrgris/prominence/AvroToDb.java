@@ -6,7 +6,9 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import org.apache.avro.file.DataFileReader;
@@ -17,14 +19,18 @@ import org.sqlite.SQLiteConfig;
 
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.util.GeoCode;
-
-// use jts for building wkt's
+import com.vividsolutions.jts.geom.Coordinate;
+import com.vividsolutions.jts.geom.GeometryFactory;
+import com.vividsolutions.jts.geom.LineString;
+import com.vividsolutions.jts.geom.impl.CoordinateArraySequence;
 
 public class AvroToDb {
 	
 	static final int TYPE_SUMMIT = 1;
 	static final int TYPE_SADDLE = 0;
 	static final int TYPE_SINK = -1;
+
+	static GeometryFactory gf = new GeometryFactory();
 
 	static long geocode(Point p) {
 		return PointIndex.iGeocode(p.ix);
@@ -34,13 +40,26 @@ public class AvroToDb {
 		long ix = p.ix;
 		double coords[] = PointIndex.toLatLon(ix);
 		long geo = GeoCode.fromCoord(coords[0], coords[1]);
+		com.vividsolutions.jts.geom.Point pt = gf.createPoint(new Coordinate(coords[1], coords[0]));
 		
         ps.setLong(1, geo);
         ps.setInt(2, type);
         ps.setInt(3, (int)(p.elev * 1000.));
         ps.setInt(4, p.isodist == 0 ? 0 : p.isodist > 0 ? p.isodist - Integer.MAX_VALUE : p.isodist - Integer.MIN_VALUE);
-        ps.setString(5, String.format("POINT(%f %f)", coords[1], coords[0]));
+        ps.setString(5, pt.toText());
         ps.addBatch();
+	}
+	
+	static LineString makePath(List<Long> ixs) {
+		List<Coordinate> coords = new ArrayList<>();
+		for (long ix : ixs) {
+			if (ix == PointIndex.NULL) {
+				continue;
+			}
+			double ll[] = PointIndex.toLatLon(ix);
+			coords.add(new Coordinate(ll[1], ll[0]));
+		}
+		return gf.createLineString(new CoordinateArraySequence(coords.toArray(new Coordinate[coords.size()])));
 	}
 	
 	public static void main(String[] args) {
@@ -84,7 +103,8 @@ public class AvroToDb {
                 "  line_parent int64 references points" +
                 ");"
             );
-            // threshold path            
+            stmt.execute("SELECT AddGeometryColumn('prom', 'thresh_path', 4326, 'LINESTRING', 'XY');");
+            stmt.execute("SELECT AddGeometryColumn('prom', 'parent_path', 4326, 'LINESTRING', 'XY');");
             stmt.execute(
                     "create table subsaddles (" +
                     "  point int64 references prom," +
@@ -101,7 +121,7 @@ public class AvroToDb {
             int batchSize = 10000;            
             String insPt = "replace into points values (?,?,?,?,GeomFromText(?, 4326))";
             PreparedStatement stInsPt = conn.prepareStatement(insPt);
-            String insProm = "insert into prom values (?,?,?,?,?,?,?)";
+            String insProm = "insert into prom values (?,?,?,?,?,?,?,GeomFromText(?, 4326),GeomFromText(?, 4326))";
             PreparedStatement stInsProm = conn.prepareStatement(insProm);
             String insSS = "insert into subsaddles values (?,?,?,?)";
             PreparedStatement stInsSS = conn.prepareStatement(insSS);
@@ -124,6 +144,8 @@ public class AvroToDb {
 				stInsProm.setInt(5, pf.thresh == null ? 1 : 0);
 				stInsProm.setObject(6, pf.parent != null ? geocode(pf.parent) : null);
 				stInsProm.setObject(7, pf.pthresh != null ? geocode(pf.pthresh) : null);
+				stInsProm.setString(8, pf.threshPath != null ? makePath(pf.threshPath).toText() : null);
+				stInsProm.setString(9, pf.parentPath != null ? makePath(pf.parentPath).toText() : null);
 				stInsProm.addBatch();
 				
 				// TODO: key this set by geocode, not pointix

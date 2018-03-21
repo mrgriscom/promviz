@@ -89,6 +89,11 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 		List<Saddle> elevSubsaddles;
 		List<Saddle> promSubsaddles;
 		
+		@Nullable
+		List<Long> threshPath;
+		@Nullable
+		List<Long> parentPath;
+		
 		public PromFact() {
 			elevSubsaddles = new ArrayList<>();
 			promSubsaddles = new ArrayList<>();
@@ -744,73 +749,10 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 			}
 		}
 
-		/*
-		Path pathToUnknown(Front f) {
-			List<Point> path = new ArrayList<Point>();
-			Point start = f.peak;
-			while (f != null) {
-				List<Point> segment = Lists.newArrayList(f.bt.getAtoB(start, f.first()));
-				if (!path.isEmpty()) {
-					segment = segment.subList(1, segment.size());
-				}
-				path.addAll(segment);
-				
-				start = f.first();
-				f = primaryFront(f);
-			}
-			return new Path(Lists.reverse(path), null);
-		}
-		*/
-				
 		public abstract void emitFact(PromFact pf);
 		public abstract void emitPendingFront(Front f);
 		public abstract void emitBacktraceEdge(Edge e);
 	}
-	
-	/*
-	public static class Path {
-		public List<Long> path;
-		double thresholdFactor = -1;
-		public double[] threshCoords = null;
-		
-		public Path(Iterable<Point> path, Point ref) {
-			this.path = new ArrayList<Long>();
-			Point[] endSeg = new Point[2];
-			int i = 0;
-			for (Point p : path) {
-				this.path.add(p.ix);
-				
-				if (i < 2) {
-					endSeg[i] = p;
-				}
-				i++;
-			}
-
-			if (ref != null && this.path.size() >= 2) {
-				Point last = endSeg[0];
-				Point nextToLast = endSeg[1];
-				thresholdFactor = (ref.elev - nextToLast.elev) / (last.elev - nextToLast.elev);
-			}
-		}
-			
-		public List<double[]> _finalize() {
-			List<double[]> cpath = new ArrayList<double[]>();
-			for (long ix : path) {
-				cpath.add(PointIndex.toLatLon(ix));
-			}
-			if (thresholdFactor >= 0) {
-				// this is a stop-gap; actually threshold should be determined by following chase from saddle
-				double[] last = cpath.get(0);
-				double[] nextToLast = cpath.get(1);
-				for (int i = 0; i < 2; i++) {
-					last[i] = last[i] * thresholdFactor + nextToLast[i] * (1. - thresholdFactor);
-				}
-			}
-			threshCoords = cpath.get(0);
-			return cpath;
-		}
-	}
-	*/
 	
 	static class Backtrace<K> {
 		// for MST could we store just <Long, Long>?
@@ -1024,58 +966,7 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 			}
 			return intersection;
 		}
-		
-		public Iterable<Point> getAtoB(Point pA, Point pB) {
-			if (pB == null) {
-				return trace(pA);
-			}
-			
-			List<Point> fromA = new ArrayList<Point>();
-			List<Point> fromB = new ArrayList<Point>();
-			Set<Point> inFromA = new HashSet<Point>();
-			Set<Point> inFromB = new HashSet<Point>();
-
-			Point intersection;
-			Point curA = pA;
-			Point curB = pB;
-			while (true) {
-				if (curA != null && curB != null && curA.equals(curB)) {
-					intersection = curA;
-					break;
-				}
-				
-				if (curA != null) {
-					fromA.add(curA);
-					inFromA.add(curA);
-					curA = this.get(curA);
-				}
-				if (curB != null) {
-					fromB.add(curB);
-					inFromB.add(curB);
-					curB = this.get(curB);
-				}
-					
-				if (inFromA.contains(curB)) {
-					intersection = curB;
-					break;
-				} else if (inFromB.contains(curA)) {
-					intersection = curA;
-					break;
-				}
-			}
-
-			List<Point> path = new ArrayList<Point>();
-			int i = fromA.indexOf(intersection);
-			path.addAll(i != -1 ? fromA.subList(0, i) : fromA);
-			path.add(intersection);
-			List<Point> path2 = new ArrayList<Point>();
-			i = fromB.indexOf(intersection);
-			path2 = (i != -1 ? fromB.subList(0, i) : fromB);
-			Collections.reverse(path2);
-			path.addAll(path2);
-			return path;
-		}
-		*/
+*/		
 	}
 	
 	static class Thresholds extends Backtrace<Point> {

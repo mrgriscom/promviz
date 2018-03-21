@@ -108,6 +108,12 @@ public class ProminencePipeline {
 	    		  	    	}
 	    		  	    	combined.elevSubsaddles.addAll(pf.elevSubsaddles);
 	    		  	    	combined.promSubsaddles.addAll(pf.promSubsaddles);
+	    		  	    	if (pf.threshPath != null) {
+	    		  	    		combined.threshPath = pf.threshPath;
+	    		  	    	}
+	    		  	    	if (pf.parentPath != null) {
+	    		  	    		combined.parentPath = pf.parentPath;
+	    		  	    	}
 	    		  	    }
 	    		  	    return combined;
 	    		  	  }
