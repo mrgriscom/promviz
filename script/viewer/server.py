@@ -14,6 +14,7 @@ import math
 import sqlite3
 import geojson
 import shapely.wkt
+import shapely.geometry
 import itertools
 
 import os.path
@@ -22,7 +23,7 @@ import settings
 import util
 
 def fetch_prom(where_clause, args):
-    results = conn.execute('select point, saddle, prom_mm, min_bound, prom_parent, line_parent, prom_rank from prom where %s' % where_clause, args)
+    results = conn.execute('select point, saddle, prom_mm, min_bound, prom_parent, line_parent, prom_rank, AsWkt(thresh_path), AsWkt(parent_path) from prom where %s' % where_clause, args)
     def to_rec(row):
         return {
             'point': geo_itos(row[0]),
@@ -32,6 +33,8 @@ def fetch_prom(where_clause, args):
             'parent': tx(geo_itos, row[4]),
             'pthresh': tx(geo_itos, row[5]),
             'prom_rank': row[6],
+            'thresh_path': row[7],
+            'parent_path': row[8],
         }
     return map(to_rec, results)
 
@@ -133,19 +136,22 @@ class MapViewHandler(web.RequestHandler):
             'features': [
                 summit_feature(info, tag, type='peak'),
                 saddle_feature(info, main['saddle']),
-                #_feature(k['threshold_path'], type='divide'), #also type 'threshold'?
+                _feature(main['thresh_path'], type='divide'), #also type 'threshold'? (exceed point)
+                _feature(main['parent_path'], type='toparent'),
             ]
         }
+        if not main['min_bound']:
+            threshold_point = shapely.geometry.Point(shapely.wkt.loads(main['thresh_path']).coords[-1])
+            data['features'].append(_feature(shapely.wkt.dumps(threshold_point), type='threshold'))
         for ss in subsaddles:
             if ss['elev']:
                 data['features'].append(saddle_feature(info, ss['saddle'], 'subsaddle', ref_peak=True, domain=False))
             if ss['prom']:
                 data['features'].append(saddle_feature(info, ss['saddle'], 'subsaddle', ref_peak=True, domain=True))    
         if main['parent'] is not None:
-            data['features'].extend([
+            data['features'].append(
                 summit_feature(info, main['parent'], type='parent'),
-                #_feature(k['parent_path'], type='toparent'),
-            ])
+            )
         for i, ch in enumerate(sorted(children, key=lambda ch: ch['prom_rank'])):
             ix = i + 1
             data['features'].extend([
