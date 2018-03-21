@@ -136,7 +136,7 @@ class MapViewHandler(web.RequestHandler):
             'features': [
                 summit_feature(info, tag, type='peak'),
                 saddle_feature(info, main['saddle']),
-                _feature(main['thresh_path'], type='divide'), #also type 'threshold'? (exceed point)
+                _feature(main['thresh_path'], type='divide'),
                 _feature(main['parent_path'], type='toparent'),
             ]
         }
@@ -157,7 +157,8 @@ class MapViewHandler(web.RequestHandler):
             data['features'].extend([
                 summit_feature(info, ch['point'], type='child', ix=ix),
                 # better to replace with child paths to parent + child domains
-                saddle_feature(info, ch['saddle'], type='childsaddle', ix=ix)
+                saddle_feature(info, ch['saddle'], type='childsaddle', ix=ix),
+                _feature(ch['parent_path'], type='tochild'),
             ])
         if main['pthresh'] is not None:
             data['features'].append(

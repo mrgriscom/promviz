@@ -97,6 +97,8 @@ function loadData(map, data) {
                 return {color: '#00f'};
             } else if (props.type == 'toparent') {
                 return {color: '#f00'};
+            } else if (props.type == 'tochild') {
+                return {color: '#a00', weight: 2, opacity: .3};
             } else if (props.type == 'domain') {
                 return {color: '#0f0'};
             } else if (props.type == 'child-domain') {
