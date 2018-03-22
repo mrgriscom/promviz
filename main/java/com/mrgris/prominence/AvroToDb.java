@@ -64,11 +64,15 @@ public class AvroToDb {
 	}
 	
 	static MultiLineString makeDomain(List<List<Long>> segs) {
-		LineString[] paths = new LineString[segs.size()];
-		for (int i = 0; i < segs.size(); i++) {
-			paths[i] = makePath(segs.get(i));
+		List<LineString> paths = new ArrayList<>();
+		for (List<Long> seg : segs) {
+			try {
+				paths.add(makePath(seg));
+			} catch (IllegalArgumentException e) {
+				System.out.println("invalid geometry");
+			}
 		}
-		return gf.createMultiLineString(paths);
+		return gf.createMultiLineString(paths.toArray(new LineString[paths.size()]));
 	}
 	
 	public static void main(String[] args) {
@@ -128,7 +132,7 @@ public class AvroToDb {
             // could they have different elev/prom flags?
             
             conn.setAutoCommit(false);
-            int batchSize = 10000;            
+            int batchSize = 1000;            
             String insPt = "replace into points values (?,?,?,?,GeomFromText(?, 4326))";
             PreparedStatement stInsPt = conn.prepareStatement(insPt);
             String insProm = "insert into prom values (?,?,?,?,?,?,?,GeomFromText(?, 4326),GeomFromText(?, 4326),GeomFromText(?, 4326))";

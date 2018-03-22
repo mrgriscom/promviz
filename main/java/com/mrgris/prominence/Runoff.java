@@ -21,6 +21,8 @@ import com.mrgris.prominence.PathsPipeline.PathSearcher;
 
 public class Runoff {
 
+	// TODO scrutinize this algorithm more
+	
 	public static List<List<Long>> runoff(HashMap<Long, ArrayList<Long>> seeds, PathSearcher mst) {
 		List<Trace> traces = new ArrayList<Trace>();
 		Set<Trace> completed = new HashSet<Trace>();
@@ -30,30 +32,15 @@ public class Runoff {
 				Trace t = new Trace();
 				t.add(ix);
 				t.add(anch);
+
+				if (mst.get(t.head()) == ix) {
+					continue;  // debug: edge weirdness
+				}
+				
 				traces.add(t); // TODO could be loop?
 			}
 		}
 
-		/*
-		for (Trace t : traces) {
-			int i = 0;
-			while (true) {
-				long next = mst.get(t.head());
-				if (next == PointIndex.NULL) {
-					break;
-				} else {
-					t.add(next);
-				}
-				
-				i++;
-				if (i > 10000000) {
-					throw new RuntimeException("mst loop!?");
-				}
-			}
-		}
-		*/
-
-		/*
 		while (completed.size() < traces.size()) {
 			int shortest = -1;
 			for (Trace t : traces) {
@@ -72,6 +59,10 @@ public class Runoff {
 				}
 				
 				long cur = t.head();
+				if (mst.get(cur) == PointIndex.NULL) {
+					completed.add(t);
+					continue;
+				}
 				
 				// check if we've intersected another trace
 				Trace intersected = null;
@@ -114,14 +105,11 @@ public class Runoff {
 				
 				// no intersection; keep tracing
 				long next = mst.get(cur);
-				if (next == PointIndex.NULL) {
-					completed.add(t);
-				} else {
+				if (next != PointIndex.NULL) {
 					t.add(next);					
 				}
 			}
 		}
-		*/
 		
 		List<List<Long>> ro = new ArrayList<List<Long>>();
 		for (Trace t : traces) {
@@ -140,7 +128,7 @@ public class Runoff {
 		
 		void add(long ix) {
 			if (contains(ix)) {
-				throw new RuntimeException("already in trace " + ix);
+				throw new RuntimeException("already in trace " + this.head() + " " + ix);
 			}
 			path.add(ix);
 			set.add(ix);
