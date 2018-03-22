@@ -22,6 +22,7 @@ import com.mrgris.prominence.util.GeoCode;
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.GeometryFactory;
 import com.vividsolutions.jts.geom.LineString;
+import com.vividsolutions.jts.geom.MultiLineString;
 import com.vividsolutions.jts.geom.impl.CoordinateArraySequence;
 
 public class AvroToDb {
@@ -60,6 +61,14 @@ public class AvroToDb {
 			coords.add(new Coordinate(ll[1], ll[0]));
 		}
 		return gf.createLineString(new CoordinateArraySequence(coords.toArray(new Coordinate[coords.size()])));
+	}
+	
+	static MultiLineString makeDomain(List<List<Long>> segs) {
+		LineString[] paths = new LineString[segs.size()];
+		for (int i = 0; i < segs.size(); i++) {
+			paths[i] = makePath(segs.get(i));
+		}
+		return gf.createMultiLineString(paths);
 	}
 	
 	public static void main(String[] args) {
@@ -105,6 +114,7 @@ public class AvroToDb {
             );
             stmt.execute("SELECT AddGeometryColumn('prom', 'thresh_path', 4326, 'LINESTRING', 'XY');");
             stmt.execute("SELECT AddGeometryColumn('prom', 'parent_path', 4326, 'LINESTRING', 'XY');");
+            stmt.execute("SELECT AddGeometryColumn('prom', 'domain', 4326, 'MULTILINESTRING', 'XY');");
             stmt.execute(
                     "create table subsaddles (" +
                     "  point int64 references prom," +
@@ -121,7 +131,7 @@ public class AvroToDb {
             int batchSize = 10000;            
             String insPt = "replace into points values (?,?,?,?,GeomFromText(?, 4326))";
             PreparedStatement stInsPt = conn.prepareStatement(insPt);
-            String insProm = "insert into prom values (?,?,?,?,?,?,?,GeomFromText(?, 4326),GeomFromText(?, 4326))";
+            String insProm = "insert into prom values (?,?,?,?,?,?,?,GeomFromText(?, 4326),GeomFromText(?, 4326),GeomFromText(?, 4326))";
             PreparedStatement stInsProm = conn.prepareStatement(insProm);
             String insSS = "insert into subsaddles values (?,?,?,?)";
             PreparedStatement stInsSS = conn.prepareStatement(insSS);
@@ -146,6 +156,7 @@ public class AvroToDb {
 				stInsProm.setObject(7, pf.pthresh != null ? geocode(pf.pthresh) : null);
 				stInsProm.setString(8, pf.threshPath != null ? makePath(pf.threshPath).toText() : null);
 				stInsProm.setString(9, pf.parentPath != null ? makePath(pf.parentPath).toText() : null);
+				stInsProm.setString(10, pf.domainBoundary != null ? makeDomain(pf.domainBoundary).toText() : null);
 				stInsProm.addBatch();
 				
 				// TODO: key this set by geocode, not pointix

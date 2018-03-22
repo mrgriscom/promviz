@@ -114,6 +114,9 @@ public class ProminencePipeline {
 	    		  	    	if (pf.parentPath != null) {
 	    		  	    		combined.parentPath = pf.parentPath;
 	    		  	    	}
+	    		  	    	if (pf.domainBoundary != null) {
+	    		  	    		combined.domainBoundary = pf.domainBoundary;
+	    		  	    	}
 	    		  	    }
 	    		  	    return combined;
 	    		  	  }
@@ -195,20 +198,16 @@ public class ProminencePipeline {
   				MapElements.into(new TypeDescriptor<KV<Long, KV<Integer, Edge>>>() {})
   	    		.via(e -> KV.of(e.saddle, KV.of(9999, e)))));
 
-        PCollection<Edge> mst = mstEdges.apply(Flatten.pCollections()).apply(Combine.perKey(
-        				new SerializableFunction<Iterable<KV<Integer, Edge>>, KV<Integer, Edge>>() {
-		  	  @Override
-		  	  // simple combine functions must be associative, so cannot drop the int key yet
-		  	  public KV<Integer, Edge> apply(Iterable<KV<Integer, Edge>> input) {
-		  		  return new Ordering<KV<Integer, Edge>>() {
-					@Override
-					public int compare(KV<Integer, Edge> a, KV<Integer, Edge> b) {
-						return Integer.compare(a.getKey(), b.getKey());
-					}
-		  		  }.max(input);
-		  	  }
-        })).apply(Values.create()).apply(Values.create());
-
+        PCollection<Edge> mst = mstEdges.apply(Flatten.pCollections()).apply(GroupByKey.create()).apply(Values.create())
+        		.apply(MapElements.into(new TypeDescriptor<Edge>() {}).via(kvs ->
+        				new Ordering<KV<Integer, Edge>>() {
+        					@Override
+        					public int compare(KV<Integer, Edge> a, KV<Integer, Edge> b) {
+        						return Integer.compare(a.getKey(), b.getKey());
+        					}
+        		  		  }.max(kvs).getValue()
+        				));
+        		
 	    PCollection<PromFact> promInfo = consolidatePromFacts(promFacts);
 	    
 	    PCollection<PromFact> promRank = promInfo.apply(MapElements.into(new TypeDescriptor<KV<Integer, KV<Point, Point>>>() {})

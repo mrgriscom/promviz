@@ -93,6 +93,8 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 		List<Long> threshPath;
 		@Nullable
 		List<Long> parentPath;
+		@Nullable
+		List<List<Long>> domainBoundary;
 		
 		public PromFact() {
 			elevSubsaddles = new ArrayList<>();

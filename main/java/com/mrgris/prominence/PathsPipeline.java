@@ -25,16 +25,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.avro.reflect.Nullable;
+import org.apache.beam.runners.dataflow.repackaged.com.google.common.collect.Lists;
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.coders.AvroCoder;
+import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
-import org.apache.beam.sdk.repackaged.org.apache.commons.compress.utils.Lists;
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Partition;
 import org.apache.beam.sdk.transforms.Partition.PartitionFn;
+import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
 import org.apache.beam.sdk.transforms.join.CoGroupByKey;
 import org.apache.beam.sdk.transforms.join.KeyedPCollectionTuple;
@@ -47,6 +52,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mrgris.prominence.Prominence.PromFact;
+import com.mrgris.prominence.Prominence.PromFact.Saddle;
 
 /**
  * A starter example for writing Beam programs.
@@ -139,34 +145,132 @@ public class PathsPipeline {
 			return path;
 		}
 	  
-	  void search(PromFact p) {
-		  PromFact threshPath = new PromFact();
-		  threshPath.p = p.p;
-		  threshPath.threshPath = getAtoB(p.p.ix, p.thresh != null ? p.thresh.ix : PointIndex.NULL);
-		  emitPath(threshPath);
-		  
-		  PromFact parentPath = new PromFact();
-		  parentPath.p = p.p;
-		  parentPath.parentPath = getAtoB(p.p.ix, p.parent != null ? p.parent.ix : PointIndex.NULL);
-		  emitPath(parentPath);
+	  void search(PathTask task) {
+		  PromFact fact = new PromFact();
+		  fact.p = task.p;
+		  if (task.type == PathTask.TYPE_THRESH) {
+			  fact.threshPath = getAtoB(task.p.ix, task.thresh);
+		  } else if (task.type == PathTask.TYPE_PARENT) {		  
+		  	  fact.parentPath = getAtoB(task.p.ix, task.parent);
+		  } else if (task.type == PathTask.TYPE_DOMAIN) {
+			  fact.domainBoundary = Runoff.runoff(task.saddles, this);
+		  }
+		  emitPath(fact);
 	  }
 	  
 	  public abstract void emitPath(PromFact pf);
   }
   
-  public static PCollection<PromFact> searchPaths(PCollection<PromFact> promInfo, PCollection<Edge> mst) {
-	  PCollection<KV<Integer, Iterable<PromFact>>> promSingleton =
-			  promInfo.apply(MapElements.into(new TypeDescriptor<KV<Integer, PromFact>>() {}).via(pf -> KV.of(0, pf)))
+  @DefaultCoder(AvroCoder.class)
+  static class PathTask {
+	  static final int TYPE_THRESH = 1;
+	  static final int TYPE_PARENT = 2;
+	  static final int TYPE_DOMAIN = 3;
+	  
+	  Point p;
+	  int type;
+	  long thresh;
+	  long parent;
+	  @Nullable
+	  HashMap<Long, ArrayList<Long>> saddles;
+  }
+  
+  public static PCollection<PromFact> searchPaths(PCollection<PromFact> prom, PCollection<PromFact> promOppo,
+		  PCollection<Edge> mst, PCollection<Edge> rawNetwork) {
+	  PCollection<PathTask> tasks = prom.apply(ParDo.of(new DoFn<PromFact, PathTask>() {
+		    @ProcessElement
+		    public void processElement(ProcessContext c) {
+		    	PromFact pf = c.element();
+
+		    	PathTask thresh = new PathTask();
+		    	thresh.type = PathTask.TYPE_THRESH;
+		    	thresh.p = pf.p;
+     		    thresh.thresh = pf.thresh != null ? pf.thresh.ix : PointIndex.NULL;
+     		    c.output(thresh);
+
+     		    PathTask parent = new PathTask();
+     		    parent.type = PathTask.TYPE_PARENT;
+     		    parent.p = pf.p;
+     		    parent.parent = pf.parent != null ? pf.parent.ix : PointIndex.NULL;
+     		    c.output(parent);
+		    }
+		}));
+	  
+	  PCollection<KV<Long, Point>> mappedSaddles = promOppo.apply(ParDo.of(new DoFn<PromFact, KV<Long, Point>>() {
+		  @ProcessElement
+		  public void processElement(ProcessContext c) {
+			  PromFact pf = c.element();
+			  c.output(KV.of(pf.saddle.s.ix, pf.p));
+			  for (Saddle s : pf.promSubsaddles) {
+				  c.output(KV.of(s.s.ix, pf.p));
+			  }
+		  }
+	  }));
+	  PCollection<KV<Long, Edge>> mappedEdges = rawNetwork.apply(MapElements.into(new TypeDescriptor<KV<Long, Edge>>(){}).via(e -> KV.of(e.saddle, e)));
+	  final TupleTag<Point> mappedSaddlesTag = new TupleTag<>();
+	  final TupleTag<Edge> mappedEdgesTag = new TupleTag<>();
+	  PCollection<PathTask> domainTasks = KeyedPCollectionTuple
+	    .of(mappedSaddlesTag, mappedSaddles)
+	    .and(mappedEdgesTag, mappedEdges)
+	    .apply(CoGroupByKey.create())
+	    .apply(ParDo.of(
+			new DoFn<KV<Long, CoGbkResult>, KV<Point, Edge>>() {
+			  @ProcessElement
+			  public void processElement(ProcessContext c) {
+			    KV<Long, CoGbkResult> e = c.element();
+			    Iterable<Point> points = e.getValue().getAll(mappedSaddlesTag);
+			    List<Edge> edges = Lists.newArrayList(e.getValue().getAll(mappedEdgesTag));
+			    if (edges.size() > 1) {
+			    	throw new RuntimeException();
+			    }
+			    
+			    for (Point p : points) {
+			    	for (Edge edge : edges) {
+			    		c.output(KV.of(p, edge));
+			    	}
+			    }
+			  }
+			})).apply(GroupByKey.create()).apply(MapElements.into(new TypeDescriptor<PathTask>() {}).via(
+					new SerializableFunction<KV<Point, Iterable<Edge>>, PathTask>() {
+						@Override
+						public PathTask apply(KV<Point, Iterable<Edge>> input) {
+							PathTask task = new PathTask();
+							task.p = input.getKey();
+							task.type = PathTask.TYPE_DOMAIN;
+							task.saddles = new HashMap<>();
+							for (Edge e : input.getValue()) {
+								ArrayList<Long> anchors = new ArrayList<>();
+								if (e.a != PointIndex.NULL) {
+									anchors.add(e.a);
+								}
+								if (e.b != PointIndex.NULL) {
+									anchors.add(e.b);
+								}
+								if (anchors.isEmpty()) {
+									// the corresponding edge may have both leads null in opposite-world,
+									// but these should not have been written to the network and thus won't
+									// appear in the join
+									throw new RuntimeException();
+								}
+								task.saddles.put(e.saddle, anchors);
+							}
+							return task;
+						}
+					}));
+
+	  PCollection<KV<Integer, Iterable<PathTask>>> taskSingleton =
+			  PCollectionList.of(tasks).and(domainTasks).apply(Flatten.pCollections())
+			  .apply(MapElements.into(new TypeDescriptor<KV<Integer, PathTask>>() {}).via(task -> KV.of(0, task)))
 	  		.apply(GroupByKey.create());
 	  PCollection<KV<Integer, Iterable<Edge>>> mstSingleton =
 			  mst.apply(MapElements.into(new TypeDescriptor<KV<Integer, Edge>>() {}).via(e -> KV.of(0, e)))
 	  		.apply(GroupByKey.create());
 
-	  final TupleTag<Iterable<PromFact>> promInfoTag = new TupleTag<>();
+	  final TupleTag<Iterable<PathTask>> taskTag = new TupleTag<>();
 	  final TupleTag<Iterable<Edge>> mstTag = new TupleTag<>();
 	  
       return KeyedPCollectionTuple
-			    .of(promInfoTag, promSingleton)
+			    .of(taskTag, taskSingleton)
 			    .and(mstTag, mstSingleton)
 			    .apply(CoGroupByKey.create())
 			    .apply(ParDo.of(
@@ -174,7 +278,7 @@ public class PathsPipeline {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
 		      KV<Integer, CoGbkResult> e = c.element();
-		      Iterable<PromFact> promInfo = e.getValue().getAll(promInfoTag).iterator().next();
+		      Iterable<PathTask> tasks = e.getValue().getAll(taskTag).iterator().next();
 		      Iterable<Edge> mst = e.getValue().getAll(mstTag).iterator().next();
 
 		      PathSearcher searcher = new PathSearcher(mst) {
@@ -182,8 +286,8 @@ public class PathsPipeline {
 		    		  c.output(pf);
 		    	  }
 		      };
-		      for (PromFact pf : promInfo) {
-		    	  searcher.search(pf);
+		      for (PathTask task : tasks) {
+		    	  searcher.search(task);
 		      }
 		    }
 		  }
@@ -201,6 +305,8 @@ public class PathsPipeline {
     PCollection<PromFact> promInfo = p.apply(AvroIO.read(PromFact.class).from("gs://mrgris-dataflow-test/factstest"));
     PCollection<Edge> mstUp = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/mst-up"));
     PCollection<Edge> mstDown = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/mst-down"));
+    PCollection<Edge> rawNetworkUp = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-up-*"));
+    PCollection<Edge> rawNetworkDown = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-down-*"));
 
     PCollectionList<PromFact> promByDir = promInfo.apply(Partition.of(2, new PartitionFn<PromFact>() {
 		@Override
@@ -211,8 +317,8 @@ public class PathsPipeline {
     PCollection<PromFact> promInfoUp = promByDir.get(0);
     PCollection<PromFact> promInfoDown = promByDir.get(1);
 
-    PCollection<PromFact> pathsUp = searchPaths(promInfoUp, mstUp);
-    PCollection<PromFact> pathsDown = searchPaths(promInfoDown, mstDown);
+    PCollection<PromFact> pathsUp = searchPaths(promInfoUp, promInfoDown, mstUp, rawNetworkUp);
+    PCollection<PromFact> pathsDown = searchPaths(promInfoDown, promInfoUp, mstDown, rawNetworkDown);
     
     promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(pathsUp).and(pathsDown));
     promInfo.apply(AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstestwithpaths").withoutSharding());
