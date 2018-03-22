@@ -23,7 +23,7 @@ import settings
 import util
 
 def fetch_prom(where_clause, args):
-    results = conn.execute('select point, saddle, prom_mm, min_bound, prom_parent, line_parent, prom_rank, AsWkt(thresh_path), AsWkt(parent_path) from prom where %s' % where_clause, args)
+    results = conn.execute('select point, saddle, prom_mm, min_bound, prom_parent, line_parent, prom_rank, AsWkt(thresh_path), AsWkt(parent_path), AsWkt(domain) from prom where %s' % where_clause, args)
     def to_rec(row):
         return {
             'point': geo_itos(row[0]),
@@ -35,6 +35,7 @@ def fetch_prom(where_clause, args):
             'prom_rank': row[6],
             'thresh_path': row[7],
             'parent_path': row[8],
+            'domain': row[9],
         }
     return map(to_rec, results)
 
@@ -160,16 +161,14 @@ class MapViewHandler(web.RequestHandler):
                 saddle_feature(info, ch['saddle'], type='childsaddle', ix=ix),
                 _feature(ch['parent_path'], type='tochild'),
             ])
+            if ch['domain'] is not None:
+                data['features'].append(_feature(ch['domain'], type='child-domain'))
         if main['pthresh'] is not None:
             data['features'].append(
                 summit_feature(info, main['pthresh'], type='pthresh'),
             )
-    
-        #if k.get('runoff'):
-        #    data['features'].extend(_feature(t, type='domain') for t in k['runoff'])
-        #for child in k.get('_children', []):
-        #    if child.get('runoff'):
-        #        data['features'].extend(_feature(t, type='child-domain') for t in child['runoff'])
+        if main['domain'] is not None:
+            data['features'].append(_feature(main['domain'], type='domain'))
             
         self.render('map.html', mode='single', data=data)
 
