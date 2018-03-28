@@ -26,11 +26,13 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.avro.reflect.Nullable;
+import org.apache.beam.runners.dataflow.repackaged.org.apache.beam.runners.core.construction.java.repackaged.com.google.common.collect.Sets;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.transforms.Distinct;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.GroupByKey;
@@ -80,7 +82,19 @@ public class PathsPipeline {
 	  Map<Long, Long> backtrace;
 	  Map<Long, List<Edge>> anchors;
 	  
-	  public PathSearcher(Iterable<Edge> mst) {
+	  /*
+	  static class IterStart {
+		  long ix;
+		  int option;
+		  
+		  public IterStart(long ix, int option) {
+			  this.ix = ix;
+			  this.option = option;
+		  }
+	  }
+	  */
+	  
+	  public PathSearcher(Iterable<Edge> mst, Iterable<Long> keyPointsIt) {
 		  anchors = new DefaultMap<Long, List<Edge>>() {
 			@Override
 			public List<Edge> defaultValue(Long key) {
@@ -99,11 +113,132 @@ public class PathsPipeline {
 				  }
 			  }
 		  }
-		  // build reduced MST using key points
+		  // awefowijfisjfiwjef
+		  for (long ix : backtrace.keySet()) {
+			  anchors.remove(ix);
+		  }
+		  for (long ix : backtrace.values()) {
+			  anchors.remove(ix);
+		  }
+		  
+		  Set<Long> keyPoints = Sets.newHashSet(keyPointsIt);
+		  Set<Long> junctions = new HashSet<>();
+		  Set<Long> seen = new HashSet<>(keyPoints);
+		  for (long start : keyPoints) {
+			  for (int opt = 0; opt < numOptions(start); opt++) {
+				  long ix = start;
+				  int i = opt;
+				  
+				  while (true) {
+					  ix = get(ix, i);
+					  i = 0;
+					  
+					  if (ix == PointIndex.NULL) {
+						  break;
+					  }
+					  if (seen.contains(ix)) {
+						  if (!keyPoints.contains(ix)) {
+							  junctions.add(ix);
+						  }
+						  break;
+					  } else {
+						  seen.add(ix);
+					  }
+				  }
+			  }
+		  }
+		  System.out.println("backtrace " + backtrace.size());
+		  System.out.println("seen " + seen.size());
+		  System.out.println("keypoints " + keyPoints.size());
+		  System.out.println("junctions " + junctions.size());
+		  		  
+		  keyPoints.addAll(junctions);
+
+		  Map<Long, List<Edge>> rAnchors = new DefaultMap<Long, List<Edge>>() {
+			@Override
+			public List<Edge> defaultValue(Long key) {
+				return new ArrayList<>();
+			}
+		  };
+		  Map<Long, Long> rBacktrace = new HashMap<>();
+
+		  for (long start : keyPoints) {
+			  for (int opt = 0; opt < numOptions(start); opt++) {
+				  LOG.debug("kp " + start + " " + opt);
+				  
+				  long ix = start;
+				  int i = opt;
+				  
+				  LOG.debug("tr " + ix + " " + i);
+				  while (true) {
+					  ix = get(ix, i);
+					  i = 0;
+					  LOG.debug("tr " + ix + " " + i);
+					  
+					  if (ix == PointIndex.NULL) {
+						  break;
+					  }
+					  if (keyPoints.contains(ix)) {
+						  break;
+					  }
+				  }
+				  LOG.debug("end " + start + " " + ix);
+				  
+				  if (anchors.containsKey(start)) {
+					  if (ix == start) {
+						  // workaround EOW MST crossing bug
+						  ix = PointIndex.NULL;
+					  }
+					  
+					  rAnchors.get(start).add(new Edge(PointIndex.NULL, ix, start, Edge.TAG_NULL,
+							  anchors.get(start).get(opt).tagB));
+				  } else if (ix != PointIndex.NULL) {
+					  rBacktrace.put(start, ix);
+					  LOG.debug("here!!!" + rBacktrace.size());
+				  }
+			  }
+		  }
+		  System.out.println("rbt3 " + rBacktrace.size());
+		  // need edge for terminal keypoint to EOW?
+		  this.anchors = rAnchors;
+		  this.backtrace = rBacktrace;
+		  System.out.println("rbt2 " + this.backtrace.size());
+		  
+		  int c = 0;
+		  for (long ix : backtrace.keySet()) {
+			  long next = get(ix);
+			  if (next == PointIndex.NULL) {
+				  c++;
+			  } else if (backtrace.containsKey(next)) {
+				  c++;
+			  }
+		  }
+		  System.out.println("rbt " + this.backtrace.size() + " " + c);
+		  
 	  }
 
+	  public int numOptions(long ix) {
+		  if (anchors.containsKey(ix)) {
+			  return anchors.get(ix).size();
+		  } else {
+			  return 1;
+		  }
+	  }
+	  
 	  public long get(long ix) {
-		  if (backtrace.containsKey(ix)) {
+		  //if (anchors.containsKey(ix) && !backtrace.containsKey(ix)) {
+		 //	  throw new RuntimeException("" + ix);
+		  //}
+		  return get(ix, 0);
+	  }
+	  
+	  public long get(long ix, int option) {
+		  if (anchors.containsKey(ix) && !backtrace.containsKey(ix)) {
+			  return anchors.get(ix).get(option).b;
+		  } else if (backtrace.containsKey(ix)) {
+			  if (option != 0) {
+				  throw new RuntimeException();
+			  }
 			  return backtrace.get(ix);
 		  } else {
 			  return PointIndex.NULL;
@@ -225,7 +360,8 @@ public class PathsPipeline {
 			  .apply(Flatten.pCollections());
 	  
 	  PCollection<Long> promBasinSaddles = promOppo.apply(MapElements.into(new TypeDescriptor<Long>() {}).via(pf -> pf.saddle.s.ix));
-      final PCollectionView<Map<Long, Void>> saddleLookup = promBasinSaddles.apply(MapElements
+      // in theory this could get too big for a side input, but estimate <30M points globally for P20m
+	  final PCollectionView<Map<Long, Void>> saddleLookup = promBasinSaddles.apply(MapElements
     		  .into(new TypeDescriptor<KV<Long, Void>>() {}).via(ix -> KV.of(ix, null))).apply(View.asMap());
 	  PCollection<Edge> mstSaddleAnchors = rawNetwork.apply(ParDo.of(new DoFn<Edge, Edge>() {
 		  @ProcessElement
@@ -241,6 +377,20 @@ public class PathsPipeline {
 		  }		  
 	  }).withSideInputs(saddleLookup));
 
+	  PCollection<Long> keyPoints = PCollectionList.of(
+			  prom.apply(ParDo.of(new DoFn<PromFact, Long>(){
+				  @ProcessElement
+				  public void processElement(ProcessContext c) {
+					  PromFact pf = c.element();
+					  c.output(pf.p.ix);
+					  c.output(pf.saddle.s.ix);
+					  if (pf.thresh != null) {
+						  c.output(pf.thresh.ix);
+					  }
+				  }
+			  }))
+			  ).and(promBasinSaddles).apply(Flatten.pCollections()).apply(Distinct.create());
+	  	  
 	  PCollection<KV<Integer, Iterable<PathTask>>> taskSingleton =
 			  tasks.apply(MapElements.into(new TypeDescriptor<KV<Integer, PathTask>>() {}).via(task -> KV.of(0, task)))
 	  		.apply(GroupByKey.create());
@@ -248,12 +398,17 @@ public class PathsPipeline {
 			  PCollectionList.of(mst).and(mstSaddleAnchors).apply(Flatten.pCollections())
 			  .apply(MapElements.into(new TypeDescriptor<KV<Integer, Edge>>() {}).via(e -> KV.of(0, e)))
 	  		.apply(GroupByKey.create());
+	  PCollection<KV<Integer, Iterable<Long>>> keyPointsSingleton =
+			  keyPoints.apply(MapElements.into(new TypeDescriptor<KV<Integer, Long>>() {}).via(ix -> KV.of(0, ix)))
+	  		.apply(GroupByKey.create());
 
 	  final TupleTag<Iterable<PathTask>> taskTag = new TupleTag<>();
 	  final TupleTag<Iterable<Edge>> mstTag = new TupleTag<>();	  
+	  final TupleTag<Iterable<Long>> keyPointsTag = new TupleTag<>();	  
       return KeyedPCollectionTuple
 			    .of(taskTag, taskSingleton)
 			    .and(mstTag, mstSingleton)
+			    .and(keyPointsTag, keyPointsSingleton)
 			    .apply(CoGroupByKey.create())
 			    .apply(ParDo.of(
 		  new DoFn<KV<Integer, CoGbkResult>, PromFact>() {
@@ -262,8 +417,9 @@ public class PathsPipeline {
 		      KV<Integer, CoGbkResult> e = c.element();
 		      Iterable<PathTask> tasks = e.getValue().getAll(taskTag).iterator().next();
 		      Iterable<Edge> mst = e.getValue().getAll(mstTag).iterator().next();
-
-		      PathSearcher searcher = new PathSearcher(mst) {
+		      Iterable<Long> keyPoints = e.getValue().getAll(keyPointsTag).iterator().next();
+		      
+		      PathSearcher searcher = new PathSearcher(mst, keyPoints) {
 		    	  public void emitPath(PromFact pf) {
 		    		  c.output(pf);
 		    	  }

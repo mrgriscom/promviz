@@ -79,6 +79,8 @@ public class AvroToDb {
 		String pipelineOutput = args[0];
 		String dbname = args[1];
 		
+		new File(dbname).renameTo(new File(dbname + ".old"));
+		
 		try {
 
 			/* TODO known_point table

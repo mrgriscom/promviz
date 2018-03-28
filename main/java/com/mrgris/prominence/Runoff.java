@@ -29,7 +29,7 @@ public class Runoff {
 		Set<Trace> clockwise = new HashSet<>();
 		for (Saddle s : seeds) {
 			long ix = s.s.ix;
-			List<Edge> anchors = mst.anchors.get(ix);
+			List<Edge> anchors = mst.anchors.containsKey(ix) ? mst.anchors.get(ix) : new ArrayList<>();
   	        // anchors may be empty if no runoff resolves in opposite world
 			if (anchors.isEmpty()) {
 				continue;
