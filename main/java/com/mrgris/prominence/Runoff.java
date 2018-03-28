@@ -21,7 +21,7 @@ import com.mrgris.prominence.PathsPipeline.PathSearcher;
 
 public class Runoff {
 
-	// TODO scrutinize this algorithm more
+	// what is happening with segments with only 1 point?
 	
 	public static List<List<Long>> runoff(HashMap<Long, ArrayList<Long>> seeds, PathSearcher mst) {
 		List<Trace> traces = new ArrayList<Trace>();
@@ -33,47 +33,36 @@ public class Runoff {
 				t.add(ix);
 				t.add(anch);
 
+				// weirdness can occur at the edge of the data area where peaks are 'orphaned' and so the
+				// mst networks actually cross. adding 'end-of-world' saddles should fix, but keep this
+				// safeguard here
 				if (mst.get(t.head()) == ix) {
-					continue;  // debug: edge weirdness
+					continue;
 				}
 				
-				traces.add(t); // TODO could be loop?
+				traces.add(t);
 			}
 		}
 
 		while (completed.size() < traces.size()) {
-			int shortest = -1;
-			for (Trace t : traces) {
-				if (!completed.contains(t) && (shortest == -1 || t.len() < shortest)) {
-					shortest = t.len();
-				}
-			}
-			
 			for (Trace t : traces) {
 				if (completed.contains(t)) {
 					continue;
 				}
-				// let shorter traces catch up so ideally all active traces are the same length
-				if (t.len() != shortest) {
-					continue;
-				}
-				
 				long cur = t.head();
-				if (mst.get(cur) == PointIndex.NULL) {
-					completed.add(t);
-					continue;
-				}
 				
 				// check if we've intersected another trace
+				// (do this first because the initial state of the traces may already be self-intersecting)
 				Trace intersected = null;
-				// TODO replace iteration over traces with ix -> trace(s) index. probably not necessary as # traces is usually small
+				// note: this would be more efficient with an index, but the # of traces is generally small, so meh
 				for (Trace other : traces) {
 					if (t == other) {
 						continue;
 					}
 					if (other.contains(cur)) {
 						if (other.head() == cur && completed.contains(other)) {
-							// this is a multi-intersection and current trace is odd one out; continue trace
+							// the intersected trace has already intersected another trace at this same point;
+							// this trace is thus the odd one out; keep searching
 							continue;
 						}
 						intersected = other;
@@ -87,7 +76,10 @@ public class Runoff {
 						assert t.head() != intersected.head();
 						Trace intersectedComplement = null;
 						for (Trace other : completed) {
-							if (other != intersected && other.head() == intersected.head()) {
+							if (intersected == other) {
+								continue;
+							}
+							if (other.head() == intersected.head() && other.head() != PointIndex.NULL) {
 								intersectedComplement = other;
 								break;
 							}
@@ -104,15 +96,22 @@ public class Runoff {
 				}
 				
 				// no intersection; keep tracing
-				long next = mst.get(cur);
-				if (next != PointIndex.NULL) {
-					t.add(next);					
-				}
+				t.add(mst.get(cur));
+				// note: null index is added to trace regardless so that intersection detection still
+				// works correctly even if the intersection occurs at the last node before EOW
+				if (t.head() == PointIndex.NULL) {
+					completed.add(t);
+				}				
 			}
 		}
 		
 		List<List<Long>> ro = new ArrayList<List<Long>>();
 		for (Trace t : traces) {
+			// remove terminal nulls from final result
+			if (t.find(PointIndex.NULL) != -1) {
+				t.trimAt(-1);
+			}
+			
 			ro.add(t.path);
 		}
 		return ro;
