@@ -74,36 +74,34 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
 			if (leads[0].length > 2) {
 				// multi-saddle
 				
-				for (int dir = 0; dir < 2; dir++) {
-					Lead[] dirLeads = leads[dir];
-					boolean up = dirLeads[0].up;
-					
-					Arrays.sort(dirLeads, new Comparator<Lead>() {
-						public int compare(Lead a, Lead b) {
-							return Integer.compare(a.i, b.i);
-						}
-					});
-							
-					List<Lead> newLeads = new ArrayList<>();
-					long vPeak = PointIndex.clone(saddle.ix, 1);
-					for (int i = 0; i < dirLeads.length; i++) {
-						Lead l = dirLeads[i];
-						long vSaddle = PointIndex.clone(saddle.ix, -i); // would be nice to randomize the saddle ordering
-						MeshPoint vSaddlePt = new MeshPoint(vSaddle, saddle.elev);
-						
-						// the disambiguation pattern is not symmetrical between the 'up' and 'down' networks;
-						// this is the cost of making them consistent with each other
-						if (up) {
-							newLeads.add(new Lead(up, vSaddlePt, l.p, l.i));
-							halfEdges.put(new SaddleAndDir(vSaddle, up), new SummitAndTag(vPeak, Edge.TAG_NULL));
-						} else {
-							Lead l_prev = dirLeads[Util.mod(i - 1, dirLeads.length)];
-							newLeads.add(new Lead(up, vSaddlePt, l.p, l.i));
-							newLeads.add(new Lead(up, vSaddlePt, l_prev.p, l_prev.i));
-						}
+				Map<Integer, Lead> byTraceNum = new HashMap<>();
+				for (Lead[] dirLeads : leads) {
+					for (Lead l : dirLeads) {
+						byTraceNum.put(l.i, l);
 					}
-					leads[dir] = newLeads.toArray(new Lead[0]);
 				}
+				
+				List<Lead> newLeadsUp = new ArrayList<>();
+				List<Lead> newLeadsDown = new ArrayList<>();
+				
+				// TODO: randomize the connections
+				for (int i = 0; i < leads[0].length - 1; i++) {
+					int traceUpA = 2*i;
+					int traceUpB = 2*(i+1);
+					int traceDownA = 2*i + 1;
+					int traceDownB = 2*leads[0].length - 1;
+					
+					long vSaddle = PointIndex.clone(saddle.ix, -i);
+					MeshPoint vSaddlePt = new MeshPoint(vSaddle, saddle.elev);
+					
+					newLeadsUp.add(new Lead(true, vSaddlePt, byTraceNum.get(traceUpA).p, traceUpA));
+					newLeadsUp.add(new Lead(true, vSaddlePt, byTraceNum.get(traceUpB).p, traceUpB));
+					newLeadsDown.add(new Lead(false, vSaddlePt, byTraceNum.get(traceDownA).p, traceDownA));
+					newLeadsDown.add(new Lead(false, vSaddlePt, byTraceNum.get(traceDownB).p, traceDownB));
+				}
+				
+				leads[0] = newLeadsUp.toArray(new Lead[0]);
+				leads[1] = newLeadsDown.toArray(new Lead[0]);
 			}
 			
 			for (Lead[] dirLeads : leads) {				
@@ -248,7 +246,7 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
 			if (halfEdges.containsKey(k)) {
 				SummitAndTag otherHalf = halfEdges.remove(k);
 				if (v.summit == PointIndex.NULL && otherHalf.summit == PointIndex.NULL) {
-					// saddle not connected to anything; drop it
+					// saddle not connected to anything; drop it (just for cleanliness -- the rest of the pipeline would handle it ok)
 				} else {
 					Edge e = new Edge(v.summit, otherHalf.summit, k.saddle, v.tag, otherHalf.tag);
 					emitEdge(k.up, e);
@@ -284,6 +282,9 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
 			SummitAndTag(long summit, int tag) {
 				this.summit = summit;
 				this.tag = tag;
+				if (tag == Edge.TAG_NULL) {
+					throw new RuntimeException();
+				}
 			}
 			
 			public boolean equals(Object o) {

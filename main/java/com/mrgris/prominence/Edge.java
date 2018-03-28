@@ -23,8 +23,7 @@ public class Edge {
 	
 	public Edge(long a, long b, long saddle, int tagA, int tagB) {
 		if (saddle == PointIndex.NULL || a == saddle || b == saddle ||
-				(a == PointIndex.NULL && b == PointIndex.NULL) ||
-				(a == b && tagA == tagB)) {
+				(tagA == tagB && tagA != TAG_NULL)) {
 			throw new RuntimeException("invalid edge: " + String.format("%s %s %s", Util.print(a), Util.print(b), Util.print(saddle)));
 		}
 		
@@ -33,13 +32,6 @@ public class Edge {
 		this.saddle = saddle;
 		this.tagA = tagA;
 		this.tagB = tagB;
-	}
-	
-	// needed?
-	public void normalize() {
-		if (this.a == PointIndex.NULL) {
-			reverse();
-		}
 	}
 	
 	public Edge(long a, long b, long saddle) {
@@ -63,10 +55,10 @@ public class Edge {
 	}
 	
 	public HalfEdge[] split() {
-		HalfEdge[] spl = new HalfEdge[2];
-		spl[0] = (a != PointIndex.NULL ? new HalfEdge(a, saddle, tagA) : null);
-		spl[1] = (b != PointIndex.NULL ? new HalfEdge(b, saddle, tagB) : null);
-		return spl;
+		return new HalfEdge[] {
+			new HalfEdge(a, saddle, tagA),
+			new HalfEdge(b, saddle, tagB)
+		};
 	}
 	
 	public void reverse() {
