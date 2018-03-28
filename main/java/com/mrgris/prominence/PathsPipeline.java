@@ -26,7 +26,6 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.avro.reflect.Nullable;
-import org.apache.beam.runners.dataflow.repackaged.com.google.common.collect.Lists;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
@@ -39,20 +38,23 @@ import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Partition;
 import org.apache.beam.sdk.transforms.Partition.PartitionFn;
-import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
 import org.apache.beam.sdk.transforms.join.CoGroupByKey;
 import org.apache.beam.sdk.transforms.join.KeyedPCollectionTuple;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
+import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mrgris.prominence.Edge.HalfEdge;
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.Prominence.PromFact.Saddle;
+import com.mrgris.prominence.util.DefaultMap;
 
 /**
  * A starter example for writing Beam programs.
@@ -76,18 +78,28 @@ public class PathsPipeline {
   
   static abstract class PathSearcher {
 	  Map<Long, Long> backtrace;
+	  Map<Long, List<Long>> anchors;
 	  
 	  public PathSearcher(Iterable<Edge> mst) {
+		  anchors = new DefaultMap<Long, List<Long>>() {
+			@Override
+			public List<Long> defaultValue(Long key) {
+				return new ArrayList<Long>();
+			}
+		  };
 		  backtrace = new HashMap<>();
+		  
 		  for (Edge e : mst) {
 			  if (e.a == PointIndex.NULL) {
-				  throw new RuntimeException();
-			  }
-			  backtrace.put(e.a, e.saddle);
-			  if (e.b != PointIndex.NULL) {
-				  backtrace.put(e.saddle, e.b);
+				  anchors.get(e.saddle).add(e.b);
+			  } else {
+				  backtrace.put(e.a, e.saddle);
+				  if (e.b != PointIndex.NULL) {
+					  backtrace.put(e.saddle, e.b);
+				  }
 			  }
 		  }
+		  // build reduced MST using key points
 	  }
 
 	  public long get(long ix) {
@@ -172,103 +184,74 @@ public class PathsPipeline {
 	  long thresh;
 	  long parent;
 	  @Nullable
-	  HashMap<Long, ArrayList<Long>> saddles;
+	  ArrayList<Saddle> saddles;
   }
   
   public static PCollection<PromFact> searchPaths(PCollection<PromFact> prom, PCollection<PromFact> promOppo,
 		  PCollection<Edge> mst, PCollection<Edge> rawNetwork) {
-	  PCollection<PathTask> tasks = prom.apply(ParDo.of(new DoFn<PromFact, PathTask>() {
-		    @ProcessElement
-		    public void processElement(ProcessContext c) {
-		    	PromFact pf = c.element();
+	  PCollection<PathTask> tasks = PCollectionList.of(
+			  prom.apply(ParDo.of(new DoFn<PromFact, PathTask>() {
+				  @ProcessElement
+				  public void processElement(ProcessContext c) {
+					  PromFact pf = c.element();
 
-		    	PathTask thresh = new PathTask();
-		    	thresh.type = PathTask.TYPE_THRESH;
-		    	thresh.p = pf.p;
-     		    thresh.thresh = pf.thresh != null ? pf.thresh.ix : PointIndex.NULL;
-     		    c.output(thresh);
+					  PathTask thresh = new PathTask();
+					  thresh.type = PathTask.TYPE_THRESH;
+					  thresh.p = pf.p;
+					  thresh.thresh = pf.thresh != null ? pf.thresh.ix : PointIndex.NULL;
+					  c.output(thresh);
 
-     		    PathTask parent = new PathTask();
-     		    parent.type = PathTask.TYPE_PARENT;
-     		    parent.p = pf.p;
-     		    parent.parent = pf.parent != null ? pf.parent.ix : PointIndex.NULL;
-     		    c.output(parent);
-		    }
-		}));
+					  PathTask parent = new PathTask();
+					  parent.type = PathTask.TYPE_PARENT;
+					  parent.p = pf.p;
+					  parent.parent = pf.parent != null ? pf.parent.ix : PointIndex.NULL;
+					  c.output(parent);
+				  }
+			  })))
+			  .and(
+					  promOppo.apply(ParDo.of(new DoFn<PromFact, PathTask>() {
+						  @ProcessElement
+						  public void processElement(ProcessContext c) {
+							  PromFact pf = c.element();
+
+							  PathTask domain = new PathTask();
+							  domain.type = PathTask.TYPE_DOMAIN;
+							  domain.p = pf.p;
+							  domain.saddles = new ArrayList<>(pf.promSubsaddles);
+							  domain.saddles.add(pf.saddle);
+							  c.output(domain);
+						  }
+					  })))			  
+			  .apply(Flatten.pCollections());
 	  
-	  PCollection<KV<Long, Point>> mappedSaddles = promOppo.apply(ParDo.of(new DoFn<PromFact, KV<Long, Point>>() {
+	  PCollection<Long> promBasinSaddles = promOppo.apply(MapElements.into(new TypeDescriptor<Long>() {}).via(pf -> pf.saddle.s.ix));
+      final PCollectionView<Map<Long, Void>> saddleLookup = promBasinSaddles.apply(MapElements
+    		  .into(new TypeDescriptor<KV<Long, Void>>() {}).via(ix -> KV.of(ix, null))).apply(View.asMap());
+	  PCollection<Edge> mstSaddleAnchors = rawNetwork.apply(ParDo.of(new DoFn<Edge, Edge>() {
 		  @ProcessElement
 		  public void processElement(ProcessContext c) {
-			  PromFact pf = c.element();
-			  c.output(KV.of(pf.saddle.s.ix, pf.p));
-			  for (Saddle s : pf.promSubsaddles) {
-				  c.output(KV.of(s.s.ix, pf.p));
+			  Map<Long, Void> relevantSaddles = c.sideInput(saddleLookup);
+			  Edge e = c.element();
+			  if (relevantSaddles.containsKey(e.saddle)) {
+				  for (HalfEdge he : e.split()) {
+					  if (he != null) {
+						   c.output(new Edge(PointIndex.NULL, he.p, he.saddle, Edge.TAG_NULL, he.tag));
+					  }
+				  }
 			  }
-		  }
-	  }));
-	  PCollection<KV<Long, Edge>> mappedEdges = rawNetwork.apply(MapElements.into(new TypeDescriptor<KV<Long, Edge>>(){}).via(e -> KV.of(e.saddle, e)));
-	  final TupleTag<Point> mappedSaddlesTag = new TupleTag<>();
-	  final TupleTag<Edge> mappedEdgesTag = new TupleTag<>();
-	  PCollection<PathTask> domainTasks = KeyedPCollectionTuple
-	    .of(mappedSaddlesTag, mappedSaddles)
-	    .and(mappedEdgesTag, mappedEdges)
-	    .apply(CoGroupByKey.create())
-	    .apply(ParDo.of(
-			new DoFn<KV<Long, CoGbkResult>, KV<Point, Edge>>() {
-			  @ProcessElement
-			  public void processElement(ProcessContext c) {
-			    KV<Long, CoGbkResult> e = c.element();
-			    Iterable<Point> points = e.getValue().getAll(mappedSaddlesTag);
-			    List<Edge> edges = Lists.newArrayList(e.getValue().getAll(mappedEdgesTag));
-			    if (edges.size() > 1) {
-			    	throw new RuntimeException();
-			    }
-			    
-			    for (Point p : points) {
-			    	for (Edge edge : edges) {
-			    		c.output(KV.of(p, edge));
-			    	}
-			    }
-			  }
-			})).apply(GroupByKey.create()).apply(MapElements.into(new TypeDescriptor<PathTask>() {}).via(
-					new SerializableFunction<KV<Point, Iterable<Edge>>, PathTask>() {
-						@Override
-						public PathTask apply(KV<Point, Iterable<Edge>> input) {
-							PathTask task = new PathTask();
-							task.p = input.getKey();
-							task.type = PathTask.TYPE_DOMAIN;
-							task.saddles = new HashMap<>();
-							for (Edge e : input.getValue()) {
-								ArrayList<Long> anchors = new ArrayList<>();
-								if (e.a != PointIndex.NULL) {
-									anchors.add(e.a);
-								}
-								if (e.b != PointIndex.NULL) {
-									anchors.add(e.b);
-								}
-								if (anchors.isEmpty()) {
-									// the corresponding edge may have both leads null in opposite-world,
-									// but these should not have been written to the network and thus won't
-									// appear in the join
-									throw new RuntimeException();
-								}
-								task.saddles.put(e.saddle, anchors);
-							}
-							return task;
-						}
-					}));
+		  }		  
+	  }).withSideInputs(saddleLookup));
 
 	  PCollection<KV<Integer, Iterable<PathTask>>> taskSingleton =
-			  PCollectionList.of(tasks).and(domainTasks).apply(Flatten.pCollections())
-			  .apply(MapElements.into(new TypeDescriptor<KV<Integer, PathTask>>() {}).via(task -> KV.of(0, task)))
+			  tasks.apply(MapElements.into(new TypeDescriptor<KV<Integer, PathTask>>() {}).via(task -> KV.of(0, task)))
 	  		.apply(GroupByKey.create());
 	  PCollection<KV<Integer, Iterable<Edge>>> mstSingleton =
-			  mst.apply(MapElements.into(new TypeDescriptor<KV<Integer, Edge>>() {}).via(e -> KV.of(0, e)))
+			  PCollectionList.of(mst).and(mstSaddleAnchors).apply(Flatten.pCollections())
+			  .apply(MapElements.into(new TypeDescriptor<KV<Integer, Edge>>() {}).via(e -> KV.of(0, e)))
 	  		.apply(GroupByKey.create());
 
 	  final TupleTag<Iterable<PathTask>> taskTag = new TupleTag<>();
-	  final TupleTag<Iterable<Edge>> mstTag = new TupleTag<>();
-	  
+	  final TupleTag<Iterable<Edge>> mstTag = new TupleTag<>();	  
       return KeyedPCollectionTuple
 			    .of(taskTag, taskSingleton)
 			    .and(mstTag, mstSingleton)

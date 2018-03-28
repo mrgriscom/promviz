@@ -1,13 +1,12 @@
 package com.mrgris.prominence;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map.Entry;
 import java.util.Set;
 
 import com.mrgris.prominence.PathsPipeline.PathSearcher;
+import com.mrgris.prominence.Prominence.PromFact.Saddle;
 
 /* TODO
  * test trisaddle
@@ -20,15 +19,15 @@ import com.mrgris.prominence.PathsPipeline.PathSearcher;
  */
 
 public class Runoff {
-
+	
 	// what is happening with segments with only 1 point?
 	
-	public static List<List<Long>> runoff(HashMap<Long, ArrayList<Long>> seeds, PathSearcher mst) {
+	public static List<List<Long>> runoff(List<Saddle> seeds, PathSearcher mst) {
 		List<Trace> traces = new ArrayList<Trace>();
 		Set<Trace> completed = new HashSet<Trace>();
-		for (Entry<Long, ArrayList<Long>> e : seeds.entrySet()) {
-			long ix = e.getKey();
-			for (long anch : e.getValue()) {
+		for (Saddle s : seeds) {
+			long ix = s.s.ix;
+			for (long anch : mst.anchors.get(ix)) { // anchors may be empty if no runoff resolves in opposite world
 				Trace t = new Trace();
 				t.add(ix);
 				t.add(anch);

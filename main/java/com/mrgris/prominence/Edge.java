@@ -33,7 +33,10 @@ public class Edge {
 		this.saddle = saddle;
 		this.tagA = tagA;
 		this.tagB = tagB;
-		
+	}
+	
+	// needed?
+	public void normalize() {
 		if (this.a == PointIndex.NULL) {
 			reverse();
 		}
