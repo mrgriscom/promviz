@@ -69,6 +69,9 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 			public Saddle(Point saddle, int traceNumTowardsP) {
 				this.s = new Point(saddle);
 				this.traceNumTowardsP = traceNumTowardsP;
+				if (traceNumTowardsP == Edge.TAG_NULL) {
+					throw new RuntimeException();
+				}
 			}
 		}
 				

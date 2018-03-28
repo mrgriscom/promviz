@@ -1,6 +1,7 @@
 package com.mrgris.prominence;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -23,23 +24,59 @@ public class Runoff {
 	// what is happening with segments with only 1 point?
 	
 	public static List<List<Long>> runoff(List<Saddle> seeds, PathSearcher mst) {
-		List<Trace> traces = new ArrayList<Trace>();
-		Set<Trace> completed = new HashSet<Trace>();
+		List<Trace> traces = new ArrayList<>();
+		Set<Trace> completed = new HashSet<>();
+		Set<Trace> clockwise = new HashSet<>();
 		for (Saddle s : seeds) {
 			long ix = s.s.ix;
-			for (long anch : mst.anchors.get(ix)) { // anchors may be empty if no runoff resolves in opposite world
+			List<Edge> anchors = mst.anchors.get(ix);
+  	        // anchors may be empty if no runoff resolves in opposite world
+			if (anchors.isEmpty()) {
+				continue;
+			}
+			if (anchors.size() != 2) {
+				throw new RuntimeException();
+			}
+			if (s.traceNumTowardsP == Edge.TAG_NULL) {
+				throw new RuntimeException();
+			}
+			for (Edge e : anchors) {
+				if (e.tagB == Edge.TAG_NULL) {
+					throw new RuntimeException("" + e);
+				}
+			}
+			
+			int[] anchorTags = new int[] {anchors.get(0).tagB, anchors.get(1).tagB};
+			Arrays.sort(anchorTags);
+			// (assumes trace #s increase clockwise)
+			int traceClockwise;
+			if (s.traceNumTowardsP > anchorTags[0] && s.traceNumTowardsP < anchorTags[1]) {
+				traceClockwise = anchorTags[0];
+			} else {
+				traceClockwise = anchorTags[1];				
+			}
+		
+			for (Edge e : anchors) {
+				long anch = e.b;
+				if (anch == PointIndex.NULL) {
+					continue;
+				}
+				
 				Trace t = new Trace();
 				t.add(ix);
 				t.add(anch);
 
 				// weirdness can occur at the edge of the data area where peaks are 'orphaned' and so the
-				// mst networks actually cross. adding 'end-of-world' saddles should fix, but keep this
+				// mst networks actually cross (share saddles). adding 'end-of-world' saddles should fix, but keep this
 				// safeguard here
 				if (mst.get(t.head()) == ix) {
 					continue;
 				}
 				
 				traces.add(t);
+				if (e.tagB == traceClockwise) {
+					clockwise.add(t);
+				}
 			}
 		}
 
@@ -110,7 +147,6 @@ public class Runoff {
 			if (t.find(PointIndex.NULL) != -1) {
 				t.trimAt(-1);
 			}
-			
 			ro.add(t.path);
 		}
 		return ro;
@@ -167,6 +203,4 @@ public class Runoff {
 		}
 	}
 
-	// TODO investigate continued need for this?
-	static final long END_OF_WORLD = PointIndex.NULL - 1; // sentinel
 }

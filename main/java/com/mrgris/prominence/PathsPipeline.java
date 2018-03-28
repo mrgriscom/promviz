@@ -78,20 +78,20 @@ public class PathsPipeline {
   
   static abstract class PathSearcher {
 	  Map<Long, Long> backtrace;
-	  Map<Long, List<Long>> anchors;
+	  Map<Long, List<Edge>> anchors;
 	  
 	  public PathSearcher(Iterable<Edge> mst) {
-		  anchors = new DefaultMap<Long, List<Long>>() {
+		  anchors = new DefaultMap<Long, List<Edge>>() {
 			@Override
-			public List<Long> defaultValue(Long key) {
-				return new ArrayList<Long>();
+			public List<Edge> defaultValue(Long key) {
+				return new ArrayList<>();
 			}
 		  };
 		  backtrace = new HashMap<>();
 		  
 		  for (Edge e : mst) {
 			  if (e.a == PointIndex.NULL) {
-				  anchors.get(e.saddle).add(e.b);
+				  anchors.get(e.saddle).add(e);
 			  } else {
 				  backtrace.put(e.a, e.saddle);
 				  if (e.b != PointIndex.NULL) {
@@ -234,9 +234,8 @@ public class PathsPipeline {
 			  Edge e = c.element();
 			  if (relevantSaddles.containsKey(e.saddle)) {
 				  for (HalfEdge he : e.split()) {
-					  if (he != null) {
-						   c.output(new Edge(PointIndex.NULL, he.p, he.saddle, Edge.TAG_NULL, he.tag));
-					  }
+					  // still output null half-edges because we need both tag #s to determine orientation
+					  c.output(new Edge(PointIndex.NULL, he.p, he.saddle, Edge.TAG_NULL, he.tag));
 				  }
 			  }
 		  }		  

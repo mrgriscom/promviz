@@ -146,7 +146,7 @@ public class ProminencePipeline {
 		      public void processElement(ProcessContext c) {
 		    	  Edge e = c.element();
 		    	  for (HalfEdge he : e.split()) {
-		    		  if (he != null) {
+		    		  if (he.p != PointIndex.NULL) {
 				    	  c.output(KV.of(he.p, he));		    			  
 		    		  }
 		    	  }
