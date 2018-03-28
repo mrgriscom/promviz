@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import org.apache.avro.reflect.Nullable;
@@ -79,167 +80,136 @@ public class PathsPipeline {
   private static final Logger LOG = LoggerFactory.getLogger(PathsPipeline.class);
   
   static abstract class PathSearcher {
-	  Map<Long, Long> backtrace;
-	  Map<Long, List<Edge>> anchors;
+	  Map<Object, Long> backtrace;
+	  Map<Long, List<Integer>> anchors;
 	  
-	  /*
-	  static class IterStart {
+	  static class BasinSaddleEdge {
 		  long ix;
-		  int option;
+		  int trace;
 		  
-		  public IterStart(long ix, int option) {
+		  public BasinSaddleEdge(long ix, int trace) {
 			  this.ix = ix;
-			  this.option = option;
+			  this.trace = trace;
 		  }
+		  
+			@Override
+			public boolean equals(Object o) {
+				if (o instanceof BasinSaddleEdge) {
+					BasinSaddleEdge bse = (BasinSaddleEdge)o;
+					return this.ix == bse.ix && this.trace == bse.trace;
+				} else {
+					return false;
+				}
+			}
+			
+			@Override
+			public int hashCode() {
+				return Objects.hash(ix, trace);
+			}
 	  }
-	  */
 	  
 	  public PathSearcher(Iterable<Edge> mst, Iterable<Long> keyPointsIt) {
-		  anchors = new DefaultMap<Long, List<Edge>>() {
+		  anchors = new DefaultMap<Long, List<Integer>>() {
 			@Override
-			public List<Edge> defaultValue(Long key) {
+			public List<Integer> defaultValue(Long key) {
 				return new ArrayList<>();
 			}
 		  };
 		  backtrace = new HashMap<>();
 		  
+		  Set<Long> terminalSaddles = new HashSet<>();
 		  for (Edge e : mst) {
-			  if (e.a == PointIndex.NULL) {
-				  anchors.get(e.saddle).add(e);
-			  } else {
+			  if (e.a != PointIndex.NULL) {
+				  // not a basin saddle edge
 				  backtrace.put(e.a, e.saddle);
 				  if (e.b != PointIndex.NULL) {
 					  backtrace.put(e.saddle, e.b);
+				  } else {
+					  terminalSaddles.add(e.saddle);
 				  }
 			  }
 		  }
-		  // awefowijfisjfiwjef
-		  for (long ix : backtrace.keySet()) {
-			  anchors.remove(ix);
-		  }
-		  for (long ix : backtrace.values()) {
-			  anchors.remove(ix);
+		  // not sure we can iterate twice?
+		  for (Edge e : mst) {
+			  if (e.a == PointIndex.NULL) {
+				  // basin saddle edge
+				  if (backtrace.containsKey(e.saddle) || terminalSaddles.contains(e.saddle)) {
+					  // through various quirks, the two MSTs can sometimes share saddles, particularly
+					  // near the edge of the data region, though strictly speaking this isn't supposed
+					  // to happen. give precedence to the mst over the basin saddles in this case.
+					  continue;
+				  }
+				  
+				  anchors.get(e.saddle).add(e.tagB);
+				  if (e.b != PointIndex.NULL) {
+					  backtrace.put(new BasinSaddleEdge(e.saddle, e.tagB), e.b);
+				  }
+			  }
 		  }
 		  
 		  Set<Long> keyPoints = Sets.newHashSet(keyPointsIt);
 		  Set<Long> junctions = new HashSet<>();
 		  Set<Long> seen = new HashSet<>(keyPoints);
-		  for (long start : keyPoints) {
-			  for (int opt = 0; opt < numOptions(start); opt++) {
-				  long ix = start;
-				  int i = opt;
-				  
-				  while (true) {
-					  ix = get(ix, i);
-					  i = 0;
-					  
-					  if (ix == PointIndex.NULL) {
-						  break;
-					  }
-					  if (seen.contains(ix)) {
-						  if (!keyPoints.contains(ix)) {
-							  junctions.add(ix);
-						  }
-						  break;
-					  } else {
-						  seen.add(ix);
-					  }
+		  Set<Object> traceStart = new HashSet<>();
+		  for (long ix : keyPoints) {
+			  if (anchors.containsKey(ix)) {
+				  for (int traceNum : anchors.get(ix)) {
+					  traceStart.add(new BasinSaddleEdge(ix, traceNum));
 				  }
+			  } else {
+				  traceStart.add(ix);
 			  }
 		  }
-		  System.out.println("backtrace " + backtrace.size());
-		  System.out.println("seen " + seen.size());
-		  System.out.println("keypoints " + keyPoints.size());
-		  System.out.println("junctions " + junctions.size());
-		  		  
+		  for (Object cur : traceStart) {
+			  while (true) {
+				  cur = get(cur);
+				  long ix = (long)cur;
+				  if (ix == PointIndex.NULL) {
+					  break;
+				  } else if (keyPoints.contains(ix)) {
+					  break;
+				  } else if (seen.contains(ix)) {
+					  junctions.add(ix);
+					  break;
+				  } else {
+					  seen.add(ix);
+				  }
+			  }
+		  }		  		  
 		  keyPoints.addAll(junctions);
-
-		  Map<Long, List<Edge>> rAnchors = new DefaultMap<Long, List<Edge>>() {
-			@Override
-			public List<Edge> defaultValue(Long key) {
-				return new ArrayList<>();
-			}
-		  };
-		  Map<Long, Long> rBacktrace = new HashMap<>();
-
-		  for (long start : keyPoints) {
-			  for (int opt = 0; opt < numOptions(start); opt++) {
-				  LOG.debug("kp " + start + " " + opt);
-				  
-				  long ix = start;
-				  int i = opt;
-				  
-				  LOG.debug("tr " + ix + " " + i);
-				  while (true) {
-					  ix = get(ix, i);
-					  i = 0;
-					  LOG.debug("tr " + ix + " " + i);
-					  
-					  if (ix == PointIndex.NULL) {
-						  break;
-					  }
-					  if (keyPoints.contains(ix)) {
-						  break;
-					  }
-				  }
-				  LOG.debug("end " + start + " " + ix);
-				  
-				  if (anchors.containsKey(start)) {
-					  if (ix == start) {
-						  // workaround EOW MST crossing bug
-						  ix = PointIndex.NULL;
-					  }
-					  
-					  rAnchors.get(start).add(new Edge(PointIndex.NULL, ix, start, Edge.TAG_NULL,
-							  anchors.get(start).get(opt).tagB));
-				  } else if (ix != PointIndex.NULL) {
-					  rBacktrace.put(start, ix);
-					  LOG.debug("here!!!" + rBacktrace.size());
+		  traceStart.addAll(junctions);
+		  
+		  Map<Object, Long> trimmedBacktrace = new HashMap<>();
+		  for (Object start : traceStart) {
+			  List<Long> seg = new ArrayList<>();
+			  if (start instanceof BasinSaddleEdge) {
+				  seg.add(((BasinSaddleEdge)start).ix);
+			  } else {
+				  seg.add((long)start);
+			  }
+			  
+			  Object cur = start;
+			  long ix;
+			  while (true) {
+				  cur = get(cur);
+				  ix = (long)cur; // how to tell if peak or saddle?
+				  seg.add(ix);
+				  if (ix == PointIndex.NULL || keyPoints.contains(ix)) {
+					  break;
 				  }
 			  }
-		  }
-		  System.out.println("rbt3 " + rBacktrace.size());
-		  // need edge for terminal keypoint to EOW?
-		  this.anchors = rAnchors;
-		  this.backtrace = rBacktrace;
-		  System.out.println("rbt2 " + this.backtrace.size());
-		  
-		  int c = 0;
-		  for (long ix : backtrace.keySet()) {
-			  long next = get(ix);
-			  if (next == PointIndex.NULL) {
-				  c++;
-			  } else if (backtrace.containsKey(next)) {
-				  c++;
+			  if (ix != PointIndex.NULL) {
+				  trimmedBacktrace.put(start, ix);
 			  }
-		  }
-		  System.out.println("rbt " + this.backtrace.size() + " " + c);
-		  
+			  // emit seg
+		  }		  		  
+		  System.out.println("backtrace size before " + backtrace.size() + " after " + trimmedBacktrace.size());
+		  backtrace = trimmedBacktrace;
 	  }
 
-	  public int numOptions(long ix) {
-		  if (anchors.containsKey(ix)) {
-			  return anchors.get(ix).size();
-		  } else {
-			  return 1;
-		  }
-	  }
-	  
-	  public long get(long ix) {
-		  //if (anchors.containsKey(ix) && !backtrace.containsKey(ix)) {
-		 //	  throw new RuntimeException("" + ix);
-		  //}
-		  return get(ix, 0);
-	  }
-	  
-	  public long get(long ix, int option) {
-		  if (anchors.containsKey(ix) && !backtrace.containsKey(ix)) {
-			  return anchors.get(ix).get(option).b;
-		  } else if (backtrace.containsKey(ix)) {
-			  if (option != 0) {
-				  throw new RuntimeException();
-			  }
-			  return backtrace.get(ix);
+	  public long get(Object cur) {
+		  if (backtrace.containsKey(cur)) {
+			  return backtrace.get(cur);
 		  } else {
 			  return PointIndex.NULL;
 		  }
