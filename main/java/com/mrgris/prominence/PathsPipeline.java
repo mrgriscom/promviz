@@ -79,6 +79,17 @@ import com.mrgris.prominence.util.DefaultMap;
 public class PathsPipeline {
   private static final Logger LOG = LoggerFactory.getLogger(PathsPipeline.class);
   
+  @DefaultCoder(AvroCoder.class)
+  static class TrimmedEdge {
+	  List<Long> breadcrumbs;
+	  boolean startsSaddle;
+	  int traceNum;
+	  
+	  public TrimmedEdge() {
+		  breadcrumbs = new ArrayList<>();
+	  }
+  }
+  
   static abstract class PathSearcher {
 	  Map<Object, Long> backtrace;
 	  Map<Long, List<Integer>> anchors;
@@ -108,7 +119,7 @@ public class PathsPipeline {
 			}
 	  }
 	  
-	  public PathSearcher(Iterable<Edge> mst, Iterable<Long> keyPointsIt) {
+	  public PathSearcher(Iterable<Edge> mst, Iterable<KV<Long, Integer>> keyPointsIt) {
 		  anchors = new DefaultMap<Long, List<Integer>>() {
 			@Override
 			public List<Integer> defaultValue(Long key) {
@@ -117,10 +128,13 @@ public class PathsPipeline {
 		  };
 		  backtrace = new HashMap<>();
 		  
+		  List<Edge> basinSaddleEdges = new ArrayList<>();
 		  Set<Long> terminalSaddles = new HashSet<>();
 		  for (Edge e : mst) {
-			  if (e.a != PointIndex.NULL) {
-				  // not a basin saddle edge
+			  if (e.a == PointIndex.NULL) {
+				  // process only after main mst has been built
+				  basinSaddleEdges.add(e);
+			  } else {
 				  backtrace.put(e.a, e.saddle);
 				  if (e.b != PointIndex.NULL) {
 					  backtrace.put(e.saddle, e.b);
@@ -129,29 +143,28 @@ public class PathsPipeline {
 				  }
 			  }
 		  }
-		  // not sure we can iterate twice?
-		  for (Edge e : mst) {
-			  if (e.a == PointIndex.NULL) {
-				  // basin saddle edge
-				  if (backtrace.containsKey(e.saddle) || terminalSaddles.contains(e.saddle)) {
-					  // through various quirks, the two MSTs can sometimes share saddles, particularly
-					  // near the edge of the data region, though strictly speaking this isn't supposed
-					  // to happen. give precedence to the mst over the basin saddles in this case.
-					  continue;
-				  }
-				  
-				  anchors.get(e.saddle).add(e.tagB);
-				  if (e.b != PointIndex.NULL) {
-					  backtrace.put(new BasinSaddleEdge(e.saddle, e.tagB), e.b);
-				  }
+		  for (Edge e : basinSaddleEdges) {
+			  if (backtrace.containsKey(e.saddle) || terminalSaddles.contains(e.saddle)) {
+				  // through various quirks, the two MSTs can sometimes share saddles, particularly
+				  // near the edge of the data region, though strictly speaking this isn't supposed
+				  // to happen. give precedence to the mst over the basin saddles in this case.
+				  continue;
+			  }
+			  
+			  anchors.get(e.saddle).add(e.tagB);
+			  if (e.b != PointIndex.NULL) {
+				  backtrace.put(new BasinSaddleEdge(e.saddle, e.tagB), e.b);
 			  }
 		  }
 		  
-		  Set<Long> keyPoints = Sets.newHashSet(keyPointsIt);
+		  Map<Long, Integer> keyPoints = new HashMap<>();
+		  for (KV<Long, Integer> kp : keyPointsIt) {
+			  keyPoints.put(kp.getKey(), kp.getValue());
+		  }
 		  Set<Long> junctions = new HashSet<>();
-		  Set<Long> seen = new HashSet<>(keyPoints);
+		  Set<Long> seen = new HashSet<>();
 		  Set<Object> traceStart = new HashSet<>();
-		  for (long ix : keyPoints) {
+		  for (long ix : keyPoints.keySet()) {
 			  if (anchors.containsKey(ix)) {
 				  for (int traceNum : anchors.get(ix)) {
 					  traceStart.add(new BasinSaddleEdge(ix, traceNum));
@@ -164,9 +177,7 @@ public class PathsPipeline {
 			  while (true) {
 				  cur = get(cur);
 				  long ix = (long)cur;
-				  if (ix == PointIndex.NULL) {
-					  break;
-				  } else if (keyPoints.contains(ix)) {
+				  if (ix == PointIndex.NULL || keyPoints.containsKey(ix)) {
 					  break;
 				  } else if (seen.contains(ix)) {
 					  junctions.add(ix);
@@ -176,16 +187,24 @@ public class PathsPipeline {
 				  }
 			  }
 		  }		  		  
-		  keyPoints.addAll(junctions);
+		  for (long j : junctions) {
+			  keyPoints.put(j, MeshPoint.CLASS_SUMMIT); // junctions can never be saddles
+		  }
 		  traceStart.addAll(junctions);
 		  
 		  Map<Object, Long> trimmedBacktrace = new HashMap<>();
 		  for (Object start : traceStart) {
-			  List<Long> seg = new ArrayList<>();
+			  TrimmedEdge seg = new TrimmedEdge();
 			  if (start instanceof BasinSaddleEdge) {
-				  seg.add(((BasinSaddleEdge)start).ix);
+				  BasinSaddleEdge bse = (BasinSaddleEdge)start;
+				  seg.breadcrumbs.add(bse.ix);
+				  seg.traceNum = bse.trace;
+				  seg.startsSaddle = true;
 			  } else {
-				  seg.add((long)start);
+				  if (keyPoints.get(start) == MeshPoint.CLASS_SADDLE) {
+					  seg.startsSaddle = true;
+				  }
+				  seg.breadcrumbs.add((long)start);
 			  }
 			  
 			  Object cur = start;
@@ -193,15 +212,19 @@ public class PathsPipeline {
 			  while (true) {
 				  cur = get(cur);
 				  ix = (long)cur; // how to tell if peak or saddle?
-				  seg.add(ix);
-				  if (ix == PointIndex.NULL || keyPoints.contains(ix)) {
+				  if (ix != PointIndex.NULL) {
+					  seg.breadcrumbs.add(ix);
+				  }
+				  if (ix == PointIndex.NULL || keyPoints.containsKey(ix)) {
 					  break;
 				  }
 			  }
 			  if (ix != PointIndex.NULL) {
 				  trimmedBacktrace.put(start, ix);
 			  }
-			  // emit seg
+			  if (seg.breadcrumbs.size() > 1) {
+				  emitEdge(seg);
+			  }
 		  }		  		  
 		  System.out.println("backtrace size before " + backtrace.size() + " after " + trimmedBacktrace.size());
 		  backtrace = trimmedBacktrace;
@@ -276,6 +299,7 @@ public class PathsPipeline {
 	  }
 	  
 	  public abstract void emitPath(PromFact pf);
+	  public abstract void emitEdge(TrimmedEdge seg);
   }
   
   @DefaultCoder(AvroCoder.class)
@@ -347,19 +371,20 @@ public class PathsPipeline {
 		  }		  
 	  }).withSideInputs(saddleLookup));
 
-	  PCollection<Long> keyPoints = PCollectionList.of(
-			  prom.apply(ParDo.of(new DoFn<PromFact, Long>(){
+	  PCollection<KV<Long, Integer>> keyPoints = PCollectionList.of(
+			  prom.apply(ParDo.of(new DoFn<PromFact, KV<Long, Integer>>(){
 				  @ProcessElement
 				  public void processElement(ProcessContext c) {
 					  PromFact pf = c.element();
-					  c.output(pf.p.ix);
-					  c.output(pf.saddle.s.ix);
+					  c.output(KV.of(pf.p.ix, MeshPoint.CLASS_SUMMIT));
+					  c.output(KV.of(pf.saddle.s.ix, MeshPoint.CLASS_SADDLE));
 					  if (pf.thresh != null) {
-						  c.output(pf.thresh.ix);
+						  c.output(KV.of(pf.thresh.ix, MeshPoint.CLASS_SUMMIT));
 					  }
 				  }
 			  }))
-			  ).and(promBasinSaddles).apply(Flatten.pCollections()).apply(Distinct.create());
+			  ).and(promBasinSaddles.apply(MapElements.into(new TypeDescriptor<KV<Long, Integer>>(){})
+					  .via(ix -> KV.of(ix, MeshPoint.CLASS_SADDLE)))).apply(Flatten.pCollections()).apply(Distinct.create());
 	  	  
 	  PCollection<KV<Integer, Iterable<PathTask>>> taskSingleton =
 			  tasks.apply(MapElements.into(new TypeDescriptor<KV<Integer, PathTask>>() {}).via(task -> KV.of(0, task)))
@@ -368,13 +393,13 @@ public class PathsPipeline {
 			  PCollectionList.of(mst).and(mstSaddleAnchors).apply(Flatten.pCollections())
 			  .apply(MapElements.into(new TypeDescriptor<KV<Integer, Edge>>() {}).via(e -> KV.of(0, e)))
 	  		.apply(GroupByKey.create());
-	  PCollection<KV<Integer, Iterable<Long>>> keyPointsSingleton =
-			  keyPoints.apply(MapElements.into(new TypeDescriptor<KV<Integer, Long>>() {}).via(ix -> KV.of(0, ix)))
+	  PCollection<KV<Integer, Iterable<KV<Long, Integer>>>> keyPointsSingleton =
+			  keyPoints.apply(MapElements.into(new TypeDescriptor<KV<Integer, KV<Long, Integer>>>() {}).via(kp -> KV.of(0, kp)))
 	  		.apply(GroupByKey.create());
 
 	  final TupleTag<Iterable<PathTask>> taskTag = new TupleTag<>();
 	  final TupleTag<Iterable<Edge>> mstTag = new TupleTag<>();	  
-	  final TupleTag<Iterable<Long>> keyPointsTag = new TupleTag<>();	  
+	  final TupleTag<Iterable<KV<Long, Integer>>> keyPointsTag = new TupleTag<>();	  
       return KeyedPCollectionTuple
 			    .of(taskTag, taskSingleton)
 			    .and(mstTag, mstSingleton)
@@ -387,11 +412,14 @@ public class PathsPipeline {
 		      KV<Integer, CoGbkResult> e = c.element();
 		      Iterable<PathTask> tasks = e.getValue().getAll(taskTag).iterator().next();
 		      Iterable<Edge> mst = e.getValue().getAll(mstTag).iterator().next();
-		      Iterable<Long> keyPoints = e.getValue().getAll(keyPointsTag).iterator().next();
+		      Iterable<KV<Long, Integer>> keyPoints = e.getValue().getAll(keyPointsTag).iterator().next();
 		      
 		      PathSearcher searcher = new PathSearcher(mst, keyPoints) {
 		    	  public void emitPath(PromFact pf) {
 		    		  c.output(pf);
+		    	  }
+		    	  public void emitEdge(TrimmedEdge seg) {
+		    		  // TODO
 		    	  }
 		      };
 		      for (PathTask task : tasks) {
