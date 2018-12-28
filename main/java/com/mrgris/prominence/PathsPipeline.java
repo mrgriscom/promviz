@@ -27,7 +27,6 @@ import java.util.Objects;
 import java.util.Set;
 
 import org.apache.avro.reflect.Nullable;
-import org.apache.beam.runners.dataflow.repackaged.org.apache.beam.runners.core.construction.java.repackaged.com.google.common.collect.Sets;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
@@ -289,9 +288,9 @@ public class PathsPipeline {
 		  PromFact fact = new PromFact();
 		  fact.p = task.p;
 		  if (task.type == PathTask.TYPE_THRESH) {
-			  fact.threshPath = getAtoB(task.p.ix, task.thresh);
+			  fact.threshPath = getAtoB(task.p.ix, task.target);
 		  } else if (task.type == PathTask.TYPE_PARENT) {		  
-		  	  fact.parentPath = getAtoB(task.p.ix, task.parent);
+		  	  fact.parentPath = getAtoB(task.p.ix, task.target);
 		  } else if (task.type == PathTask.TYPE_DOMAIN) {
 			  fact.domainBoundary = Runoff.runoff(task.saddles, this);
 		  }
@@ -310,8 +309,7 @@ public class PathsPipeline {
 	  
 	  Point p;
 	  int type;
-	  long thresh;
-	  long parent;
+	  long target;
 	  @Nullable
 	  ArrayList<Saddle> saddles;
   }
@@ -327,13 +325,13 @@ public class PathsPipeline {
 					  PathTask thresh = new PathTask();
 					  thresh.type = PathTask.TYPE_THRESH;
 					  thresh.p = pf.p;
-					  thresh.thresh = pf.thresh != null ? pf.thresh.ix : PointIndex.NULL;
+					  thresh.target = pf.thresh != null ? pf.thresh.ix : PointIndex.NULL;
 					  c.output(thresh);
 
 					  PathTask parent = new PathTask();
 					  parent.type = PathTask.TYPE_PARENT;
 					  parent.p = pf.p;
-					  parent.parent = pf.parent != null ? pf.parent.ix : PointIndex.NULL;
+					  parent.target = pf.parent != null ? pf.parent.ix : PointIndex.NULL;
 					  c.output(parent);
 				  }
 			  })))

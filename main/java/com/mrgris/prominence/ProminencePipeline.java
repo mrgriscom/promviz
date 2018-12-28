@@ -17,13 +17,11 @@
  */
 package com.mrgris.prominence;
 
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 
-import org.apache.beam.runners.direct.repackaged.runners.core.java.repackaged.com.google.common.collect.Lists;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -47,6 +45,7 @@ import org.apache.beam.sdk.values.TypeDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Ordering;
 import com.mrgris.prominence.Edge.HalfEdge;
 import com.mrgris.prominence.Prominence.Front.AvroFront;

@@ -8,6 +8,32 @@ import org.apache.beam.sdk.coders.DefaultCoder;
 
 import com.mrgris.prominence.PointIndex;
 
+/**
+ *  from gdal
+ *  
+ *  path
+ *  CRS
+ *  pixel-dx/dy
+ *  subpx-offset-x/y
+ *  width/height
+ *  origin
+ *  z-unit
+ *  nodata
+
+ *  
+ *  (series, path)
+ *  grid def:
+ *  - CRS
+ *  - pixel spacing (x and y)
+ *  - sub-pixel offset (i.e., area-or-point)
+ *  width/height
+ *  origin (integer xy pixel coordinates)
+ *  z-unit (m / ft / other?)
+ *  nodata value
+ *
+ *  loadElevData(rect)
+ */
+
 @DefaultCoder(AvroCoder.class)
 public class DEMFile {
 

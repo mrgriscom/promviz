@@ -14,9 +14,9 @@ import java.util.Set;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.io.DatumReader;
 import org.apache.avro.reflect.ReflectDatumReader;
-import org.apache.beam.runners.direct.repackaged.runners.core.java.repackaged.com.google.common.collect.Sets;
 import org.sqlite.SQLiteConfig;
 
+import com.google.common.collect.Sets;
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.util.GeoCode;
 import com.vividsolutions.jts.geom.Coordinate;
