@@ -240,7 +240,7 @@ if __name__ == "__main__":
 
     conn = sqlite3.connect(dbpath)
     conn.enable_load_extension(True)
-    conn.load_extension("mod_spatialite")
+    conn.load_extension("mod_spatialite.so")
     
     application = web.Application([
         (r'/view/(?P<tag>.*)', MapViewHandler),
