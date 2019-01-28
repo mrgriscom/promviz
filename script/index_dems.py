@@ -1,15 +1,20 @@
 import os
+import sys
 import math
 import glob
+import os.path
+import itertools
 from osgeo import gdal,ogr,osr
+from shapely.geometry import Polygon, box
 from pprint import pprint
+import json
 
-dems = (glob.glob('/home/drew/nobk/gis/ferranti/zipped/*.gz') +
-        glob.glob('/home/drew/nobk/gis/gmted/*.tif') +
-        [
-            '/home/drew/nobk/gis/tmp/ned/n42w073/floatn42w073_13.flt',
-            '/home/drew/Downloads/10m_Grid_GeoTiff/10m_BA.tif',
-        ])
+filesets = [
+    ('/home/drew/nobk/gis/ferranti/zipped/', '*.gz', 'ferranti3'),
+    ('/home/drew/nobk/gis/gmted/', '*.tif', 'gmted'),
+    ('/home/drew/nobk/gis/tmp/ned/', '*/*.flt', 'ned1-3'),
+    ('/home/drew/Downloads/10m_Grid_GeoTiff/', '10m_BA.tif', 'misc-cpt'),
+]
 
 epsg_remaps = {
     4269: 4326,  # geographic nad83 -> wgs84
@@ -20,12 +25,16 @@ def transform_px(transform, px, py):
     return (tx[0] + tx[1]*px + tx[2]*py,
             tx[3] + tx[4]*px + tx[5]*py)
 
-GRIDS = []
-for dempath in sorted(dems):
-    grid = {}
-    dem = {'path': dempath}
+def process_series(root, _glob, series):
+    for path in sorted(glob.glob(os.path.join(root, _glob))):
+        yield process_dem(os.path.join(series, os.path.relpath(path, root)), path)
 
-    raster= ('/vsigzip/' if dempath.endswith('.gz') else '') + dempath
+GRIDS = []
+def process_dem(key, path):
+    grid = {}
+    dem = {'path': key}
+
+    raster= ('/vsigzip/' if path.endswith('.gz') else '') + path
     ds=gdal.Open(raster)
 
     srs=osr.SpatialReference()
@@ -71,6 +80,13 @@ for dempath in sorted(dems):
     grid['subpx_offset'] = [round(k % 1., SUBPX_PREC) for k in grid0]
     dem['origin'] = [int(math.floor(k)) for k in grid0]
 
+    # TODO handle bounds for other projections -- include 1/2 pixel buffer and subdivide lines until projection error is < epsilon*pixel
+    if grid['srs'] == 'epsg:4326':
+        x0, y0 = transform_px(gt, 0, 0)
+        x1, y1 = transform_px(gt, width, height)
+        bound = box(x0, y0, x1, y1)
+        dem['bound'] = bound.wkt
+        
     band = ds.GetRasterBand(1)
     nodata = band.GetNoDataValue()
     if nodata:
@@ -89,8 +105,12 @@ for dempath in sorted(dems):
         grid_id = len(GRIDS)
         GRIDS.append(grid)
     dem['grid_id'] = grid_id
-        
-    pprint(dem)
-    print
 
-pprint(list(enumerate(GRIDS)))
+    sys.stderr.write(path + '\n')
+    return dem
+
+if __name__ == '__main__':
+    DEMS = list(itertools.chain(*(process_series(*fs) for fs in filesets)))
+    for i, grid in enumerate(GRIDS):
+        grid['id'] = i
+    print json.dumps({'dems': DEMS, 'grids': GRIDS}, sort_keys=True, indent=4)
