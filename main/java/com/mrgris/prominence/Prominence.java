@@ -347,7 +347,9 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 				emitPendingFront(f);
 			}
 			
-			this.mesh.destroy();
+			if (this.mesh != null) {
+				this.mesh.destroy();
+			}
 		}
 		
 		public void finalizePending() {

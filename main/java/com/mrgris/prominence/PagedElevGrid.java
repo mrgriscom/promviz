@@ -30,6 +30,7 @@ public class PagedElevGrid implements IMesh {
 	int maxPages;
 	Map<Prefix, Segment> segments;
 	String demCacheDir;
+	boolean destroyed = false;
 	
 	long ctr = 0;
 	
@@ -48,6 +49,14 @@ public class PagedElevGrid implements IMesh {
 	        .forEach(File::delete);
 		} catch (IOException e) {
 			throw new RuntimeException(e);
+		}
+		destroyed = true;
+	}
+	
+	@Override
+	public void finalize() {
+		if (!destroyed) {
+			throw new RuntimeException("destroy() never called");
 		}
 	}
 	
