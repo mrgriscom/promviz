@@ -1,12 +1,5 @@
 package com.mrgris.prominence;
 
-import java.io.BufferedReader;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.URL;
-import java.nio.channels.Channels;
-import java.nio.channels.ReadableByteChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -20,15 +13,13 @@ import java.util.Set;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
-import org.gdal.gdal.Band;
-import org.gdal.gdal.Dataset;
 import org.gdal.gdal.gdal;
-import org.gdal.gdalconst.gdalconstConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mrgris.prominence.MeshPoint.Lead;
 import com.mrgris.prominence.dem.DEMFile;
+import com.mrgris.prominence.dem.GDALUtil;
 import com.mrgris.prominence.util.DefaultMap;
 import com.mrgris.prominence.util.Util;
 
@@ -43,54 +34,10 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
     	this.coverageSideInput = coverageSideInput;
     	this.sideOutput = sideOutput;
     }
-	    
-    // TODO clean this up
-    public static void runproc(ProcessBuilder pb) {
-    	LOG.info("subproc start");
-	    try {
-	        Process p = pb.start();
-
-	        String line;
-
-	        BufferedReader input =
-	                new BufferedReader
-	                        (new InputStreamReader(p.getInputStream()));
-	        while ((line = input.readLine()) != null) {
-	            LOG.info("Apt-get: " + line);
-	        }
-	        input.close();
 	        
-	        input =
-	                new BufferedReader
-	                        (new InputStreamReader(p.getErrorStream()));
-	        while ((line = input.readLine()) != null) {
-	            LOG.info("Apt-get err: " + line);
-	        }
-	        input.close();
-	        
-	    } catch (IOException e) {
-	    	throw new RuntimeException(e);
-	    }    	
-    	LOG.info("subproc end");
-
-    }
-    
     @Setup
     public void setup() {
-    	// TODO thread safety?
-    	
-    	// install gdal + java bindings
-    	runproc(new ProcessBuilder("apt", "update"));
-    	runproc(new ProcessBuilder("apt", "install", "-y", "libgdal-java"));
-
-    	// set up jni
-    	System.load("/usr/lib/jni/libgdalconstjni.so");
-    	System.load("/usr/lib/jni/libgdaljni.so");
-    	System.load("/usr/lib/jni/libogrjni.so");
-    	System.load("/usr/lib/jni/libosrjni.so");
-
-    	// init gdal
-    	gdal.AllRegister();
+    	GDALUtil.initializeGDAL();
     }
     
     public static abstract class Builder {
@@ -130,6 +77,8 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
     		while (pending.size() > 0) {
     			processPending();
     		}
+    					
+			this.mesh.destroy();
        	}
     	
 		void processSaddle(MeshPoint saddle) {

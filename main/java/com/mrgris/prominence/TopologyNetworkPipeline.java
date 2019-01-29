@@ -115,7 +115,7 @@ public class TopologyNetworkPipeline {
   }
   
   static PCollection<KV<Prefix, DEMFile>> makePageFileMapping (Pipeline p) {
-	  final String region = test; //northeastUS;
+	  final String region = northeastUS;
 	  final String series = "ferranti3";
 	  
 	  DEMIndex index = loadDemIndex();

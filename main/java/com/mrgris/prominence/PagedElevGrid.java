@@ -1,5 +1,10 @@
 package com.mrgris.prominence;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -24,6 +29,7 @@ public class PagedElevGrid implements IMesh {
 	Map<Prefix, Iterable<DEMFile>> coverage;
 	int maxPages;
 	Map<Prefix, Segment> segments;
+	String demCacheDir;
 	
 	long ctr = 0;
 	
@@ -31,8 +37,20 @@ public class PagedElevGrid implements IMesh {
 		this.coverage = coverage;
 		this.maxPages = (int)Math.ceil(maxPoints / (double)pageArea());
 		segments = new HashMap<Prefix, Segment>();
+		demCacheDir = com.google.common.io.Files.createTempDir().getPath();
 	}
 
+	public void destroy() {
+		try {
+			Files.walk(Paths.get(demCacheDir))
+	        .map(Path::toFile)
+	        .sorted((o1, o2) -> -o1.compareTo(o2))
+	        .forEach(File::delete);
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+	}
+	
 	static int pageDim() { return Util.pow2(PAGE_SIZE_EXP); }
 	static int pageArea() { return Util.pow2(2 * PAGE_SIZE_EXP); }
 	static Prefix segmentPrefix(long ix) { return new Prefix(ix, PAGE_SIZE_EXP); }
@@ -164,7 +182,7 @@ public class PagedElevGrid implements IMesh {
 		
 		for (DEMFile dem : DEMs) {
 			// TODO could be smarter than blindly iterating over entire DEM -- compute and load only relevant sub-rectangle?
-			for (DEMFile.Sample s : dem.samples()) {
+			for (DEMFile.Sample s : dem.samples(demCacheDir)) {
 				Prefix p = segmentPrefix(s.ix);
 				if (map.get(dem).contains(p)) {
 					segments.get(p).set(s.ix, s.elev);

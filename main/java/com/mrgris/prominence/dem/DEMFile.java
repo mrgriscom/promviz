@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.net.URL;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.file.Paths;
 import java.util.Iterator;
 
 import org.apache.beam.sdk.coders.AvroCoder;
@@ -85,11 +86,11 @@ public class DEMFile {
 		}
 	}
 		
-	public Iterable<Sample> samples() {
+	public Iterable<Sample> samples(String cacheDir) {
 		return new Iterable<Sample>() {
 			@Override
 			public Iterator<Sample> iterator() {
-				return new SamplesIterator();
+				return new SamplesIterator(cacheDir);
 			}
 		};
 	}
@@ -97,33 +98,38 @@ public class DEMFile {
 	class SamplesIterator implements Iterator<Sample> {
 		Dataset ds;
 		float[] data;
-		String localPath;
 		
 		int r;
 		int c;
 		
-		public SamplesIterator() {
+		public SamplesIterator(String cacheDir) {
+			if (!GDALUtil.initialized) {
+				throw new RuntimeException("GDAL has not been initialized");
+			}
+			
 			r = 0;
 			c = 0;
 			
-			// naively copy data for now -- eventually have some kind of local caching
-			localPath = "/tmp/" + path;
-			if (localPath.endsWith(".gz")) {
-				localPath = localPath.substring(0, localPath.length() - ".gz".length());
+			String cachedFile = path;
+			if (cachedFile.endsWith(".gz")) {
+				cachedFile = cachedFile.substring(0, cachedFile.length() - ".gz".length());
 			}
-			new File(localPath).getParentFile().mkdirs();
-	    	try {
-	    		ReadableByteChannel readableByteChannel = Channels.newChannel(
-	    				new URL(TopologyNetworkPipeline.DEM_ROOT + path).openStream());
-	    		FileOutputStream fileOutputStream = new FileOutputStream(localPath);
-	    		fileOutputStream.getChannel()
-	    		.transferFrom(readableByteChannel, 0, Long.MAX_VALUE);
-	    		fileOutputStream.close();
-	    	} catch (IOException e) {
-	    		throw new RuntimeException(e);
-	    	}
+			File localPath = Paths.get(cacheDir, cachedFile).toFile();
+			if (!localPath.exists()) {
+				localPath.getParentFile().mkdirs();
+		    	try {
+		    		ReadableByteChannel readableByteChannel = Channels.newChannel(
+		    				new URL(TopologyNetworkPipeline.DEM_ROOT + path).openStream());
+		    		FileOutputStream fileOutputStream = new FileOutputStream(localPath);
+		    		fileOutputStream.getChannel()
+		    		.transferFrom(readableByteChannel, 0, Long.MAX_VALUE);
+		    		fileOutputStream.close();
+		    	} catch (IOException e) {
+		    		throw new RuntimeException(e);
+		    	}
+			}
 			
-			Dataset ds = gdal.Open(localPath, gdalconstConstants.GA_ReadOnly);
+			Dataset ds = gdal.Open(localPath.getPath(), gdalconstConstants.GA_ReadOnly);
 			Band band = ds.GetRasterBand(1);
 			data = new float[width * height];
 			band.ReadRaster(0, 0, width, height, data);
@@ -134,8 +140,7 @@ public class DEMFile {
 		public boolean hasNext() {
 			boolean has = r < height;
 			if (!has) {
-				new File(localPath).delete();
-				//ds.delete();
+				// cleanup?
 			}
 			return has;
 		}
@@ -154,6 +159,7 @@ public class DEMFile {
 			if (elev == nodata) {
 				elev = Double.NaN;
 			}
+			elev *= z_unit;
 			if (Double.isNaN(elev) && DEBUG_NODATA_IS_OCEAN) {
 				elev = 0;
 			}

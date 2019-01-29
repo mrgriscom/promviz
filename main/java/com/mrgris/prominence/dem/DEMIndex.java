@@ -17,7 +17,7 @@ public class DEMIndex {
 	
 	static DEMIndex _inst;
 	
-	public static DEMIndex instance() {
+	public static synchronized DEMIndex instance() {
 		if (_inst == null) {
 			_inst = load();
 		}

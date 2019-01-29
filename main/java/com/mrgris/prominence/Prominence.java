@@ -34,6 +34,7 @@ import com.mrgris.prominence.Prominence.Front.AvroFront;
 import com.mrgris.prominence.Prominence.Front.PeakWithoutParent;
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.dem.DEMFile;
+import com.mrgris.prominence.dem.GDALUtil;
 import com.mrgris.prominence.util.DefaultMap;
 import com.mrgris.prominence.util.MutablePriorityQueue;
 import com.mrgris.prominence.util.ReverseComparator;
@@ -60,20 +61,7 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 
     @Setup
     public void setup() {
-    	// TODO thread safety?
-    	
-    	// install gdal + java bindings
-    	TopologyBuilder.runproc(new ProcessBuilder("apt", "update"));
-    	TopologyBuilder.runproc(new ProcessBuilder("apt", "install", "-y", "libgdal-java"));
-
-    	// set up jni
-    	System.load("/usr/lib/jni/libgdalconstjni.so");
-    	System.load("/usr/lib/jni/libgdaljni.so");
-    	System.load("/usr/lib/jni/libogrjni.so");
-    	System.load("/usr/lib/jni/libosrjni.so");
-
-    	// init gdal
-    	gdal.AllRegister();
+    	GDALUtil.initializeGDAL();
     }
 	
 	@DefaultCoder(AvroCoder.class)
@@ -358,6 +346,8 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 				f.prune();
 				emitPendingFront(f);
 			}
+			
+			this.mesh.destroy();
 		}
 		
 		public void finalizePending() {
