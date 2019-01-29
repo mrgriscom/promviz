@@ -45,7 +45,7 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
     }
 	    
     // TODO clean this up
-    void runproc(ProcessBuilder pb) {
+    public static void runproc(ProcessBuilder pb) {
     	LOG.info("subproc start");
 	    try {
 	        Process p = pb.start();
@@ -77,18 +77,8 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
     
     @Setup
     public void setup() {
-    	// load a test file
-    	try {
-    		ReadableByteChannel readableByteChannel = Channels.newChannel(
-    				new URL("https://storage.googleapis.com/mrgris-dem/ferranti3/N42W073.hgt.gz").openStream());
-    		FileOutputStream fileOutputStream = new FileOutputStream("/N42W073.hgt");
-    		fileOutputStream.getChannel()
-    		.transferFrom(readableByteChannel, 0, Long.MAX_VALUE);
-    		fileOutputStream.close();
-    	} catch (IOException e) {
-    		throw new RuntimeException(e);
-    	}
-
+    	// TODO thread safety?
+    	
     	// install gdal + java bindings
     	runproc(new ProcessBuilder("apt", "update"));
     	runproc(new ProcessBuilder("apt", "install", "-y", "libgdal-java"));
@@ -101,21 +91,7 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
 
     	// init gdal
     	gdal.AllRegister();
-
-    	// read some data just for testing purposes
-    	Dataset ds = gdal.Open("/N42W073.hgt", gdalconstConstants.GA_ReadOnly);
-    	Band band = ds.GetRasterBand(1);
-
-    	int w = 2;
-    	int h = 3;
-    	float[] arr = new float[w * h];
-    	band.ReadRaster(300, 700, w, h, arr);
-    	for (int i = 0; i < arr.length; i++) {
-    		LOG.info("GDAL data: " + arr[i]);
-    	}
-
     }
-    
     
     public static abstract class Builder {
     	Prefix prefix;

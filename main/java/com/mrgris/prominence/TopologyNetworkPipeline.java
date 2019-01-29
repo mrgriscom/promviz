@@ -23,10 +23,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.AvroIO;
@@ -48,10 +46,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mrgris.prominence.dem.DEMFile;
+import com.mrgris.prominence.dem.DEMIndex;
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.GeometryFactory;
 import com.vividsolutions.jts.geom.Polygon;
 import com.vividsolutions.jts.geom.impl.CoordinateArraySequence;
+import com.vividsolutions.jts.io.ParseException;
+import com.vividsolutions.jts.io.WKTReader;
 
 /**
  * A starter example for writing Beam programs.
@@ -72,6 +73,8 @@ import com.vividsolutions.jts.geom.impl.CoordinateArraySequence;
 public class TopologyNetworkPipeline {
   private static final Logger LOG = LoggerFactory.getLogger(TopologyNetworkPipeline.class);
 
+  public static final String DEM_ROOT = "https://storage.googleapis.com/mrgris-dem/";
+  
   final static int PAGE_SIZE_EXP = 9;
   final static int CHUNK_SIZE_EXP = 11;
   static Prefix segmentPrefix(long ix) { return new Prefix(ix, PAGE_SIZE_EXP); }
@@ -84,20 +87,10 @@ public class TopologyNetworkPipeline {
   static String westernUS = "48.90806,-123.35449 48.89362,-112.93945 45.84411,-108.30322 44.22946,-102.98584 40.81381,-101.16211 37.94420,-101.66748 34.37971,-101.95313 30.69461,-104.52393 31.54109,-108.85254 31.18461,-113.79639 31.24099,-117.39990 37.38762,-123.13477 43.22920,-125.39795";
   static String highAsia = "29.15216,75.84961 26.58853,82.48535 25.56227,88.72559 20.79720,91.31836 15.70766,93.29590 14.85985,97.08618 13.42168,100.26123 13.51784,103.31543 18.41708,106.36963 20.17972,107.40234 25.75042,111.89575 28.98892,116.24634 31.45678,117.31201 34.74161,114.69727 39.30030,116.89453 39.36828,121.02539 44.84029,123.83789 54.34855,128.74878 59.66774,122.95898 61.60640,117.59766 61.27023,107.66602 60.71620,101.60156 59.17593,94.74609 57.23150,83.67188 51.86292,78.66211 52.69636,75.76172 54.67383,68.77441 51.20688,62.27051 47.57653,57.08496 45.85941,49.57031 48.34165,39.11133 47.27923,34.36523 43.48481,37.22168 41.86956,40.38574 42.81152,33.75000 41.24477,25.66406 38.34166,25.40039 35.67515,27.33398 34.37971,33.22266 34.08906,35.04639 32.73184,34.69482 32.26856,35.52979 33.35806,36.60645 34.08906,39.81445 35.40696,41.74805 30.88337,48.36182 26.58853,51.15234 25.56227,54.79980 26.37219,56.46973 25.02588,57.48047 24.12670,61.17188 23.64452,67.76367";
   static String saTest = "-33.39476,17.64954 -34.60156,18.20984 -35.12440,19.91272 -34.37064,23.74695 -34.18909,26.12000 -32.99024,28.29529 -31.01057,30.58594 -29.95018,31.18469 -27.82450,30.21240 -26.98083,26.98242 -30.72295,20.86304 -29.89781,19.11621 -30.43447,17.10571";
-
-  static Set<String> loadDemIndex() {
-	  Set<String> index = new HashSet<>();
-	  try {
-		InputStream is = new URL("https://storage.googleapis.com/mrgris-dem/ferranti3/index").openStream();
-		BufferedReader in = new BufferedReader(new InputStreamReader(is));
-		String line = null;
-		while((line = in.readLine()) != null) {
-			index.add(line);
-		}
-	  } catch (IOException e) {
-		  throw new RuntimeException(e);
-	  }
-      return index;
+  static String test = "42.2,-72.8 42.2,-73.2 41.8,-73";
+  
+  static DEMIndex loadDemIndex() {
+	  return DEMIndex.instance();
   }
 
   static Polygon makePolygon(GeometryFactory gf, List<Coordinate> coords) {
@@ -105,6 +98,7 @@ public class TopologyNetworkPipeline {
 	  return gf.createPolygon(new CoordinateArraySequence(coords.toArray(new Coordinate[coords.size()])));
   }
 
+  // TODO unused?
   static Polygon makeQuadrant(GeometryFactory gf, double xmin, double xmax, double ymin, double ymax) {
 	  List<Coordinate> coords = new ArrayList<>();
 	  coords.add(new Coordinate(xmin, ymin));
@@ -121,12 +115,13 @@ public class TopologyNetworkPipeline {
   }
   
   static PCollection<KV<Prefix, DEMFile>> makePageFileMapping (Pipeline p) {
-	  final String region = northeastUS;
-
-	  Set<String> index = loadDemIndex();
-	  int res = 1; // degrees
+	  final String region = test; //northeastUS;
+	  final String series = "ferranti3";
+	  
+	  DEMIndex index = loadDemIndex();
 	  GeometryFactory gf = new GeometryFactory();
-
+	  WKTReader wkt = new WKTReader(gf);
+	  
 	  List<Coordinate> regionCoords = new ArrayList<>();
 	  for (String ll : region.split(" ")) {
 		  String[] s = ll.split(",");
@@ -137,19 +132,18 @@ public class TopologyNetworkPipeline {
 	  Polygon regionPoly = makePolygon(gf, regionCoords);
 
 	  List<DEMFile> DEMs = new ArrayList<>();
-	  for (double lon = -180; lon < 180; lon += res) {
-		  for (double lat = -90; lat < 90; lat += res) {
-			  Polygon q = makeQuadrant(gf, lon, lon+res, lat, lat+res);
-			  if (!q.intersects(regionPoly)) {
-				  continue;
-			  }
-			  String key = fmtKey(lat, lon);
-			  if (!index.contains(key)) {
-				  continue;
-			  }
-			  LOG.info("DEM " + key);
-			  DEMFile dem = new DEMFile("https://storage.googleapis.com/mrgris-dem/ferranti3/" + key + ".hgt.gz",
-					  DEMFile.GRID_GEO_3AS, DEMFile.FORMAT_SRTM_HGT, 1201, 1201, lat, lon);
+	  for (DEMFile dem : index.dems) {
+		  if (!dem.path.startsWith(series + "/")) {
+			  continue;
+		  }
+		  boolean include = false;
+		  try {
+			  include = regionPoly.intersects(wkt.read(dem.bound));
+		  } catch (ParseException e) {
+			  throw new RuntimeException("invalid " + dem.bound);
+		  }
+		  if (include) {
+			  LOG.info("DEM " + dem.path);
 			  DEMs.add(dem);
 		  }
 	  }
@@ -158,7 +152,7 @@ public class TopologyNetworkPipeline {
 		      @ProcessElement
 		      public void processElement(ProcessContext c) {
 		    	DEMFile dem = c.element();
-				int[] pmin = PointIndex.split(segmentPrefix(dem.genIx(0, 0)).prefix);
+				int[] pmin = PointIndex.split(segmentPrefix(dem.genAbsIx(dem.xmin(), dem.ymin())).prefix);
 				int[] pmax = PointIndex.split(segmentPrefix(dem.genAbsIx(dem.xmax(), dem.ymax())).prefix);
 				int proj = pmin[0], x0 = pmin[1], y0 = pmin[2], x1 = pmax[1], y1 = pmax[2];
 				Prefix[] pages = Prefix.tileInclusive(proj, x0, y0, x1, y1, PAGE_SIZE_EXP);

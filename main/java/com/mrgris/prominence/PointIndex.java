@@ -1,6 +1,7 @@
 package com.mrgris.prominence;
 
 import com.mrgris.prominence.dem.DEMFile;
+import com.mrgris.prominence.dem.DEMIndex;
 import com.mrgris.prominence.util.GeoCode;
 import com.mrgris.prominence.util.Util;
 
@@ -73,7 +74,7 @@ public class PointIndex {
 			return new double[] {Double.NaN, Double.NaN};
 		}
 		int[] _ix = split(ix);
-		return DEMFile._projection(_ix[0]).fromGrid(_ix[1], _ix[2]);
+		return DEMIndex.instance().grids[_ix[0]].toLatLon(_ix[1], _ix[2]);
 	}
 	
 	public static long iGeocode(long ix) {		

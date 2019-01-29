@@ -18,9 +18,11 @@ import org.apache.avro.reflect.Nullable;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.DoFn.Setup;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
+import org.gdal.gdal.gdal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +58,24 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 		this.mstTag = mstTag;
 	}
 
+    @Setup
+    public void setup() {
+    	// TODO thread safety?
+    	
+    	// install gdal + java bindings
+    	TopologyBuilder.runproc(new ProcessBuilder("apt", "update"));
+    	TopologyBuilder.runproc(new ProcessBuilder("apt", "install", "-y", "libgdal-java"));
+
+    	// set up jni
+    	System.load("/usr/lib/jni/libgdalconstjni.so");
+    	System.load("/usr/lib/jni/libgdaljni.so");
+    	System.load("/usr/lib/jni/libogrjni.so");
+    	System.load("/usr/lib/jni/libosrjni.so");
+
+    	// init gdal
+    	gdal.AllRegister();
+    }
+	
 	@DefaultCoder(AvroCoder.class)
 	public static class PromFact {
 		

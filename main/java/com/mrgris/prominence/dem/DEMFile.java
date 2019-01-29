@@ -1,150 +1,80 @@
 package com.mrgris.prominence.dem;
-import java.util.HashMap;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.net.URL;
+import java.nio.channels.Channels;
+import java.nio.channels.ReadableByteChannel;
 import java.util.Iterator;
-import java.util.Map;
 
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
+import org.gdal.gdal.Band;
+import org.gdal.gdal.Dataset;
+import org.gdal.gdal.gdal;
+import org.gdal.gdalconst.gdalconstConstants;
 
 import com.mrgris.prominence.PointIndex;
-
-/**
- *  from gdal
- *  
- *  path
- *  CRS
- *  pixel-dx/dy
- *  subpx-offset-x/y
- *  width/height
- *  origin
- *  z-unit
- *  nodata
-
- *  
- *  (series, path)
- *  grid def:
- *  - CRS
- *  - pixel spacing (x and y)
- *  - sub-pixel offset (i.e., area-or-point)
- *  width/height
- *  origin (integer xy pixel coordinates)
- *  z-unit (m / ft / other?)
- *  nodata value
- *
- *  loadElevData(rect)
- */
+import com.mrgris.prominence.TopologyNetworkPipeline;
 
 @DefaultCoder(AvroCoder.class)
 public class DEMFile {
-
-	public final static int GRID_GEO_3AS = 0;
-	public final static int GRID_GEO_1AS = 1;
-	public final static int GRID_GEO_1_3AS = 2;
 	
-	public final static int FORMAT_SRTM_HGT = 0;
-	public final static int FORMAT_GRID_FLOAT = 1;
-	
-	static Map<Integer, Projection> gridRefs = new HashMap<>();
-	static Map<Integer, DEMFileFormat> formats = new HashMap<>();
-	static {
-		gridRefs.put(GRID_GEO_3AS, GeoProjection.fromArcseconds(3.));
-		gridRefs.put(GRID_GEO_1AS, GeoProjection.fromArcseconds(1.));
-		gridRefs.put(GRID_GEO_1_3AS, GeoProjection.fromArcseconds(1/3.));
-		
-		formats.put(FORMAT_SRTM_HGT, new SrtmHgtFormat());
-		formats.put(FORMAT_GRID_FLOAT, new GridFloatFormat());
-	}
+	static final boolean DEBUG_NODATA_IS_OCEAN = true;
 	
 	public String path;
-	int projId;
-	int formatId;
-	int width;
-	int height;
-	int x0; //left
-	int y0; //bottom
+	public int grid_id;
+	protected int width;
+	protected int height;
+	public int[] origin;
+	public boolean flip_xy = false;
+	public boolean inv_x = false;
+	public boolean inv_y = false;
+	public String bound;
+	public double nodata = Double.NaN;
+	public double z_unit = 1.;
 	
 	// for deserialization
 	public DEMFile() {}
-	
-	public DEMFile(String path, int projId, int formatId, int width, int height, int x0, int y0) {
-		this.path = path;
-		this.projId = projId;
-		this.formatId = formatId;
-		this.width = width;
-		this.height = height;
-		this.x0 = x0;
-		this.y0 = y0;
+				
+	public int xdim() {
+		return (flip_xy ? height : width);
+	}
+	public int ydim() {
+		return (flip_xy ? width : height);
 	}
 	
-	public DEMFile(String path, int projId, int formatId, int width, int height, int[] xy0) {
-		this(path, projId, formatId, width, height, xy0[0], xy0[1]);
+	public int xend() {
+		return origin[0] + (xdim() - 1) * (inv_x ? -1 : 1);
 	}
-
-	public DEMFile(String path, int projId, int formatId, int width, int height, double lat0, double lon0) {
-		this(path, projId, formatId, width, height, _projection(projId).toGrid(lat0, lon0));
-	}
-	
-	public static Projection _projection(int projId) {
-		return gridRefs.get(projId);
-	}
-
-	public Projection projection() {
-		return _projection(projId);
+	public int yend() {
+		return origin[1] + (ydim() - 1) * (inv_y ? -1 : 1);
 	}
 	
-	public DEMFileFormat format() {
-		return formats.get(formatId);
+	public int xmin() {
+		return Math.min(origin[0], xend());
 	}
-	
 	public int xmax() {
-		return x0 + width - 1;
+		return Math.max(origin[0], xend());
 	}
-	
+	public int ymin() {
+		return Math.min(origin[1], yend());
+	}
 	public int ymax() {
-		return y0 + height - 1;
-	}
+		return Math.max(origin[1], yend());
+	}		
 	
-	public long genIx(int x, int y) {
-		return genAbsIx(x0 + x, y0 + y);
+	public long genRCIx(int r, int c) {
+		int px = c;
+		int py = height - 1 - r;
+		return genAbsIx(origin[0] + (flip_xy ? py : px) * (inv_x ? -1 : 1),
+				 	    origin[1] + (flip_xy ? px : py) * (inv_y ? -1 : 1));
 	}
-	
+
 	public long genAbsIx(int x, int y) {
-		return PointIndex.make(projId, x, y);		
+		return PointIndex.make(grid_id, x, y);		
 	}
 	
-	class CoordsIterator implements Iterator<Long> {
-		int r;
-		int c;
-		
-		public CoordsIterator() {
-			r = 0;
-			c = 0;
-		}
-		
-		@Override
-		public boolean hasNext() {
-			return r < height;
-		}
-
-		@Override
-		public Long next() {
-			long ix = genIx(c, height - 1 - r);
-			
-			c++;
-			if (c == width) {
-				c = 0;
-				r++;
-			}
-			
-			return ix;
-		}
-
-		@Override
-		public void remove() {
-			throw new UnsupportedOperationException();
-		}		
-	}
-			
 	public static class Sample {
 		public long ix;
 		public float elev;
@@ -159,11 +89,86 @@ public class DEMFile {
 		return new Iterable<Sample>() {
 			@Override
 			public Iterator<Sample> iterator() {
-				return format().new SamplesIterator(DEMFile.this);
+				return new SamplesIterator();
 			}
 		};
 	}
 
+	class SamplesIterator implements Iterator<Sample> {
+		Dataset ds;
+		float[] data;
+		String localPath;
+		
+		int r;
+		int c;
+		
+		public SamplesIterator() {
+			r = 0;
+			c = 0;
+			
+			// naively copy data for now -- eventually have some kind of local caching
+			localPath = "/tmp/" + path;
+			if (localPath.endsWith(".gz")) {
+				localPath = localPath.substring(0, localPath.length() - ".gz".length());
+			}
+			new File(localPath).getParentFile().mkdirs();
+	    	try {
+	    		ReadableByteChannel readableByteChannel = Channels.newChannel(
+	    				new URL(TopologyNetworkPipeline.DEM_ROOT + path).openStream());
+	    		FileOutputStream fileOutputStream = new FileOutputStream(localPath);
+	    		fileOutputStream.getChannel()
+	    		.transferFrom(readableByteChannel, 0, Long.MAX_VALUE);
+	    		fileOutputStream.close();
+	    	} catch (IOException e) {
+	    		throw new RuntimeException(e);
+	    	}
+			
+			Dataset ds = gdal.Open(localPath, gdalconstConstants.GA_ReadOnly);
+			Band band = ds.GetRasterBand(1);
+			data = new float[width * height];
+			band.ReadRaster(0, 0, width, height, data);
+			ds.delete();
+		}
+		
+		@Override
+		public boolean hasNext() {
+			boolean has = r < height;
+			if (!has) {
+				new File(localPath).delete();
+				//ds.delete();
+			}
+			return has;
+		}
+
+		@Override
+		public Sample next() {
+			long ix = genRCIx(r, c);
+			double elev = data[r * width + c];
+
+			c++;
+			if (c == width) {
+				c = 0;
+				r++;
+			}
+
+			if (elev == nodata) {
+				elev = Double.NaN;
+			}
+			if (Double.isNaN(elev) && DEBUG_NODATA_IS_OCEAN) {
+				elev = 0;
+			}
+			return new Sample(ix, (float)elev);
+		}
+
+		@Override
+		public void remove() {
+			throw new UnsupportedOperationException();
+		}		
+		
+	}
+
+
+	
 	public String toString() {
 		return path;
 	}

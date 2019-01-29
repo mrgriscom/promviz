@@ -163,6 +163,7 @@ public class PagedElevGrid implements IMesh {
 		});
 		
 		for (DEMFile dem : DEMs) {
+			// TODO could be smarter than blindly iterating over entire DEM -- compute and load only relevant sub-rectangle?
 			for (DEMFile.Sample s : dem.samples()) {
 				Prefix p = segmentPrefix(s.ix);
 				if (map.get(dem).contains(p)) {
