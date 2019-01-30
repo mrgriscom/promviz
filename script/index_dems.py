@@ -66,14 +66,15 @@ def process_dem(key, path):
         grid['x_stretch'] = x_stretch
     if flip:
         dem['flip_xy'] = flip
+    if dx < 0:
+        dem['inv_x'] = True
+    if dy < 0:
+        dem['inv_y'] = True
     
-    width = ds.RasterXSize
-    height = ds.RasterYSize
-    dw, dh = (dy, dx) if flip else (dx, dy)
-    dem['width'] = width * (-1 if dw < 0 else 1)
-    dem['height'] = height * (-1 if dh < 0 else 1)
+    dem['width'] = ds.RasterXSize
+    dem['height'] = ds.RasterYSize
 
-    x0, y0 = transform_px(gt, .5, height - .5)
+    x0, y0 = transform_px(gt, .5, dem['height'] - .5)
     SUBPX_PREC = 4
     to_grid = lambda t, stretch=1.: round(t / (grid['spacing'] * stretch), SUBPX_PREC)
     grid0 = (to_grid(x0, x_stretch), to_grid(y0))
@@ -83,7 +84,7 @@ def process_dem(key, path):
     # TODO handle bounds for other projections -- include 1/2 pixel buffer and subdivide lines until projection error is < epsilon*pixel
     if grid['srs'] == 'epsg:4326':
         x0, y0 = transform_px(gt, 0, 0)
-        x1, y1 = transform_px(gt, width, height)
+        x1, y1 = transform_px(gt, dem['width'], dem['height'])
         bound = box(x0, y0, x1, y1)
         dem['bound'] = bound.wkt
         
