@@ -33,6 +33,9 @@ public class DEMIndex {
 		public int[] origin_offset = {0, 0};
 		
 		CoordinateTransformation tx;
+		boolean _cyl_init;
+		int cyl_width;
+		
 		
 		public double[] toProjXY(int x, int y) {
 			return new double[] {(x + subpx_offset[0] + origin_offset[0]) * spacing * x_stretch,
@@ -66,6 +69,22 @@ public class DEMIndex {
 			double[] p = toProjXY(x, y);
 			double[] lonlat = getTransform().TransformPoint(p[0], p[1]);
 			return new double[] {lonlat[1], lonlat[0]};
+		}
+		
+		// allowed x range is [cyl_width/2, cyl_width/2)
+		// 'enumerate pages within dem' needs to consider IDL wraparound -- points east beyond IDL are mapped to
+		// point ixs for west
+		// dem_index py bound also needs updating to handle IDL split?
+		public boolean isCylindrical() {
+			if (!_cyl_init) {
+				if (srs.equals("epsg:4326")) {
+					cyl_width = (int)Math.round(360. / (spacing * x_stretch));
+				} else {
+					cyl_width = -1;
+				}
+				_cyl_init = true;
+			}
+			return cyl_width > 0;
 		}
 	}
 	

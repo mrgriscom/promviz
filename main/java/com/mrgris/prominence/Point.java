@@ -1,7 +1,5 @@
 package com.mrgris.prominence;
 
-import java.io.DataOutputStream;
-import java.io.IOException;
 import java.util.Comparator;
 
 import org.apache.beam.sdk.coders.AvroCoder;
@@ -26,14 +24,6 @@ public class Point {
 
 	// for deserialization
 	public Point() {}
-	
-	public Point(long ix, float elev) {
-		this(ix, elev, 0);
-
-		// placeholder calc for isodist
-		int[] c = PointIndex.split(ix);
-		this.isodist = c[1] - c[2];
-	}
 	
 	public Point(long ix, float elev, int isodist) {
 		this.ix = ix;
@@ -89,12 +79,6 @@ public class Point {
 	@Override
 	public int hashCode() {
 		return Long.valueOf(this.ix).hashCode();
-	}
-	
-	public void write(DataOutputStream out) throws IOException {
-		out.writeLong(ix);
-		out.writeFloat(elev);
-		out.writeInt(isodist);
 	}
 
 }

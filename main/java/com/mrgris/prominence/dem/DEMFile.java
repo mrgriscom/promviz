@@ -79,10 +79,17 @@ public class DEMFile {
 	public static class Sample {
 		public long ix;
 		public float elev;
-		
+		public int isodist;
+
+		// only safe for pagedelevgrid, which reconstructs the sample later
 		public Sample(long ix, float elev) {
+			this(ix, elev, 0);
+		}
+
+		public Sample(long ix, float elev, int isodist) {
 			this.ix = ix;
 			this.elev = elev;
+			this.isodist = isodist;
 		}
 	}
 		

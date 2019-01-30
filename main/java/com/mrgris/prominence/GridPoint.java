@@ -8,12 +8,12 @@ import com.mrgris.prominence.util.Util;
 
 public class GridPoint extends MeshPoint {
 
-	public GridPoint(long ix, float elev) {
-		super(ix, elev);
+	public GridPoint(long ix, float elev, int isodist) {
+		super(ix, elev, isodist);
 	}
 	
 	public GridPoint(DEMFile.Sample s) {
-		this(s.ix, s.elev);
+		this(s.ix, s.elev, s.isodist);
 	}
 	
 	public long[] adjIx() {

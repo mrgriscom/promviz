@@ -104,7 +104,7 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
 					int traceDownB = 2*leads[0].length - 1;
 					
 					long vSaddle = PointIndex.clone(saddle.ix, -i);
-					MeshPoint vSaddlePt = new MeshPoint(vSaddle, saddle.elev);
+					MeshPoint vSaddlePt = new MeshPoint(vSaddle, saddle.elev, saddle.isodist);
 					
 					newLeadsUp.add(new Lead(true, vSaddlePt, byTraceNum.get(traceUpA).p, traceUpA));
 					newLeadsUp.add(new Lead(true, vSaddlePt, byTraceNum.get(traceUpB).p, traceUpB));

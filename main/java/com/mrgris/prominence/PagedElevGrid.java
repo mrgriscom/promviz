@@ -14,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Random;
 import java.util.Set;
 
 import com.google.common.collect.Iterables;
@@ -31,6 +32,7 @@ public class PagedElevGrid implements IMesh {
 	Map<Prefix, Segment> segments;
 	String demCacheDir;
 	boolean destroyed = false;
+	Random pseudorand;
 	
 	long ctr = 0;
 	
@@ -39,6 +41,7 @@ public class PagedElevGrid implements IMesh {
 		this.maxPages = (int)Math.ceil(maxPoints / (double)pageArea());
 		segments = new HashMap<Prefix, Segment>();
 		demCacheDir = com.google.common.io.Files.createTempDir().getPath();
+		pseudorand = new Random();
 	}
 
 	public void destroy() {
@@ -100,7 +103,7 @@ public class PagedElevGrid implements IMesh {
 			this.data[_ix(ix)] = elev;
 		}
 				
-		public Iterable<DEMFile.Sample> samples() {
+		public Iterable<DEMFile.Sample> samples(PagedElevGrid grid) {
 			return new SaneIterable<DEMFile.Sample>() {
 				int x = pageDim() - 1;
 				int y = -1;
@@ -119,7 +122,7 @@ public class PagedElevGrid implements IMesh {
 						long ix = PointIndex.make(pbase[0], pbase[1] + x, pbase[2] + y);
 						float elev = get(ix);
 						if (!Float.isNaN(elev)) {
-							return new DEMFile.Sample(ix, elev);
+							return new DEMFile.Sample(ix, elev, grid.fakeIsodistForIx(ix));
 						}
 					}
 				}
@@ -143,6 +146,12 @@ public class PagedElevGrid implements IMesh {
 		}
 	}
 
+	int fakeIsodistForIx(long ix) {
+		// ignore sequence bits, isodist should be constant based on geo position only
+		pseudorand.setSeed(ix >> PointIndex.BITS_SEQ);
+		return pseudorand.nextInt();
+	}
+	
 	public MeshPoint get(long ix) {
 		Segment seg = segments.get(segmentPrefix(ix));
 		if (seg == null) {
@@ -153,7 +162,7 @@ public class PagedElevGrid implements IMesh {
 		if (Float.isNaN(elev)) {
 			return null;
 		}
-		return new GridPoint(ix, elev);
+		return new GridPoint(ix, elev, fakeIsodistForIx(ix));
 	}
 	
 	public boolean isLoaded(Prefix prefix) {
@@ -203,7 +212,7 @@ public class PagedElevGrid implements IMesh {
 		
 		List<Iterable<DEMFile.Sample>> newData = new ArrayList<Iterable<DEMFile.Sample>>();
 		for (Prefix prefix : prefixes) {
-			newData.add(segments.get(prefix).samples());
+			newData.add(segments.get(prefix).samples(this));
 		}
 		return Iterables.concat(newData);
 	}

@@ -1154,7 +1154,7 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 		
 		public void flushPendingThresh(Point pthresh, Searcher s) {
 			for (Long ix : pendingPThresh) {
-				s.emitFact(PromFact.pthreshFact(new Point(ix, 0), pthresh));
+				s.emitFact(PromFact.pthreshFact(new Point(ix, 0, 0), pthresh));
 			}
 			pendingPThresh.clear();
 		}

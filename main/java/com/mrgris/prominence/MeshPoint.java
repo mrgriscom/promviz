@@ -24,10 +24,6 @@ public class MeshPoint extends Point {
 	long[] _adjacent = new long[0];
 	int[] _tagging = null;
 
-	public MeshPoint(long ix, float elev) {
-		super(ix, elev);
-	}
-	
 	public MeshPoint(long ix, float elev, int isodist) {
 		super(ix, elev, isodist);
 	}
