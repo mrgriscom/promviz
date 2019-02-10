@@ -17,6 +17,7 @@
  */
 package com.mrgris.prominence;
 
+import java.io.Serializable;
 import java.util.Comparator;
 import java.util.List;
 import java.util.ListIterator;
@@ -24,7 +25,6 @@ import java.util.Map;
 
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.AvroIO;
-import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.transforms.Combine;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
@@ -33,7 +33,6 @@ import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.Values;
-import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
@@ -51,6 +50,7 @@ import com.mrgris.prominence.Edge.HalfEdge;
 import com.mrgris.prominence.Prominence.Front.AvroFront;
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.Prominence.PromPair;
+import com.mrgris.prominence.TopologyNetworkPipeline.TopoPipeline;
 import com.mrgris.prominence.dem.DEMFile;
 import com.mrgris.prominence.util.ReverseComparator;
 
@@ -137,9 +137,8 @@ public class ProminencePipeline {
 	  return new Prefix(PointIndex.make(pcs[0], pcs[1], pcs[2]), chunkLevel);
   }
   
-  public static PCollectionTuple dirPipeline(Pipeline p, boolean up, String networkPath, PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage) {
+  public static PCollectionTuple dirPipeline(Pipeline p, boolean up, PCollection<Edge> network, PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage) {
 	    // TODO verify edges since read from outside source
-	  PCollection<Edge> network = p.apply(AvroIO.read(Edge.class).from(networkPath));
 	  PCollection<KV<Long, Iterable<HalfEdge>>> minimalFronts = network.apply(ParDo.of(new DoFn<Edge, KV<Long, HalfEdge>>() {
 		      @ProcessElement
 		      public void processElement(ProcessContext c) {
@@ -241,26 +240,49 @@ public class ProminencePipeline {
 	    return PCollectionTuple.of(promFactsTag, promInfo).and(mstTag, mst);
   }
   
-  public static void main(String[] args) {
-	
-	// TODO: custom options and validation
-	// --output=gs://mrgris-dataflow-test/output-file-prefix
-    Pipeline p = Pipeline.create(
-        PipelineOptionsFactory.fromArgs(args).create());
-    
-    PCollection<KV<Prefix, DEMFile>> pageFileMapping = TopologyNetworkPipeline.makePageFileMapping(p);
-    final PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage = pageFileMapping.apply(View.asMultimap());
+  public static class PromPipeline implements Serializable {
+	  transient Pipeline p;
+	  TopoPipeline tp;
+	  
+	  transient PCollection<PromFact> facts;
+	  transient PCollection<Edge> mstUp;
+	  transient PCollection<Edge> mstDown;
 
-    PCollectionTuple promSearchUp = dirPipeline(p, true, "gs://mrgris-dataflow-test/network-up-*", pageCoverage);
-    PCollectionTuple promSearchDown = dirPipeline(p, false, "gs://mrgris-dataflow-test/network-down-*", pageCoverage);
-    
-    PCollectionList.of(promSearchUp.get(promFactsTag)).and(promSearchDown.get(promFactsTag)).apply(Flatten.pCollections())
-    	.apply("dumpfacts", AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstest").withoutSharding());
-    
-    promSearchUp.get(mstTag).apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/mst-up").withoutSharding());
-    promSearchDown.get(mstTag).apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/mst-down").withoutSharding());
-    
-    p.run();
-    
+	  public PromPipeline (TopoPipeline tp) {
+		  this.tp = tp;
+		  this.p = tp.p;
+	  }
+	  
+	  public void freshRun(boolean write) {
+		  tp.initDEMs();
+		    
+		    PCollectionTuple promSearchUp = dirPipeline(p, true, tp.networkUp, tp.pageCoverage);
+		    PCollectionTuple promSearchDown = dirPipeline(p, false, tp.networkDown, tp.pageCoverage);
+		    
+		    facts = PCollectionList.of(promSearchUp.get(promFactsTag)).and(promSearchDown.get(promFactsTag)).apply(Flatten.pCollections());
+		    mstUp = promSearchUp.get(mstTag);
+		    mstDown = promSearchDown.get(mstTag);
+		    
+		    if (write) {
+		    	facts.apply("dumpfacts", AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstest").withoutSharding());
+		    	mstUp.apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/mst-up").withoutSharding());
+		    	mstDown.apply(AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/mst-down").withoutSharding());
+		    }
+	  }
+
+	  public void previousRun() {
+		   facts = p.apply(AvroIO.read(PromFact.class).from("gs://mrgris-dataflow-test/factstest"));
+		   mstUp = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/mst-up"));
+		   mstDown = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/mst-down"));
+	  }
+	  
+  }
+  
+  public static void main(String[] args) {
+	  TopoPipeline tp = new TopoPipeline(args);
+	  tp.previousRun();
+	  PromPipeline pp = new PromPipeline(tp);
+	  pp.freshRun(true);
+	  pp.p.run();
   }
 }

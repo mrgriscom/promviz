@@ -32,7 +32,6 @@ public class PagedElevGrid implements IMesh {
 	Map<Prefix, Segment> segments;
 	String demCacheDir;
 	boolean destroyed = false;
-	Random pseudorand;
 	
 	long ctr = 0;
 	
@@ -41,7 +40,6 @@ public class PagedElevGrid implements IMesh {
 		this.maxPages = (int)Math.ceil(maxPoints / (double)pageArea());
 		segments = new HashMap<Prefix, Segment>();
 		demCacheDir = com.google.common.io.Files.createTempDir().getPath();
-		pseudorand = new Random();
 	}
 
 	public void destroy() {
@@ -103,7 +101,7 @@ public class PagedElevGrid implements IMesh {
 			this.data[_ix(ix)] = elev;
 		}
 				
-		public Iterable<DEMFile.Sample> samples(PagedElevGrid grid) {
+		public Iterable<DEMFile.Sample> samples() {
 			return new SaneIterable<DEMFile.Sample>() {
 				int x = pageDim() - 1;
 				int y = -1;
@@ -122,7 +120,7 @@ public class PagedElevGrid implements IMesh {
 						long ix = PointIndex.make(pbase[0], pbase[1] + x, pbase[2] + y);
 						float elev = get(ix);
 						if (!Float.isNaN(elev)) {
-							return new DEMFile.Sample(ix, elev, grid.fakeIsodistForIx(ix));
+							return new DEMFile.Sample(ix, elev, fakeIsodistForIx(ix));
 						}
 					}
 				}
@@ -146,10 +144,12 @@ public class PagedElevGrid implements IMesh {
 		}
 	}
 
-	int fakeIsodistForIx(long ix) {
-		// ignore sequence bits, isodist should be constant based on geo position only
-		pseudorand.setSeed(ix >> PointIndex.BITS_SEQ);
-		return pseudorand.nextInt();
+	static int fakeIsodistForIx(long ix) {
+		// rely on direct index tiebreaking for random walk behavior (expensive)
+		//return 0;
+		
+		int[] c = PointIndex.split(ix);
+		return c[1] - c[2];
 	}
 	
 	public MeshPoint get(long ix) {
@@ -212,7 +212,7 @@ public class PagedElevGrid implements IMesh {
 		
 		List<Iterable<DEMFile.Sample>> newData = new ArrayList<Iterable<DEMFile.Sample>>();
 		for (Prefix prefix : prefixes) {
-			newData.add(segments.get(prefix).samples(this));
+			newData.add(segments.get(prefix).samples());
 		}
 		return Iterables.concat(newData);
 	}

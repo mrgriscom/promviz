@@ -24,6 +24,7 @@ public class DEMFile {
 	static final boolean DEBUG_NODATA_IS_OCEAN = true;
 	
 	public String path;
+	public String[] sidecars = new String[0];
 	public int grid_id;
 	protected int width;
 	protected int height;
@@ -101,7 +102,29 @@ public class DEMFile {
 			}
 		};
 	}
-
+	
+	static String cacheFileFromS3(String cacheDir, String path) {
+		String cachedFile = path;
+		if (cachedFile.endsWith(".gz")) {
+			cachedFile = cachedFile.substring(0, cachedFile.length() - ".gz".length());
+		}
+		File localPath = Paths.get(cacheDir, cachedFile).toFile();
+		if (!localPath.exists()) {
+			localPath.getParentFile().mkdirs();
+	    	try {
+	    		ReadableByteChannel readableByteChannel = Channels.newChannel(
+	    				new URL(TopologyNetworkPipeline.DEM_ROOT + path).openStream());
+	    		FileOutputStream fileOutputStream = new FileOutputStream(localPath);
+	    		fileOutputStream.getChannel()
+	    		.transferFrom(readableByteChannel, 0, Long.MAX_VALUE);
+	    		fileOutputStream.close();
+	    	} catch (IOException e) {
+	    		throw new RuntimeException(e);
+	    	}
+		}
+		return localPath.getPath();
+	}
+	
 	class SamplesIterator implements Iterator<Sample> {
 		Dataset ds;
 		float[] data;
@@ -117,26 +140,14 @@ public class DEMFile {
 			r = 0;
 			c = 0;
 			
-			String cachedFile = path;
-			if (cachedFile.endsWith(".gz")) {
-				cachedFile = cachedFile.substring(0, cachedFile.length() - ".gz".length());
-			}
-			File localPath = Paths.get(cacheDir, cachedFile).toFile();
-			if (!localPath.exists()) {
-				localPath.getParentFile().mkdirs();
-		    	try {
-		    		ReadableByteChannel readableByteChannel = Channels.newChannel(
-		    				new URL(TopologyNetworkPipeline.DEM_ROOT + path).openStream());
-		    		FileOutputStream fileOutputStream = new FileOutputStream(localPath);
-		    		fileOutputStream.getChannel()
-		    		.transferFrom(readableByteChannel, 0, Long.MAX_VALUE);
-		    		fileOutputStream.close();
-		    	} catch (IOException e) {
-		    		throw new RuntimeException(e);
-		    	}
+			String localPath = cacheFileFromS3(cacheDir, path);
+			if (sidecars != null) {
+				for (String sidecar : sidecars) {
+					cacheFileFromS3(cacheDir, sidecar);
+				}
 			}
 			
-			Dataset ds = gdal.Open(localPath.getPath(), gdalconstConstants.GA_ReadOnly);
+			Dataset ds = gdal.Open(localPath, gdalconstConstants.GA_ReadOnly);
 			Band band = ds.GetRasterBand(1);
 			data = new float[width * height];
 			band.ReadRaster(0, 0, width, height, data);

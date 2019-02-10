@@ -17,6 +17,8 @@
  */
 package com.mrgris.prominence;
 
+import java.io.IOException;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -31,7 +33,6 @@ import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.io.AvroIO;
-import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.transforms.Distinct;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
@@ -53,9 +54,12 @@ import org.apache.beam.sdk.values.TypeDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mrgris.prominence.AvroToDb.SpatialiteSink;
 import com.mrgris.prominence.Edge.HalfEdge;
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.Prominence.PromFact.Saddle;
+import com.mrgris.prominence.ProminencePipeline.PromPipeline;
+import com.mrgris.prominence.TopologyNetworkPipeline.TopoPipeline;
 import com.mrgris.prominence.util.DefaultMap;
 
 /**
@@ -429,35 +433,67 @@ public class PathsPipeline {
 	  
   }
   
+  public static class PathPipeline implements Serializable {
+	  transient Pipeline p;
+	  PromPipeline pp;
+	  
+	  public PathPipeline (PromPipeline pp) {
+		  this.pp = pp;
+		  this.p = pp.p;
+	  }
+	  
+	  public void freshRun() {
+		  PCollection<PromFact> promInfo = pp.facts;
+		    PCollection<Edge> mstUp = pp.mstUp;
+		    PCollection<Edge> mstDown = pp.mstDown;
+		    PCollection<Edge> rawNetworkUp = pp.tp.networkUp;
+		    PCollection<Edge> rawNetworkDown = pp.tp.networkDown;
+
+		    PCollectionList<PromFact> promByDir = promInfo.apply(Partition.of(2, new PartitionFn<PromFact>() {
+				@Override
+				public int partitionFor(PromFact e, int numPartitions) {
+					return Point.compareElev(e.p, e.saddle.s) > 0 ? 0 : 1;
+				}
+		    }));
+		    PCollection<PromFact> promInfoUp = promByDir.get(0);
+		    PCollection<PromFact> promInfoDown = promByDir.get(1);
+
+		    PCollection<PromFact> pathsUp = searchPaths(promInfoUp, promInfoDown, mstUp, rawNetworkUp);
+		    PCollection<PromFact> pathsDown = searchPaths(promInfoDown, promInfoUp, mstDown, rawNetworkDown);
+		    
+		    promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(pathsUp).and(pathsDown));
+		    promInfo.apply(AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstestwithpaths").withoutSharding());
+		  
+		  //PCollection<PromFact> promInfo = p.apply(AvroIO.read(PromFact.class).from("gs://mrgris-dataflow-test/factstestwithpaths"));
+		  promInfo.apply(MapElements.into(new TypeDescriptor<KV<Integer, PromFact>>() {})
+				  .via(pf -> KV.of(0, pf))).apply(GroupByKey.create()).apply(ParDo.of(new DoFn<KV<Integer, Iterable<PromFact>>, Void> () {
+					    @ProcessElement
+					    public void processElement(ProcessContext c) {
+					    	Iterable<PromFact> facts = c.element().getValue();
+					    	
+					    	SpatialiteSink sink = new SpatialiteSink();
+					    	try {
+						    	sink.open(null);
+					    		for (PromFact pf : facts) {
+						    		sink.write(pf);
+						    	}
+						    	sink.finish();
+					    	} catch (IOException e) {
+					    		throw new RuntimeException(e);
+					    	}
+					    }    	
+				  }));
+	  }
+	  
+  }
+  
   public static void main(String[] args) {
-	 
-	// TODO: custom options and validation
-	// --output=gs://mrgris-dataflow-test/output-file-prefix
-    Pipeline p = Pipeline.create(
-        PipelineOptionsFactory.fromArgs(args).create());
-    
-    PCollection<PromFact> promInfo = p.apply(AvroIO.read(PromFact.class).from("gs://mrgris-dataflow-test/factstest"));
-    PCollection<Edge> mstUp = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/mst-up"));
-    PCollection<Edge> mstDown = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/mst-down"));
-    PCollection<Edge> rawNetworkUp = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-up-*"));
-    PCollection<Edge> rawNetworkDown = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-down-*"));
-
-    PCollectionList<PromFact> promByDir = promInfo.apply(Partition.of(2, new PartitionFn<PromFact>() {
-		@Override
-		public int partitionFor(PromFact e, int numPartitions) {
-			return Point.compareElev(e.p, e.saddle.s) > 0 ? 0 : 1;
-		}
-    }));
-    PCollection<PromFact> promInfoUp = promByDir.get(0);
-    PCollection<PromFact> promInfoDown = promByDir.get(1);
-
-    PCollection<PromFact> pathsUp = searchPaths(promInfoUp, promInfoDown, mstUp, rawNetworkUp);
-    PCollection<PromFact> pathsDown = searchPaths(promInfoDown, promInfoUp, mstDown, rawNetworkDown);
-    
-    promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(pathsUp).and(pathsDown));
-    promInfo.apply(AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstestwithpaths").withoutSharding());
-    
-    p.run();
-    
+	  TopoPipeline tp = new TopoPipeline(args);
+	  tp.previousRun();
+	  PromPipeline pp = new PromPipeline(tp);
+	  pp.previousRun();
+	  PathPipeline pthp = new PathPipeline(pp);
+	  pthp.freshRun();
+	  pthp.p.run();
   }
 }
