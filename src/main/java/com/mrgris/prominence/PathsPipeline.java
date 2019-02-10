@@ -17,7 +17,6 @@
  */
 package com.mrgris.prominence;
 
-import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,6 +32,7 @@ import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.io.AvroIO;
+import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.transforms.Distinct;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
@@ -464,25 +464,10 @@ public class PathsPipeline {
 		    promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(pathsUp).and(pathsDown));
 		    promInfo.apply(AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstestwithpaths").withoutSharding());
 		  
-		  //PCollection<PromFact> promInfo = p.apply(AvroIO.read(PromFact.class).from("gs://mrgris-dataflow-test/factstestwithpaths"));
-		  promInfo.apply(MapElements.into(new TypeDescriptor<KV<Integer, PromFact>>() {})
-				  .via(pf -> KV.of(0, pf))).apply(GroupByKey.create()).apply(ParDo.of(new DoFn<KV<Integer, Iterable<PromFact>>, Void> () {
-					    @ProcessElement
-					    public void processElement(ProcessContext c) {
-					    	Iterable<PromFact> facts = c.element().getValue();
-					    	
-					    	SpatialiteSink sink = new SpatialiteSink();
-					    	try {
-						    	sink.open(null);
-					    		for (PromFact pf : facts) {
-						    		sink.write(pf);
-						    	}
-						    	sink.finish();
-					    	} catch (IOException e) {
-					    		throw new RuntimeException(e);
-					    	}
-					    }    	
-				  }));
+		    promInfo.apply(FileIO.<PromFact>write()
+		            .via(new SpatialiteSink())
+		            .to("gs://mrgris-dataflow-test/promout.spatialite")
+		            .withNumShards(1));		    
 	  }
 	  
   }

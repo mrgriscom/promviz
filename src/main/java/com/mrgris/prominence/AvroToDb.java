@@ -14,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.apache.beam.sdk.io.FileIO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.sqlite.SQLiteConfig;
@@ -81,13 +82,7 @@ public class AvroToDb {
 		return gf.createMultiLineString(paths.toArray(new LineString[paths.size()]));
 	}
 	
-	interface FileSink<T> {
-		public void open(WritableByteChannel channel) throws IOException;
-		public void write(T elem) throws IOException;
-		public void finish() throws IOException;
-	}
-	
-	static class SpatialiteSink implements FileSink<PromFact> {
+	static class SpatialiteSink implements FileIO.Sink<PromFact> {
 		final int BATCH_SIZE = 5000;
 		WritableByteChannel finalDst;
 
@@ -191,7 +186,7 @@ public class AvroToDb {
 		public void write(PromFact pf) throws IOException {
 			try {
 				// add point to batch
-				
+
 				addPoint(stInsPt, pf.p, Point.compareElev(pf.p, pf.saddle.s) > 0 ? TYPE_SUMMIT : TYPE_SINK);
 				addPoint(stInsPt, pf.saddle.s, TYPE_SADDLE);
 	
@@ -234,7 +229,7 @@ public class AvroToDb {
 			}
 		}
 
-		public void finish() throws IOException {
+		public void flush() throws IOException {
 			// flush remaining and finalize db
 			try {
 				if (curBatchSize > 0) {
@@ -244,9 +239,6 @@ public class AvroToDb {
 			} catch (SQLException e) {
 				throw new IOException(e);
 			}
-			
-			// FIXME
-			try { Thread.sleep(3*3600*1000); } catch (Exception e) { throw new RuntimeException(e); }
 			
 			// copy db to cloud
 			FileInputStream fis = new FileInputStream(dbpath);
