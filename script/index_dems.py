@@ -110,7 +110,6 @@ def non_geo_bound(srs, x0, y0, x1, y1, tolerance):
             else:
                 delta_lon = lonnorm(p[0] - last_lon)
             poly.append((last_lon + delta_lon, p[1]))
-    
     poly_wrapped = poly[:1]
     rel_append(poly_wrapped, poly[1:])
 
