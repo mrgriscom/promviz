@@ -18,11 +18,9 @@ import org.apache.avro.reflect.Nullable;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.DoFn.Setup;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
-import org.gdal.gdal.gdal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,11 +32,11 @@ import com.mrgris.prominence.Prominence.Front.AvroFront;
 import com.mrgris.prominence.Prominence.Front.PeakWithoutParent;
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.dem.DEMFile;
-import com.mrgris.prominence.dem.GDALUtil;
 import com.mrgris.prominence.util.DefaultMap;
 import com.mrgris.prominence.util.MutablePriorityQueue;
 import com.mrgris.prominence.util.ReverseComparator;
 import com.mrgris.prominence.util.SaneIterable;
+import com.mrgris.prominence.util.WorkerUtils;
 
 public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, PromFact> {
 	
@@ -61,7 +59,7 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 
     @Setup
     public void setup() {
-    	GDALUtil.initializeGDAL();
+    	WorkerUtils.initializeGDAL();
     }
 	
 	@DefaultCoder(AvroCoder.class)

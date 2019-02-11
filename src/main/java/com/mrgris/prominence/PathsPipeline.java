@@ -32,7 +32,9 @@ import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.io.AvroIO;
+import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.FileIO;
+import org.apache.beam.sdk.io.FileIO.Write.FileNaming;
 import org.apache.beam.sdk.transforms.Distinct;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
@@ -45,6 +47,8 @@ import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
 import org.apache.beam.sdk.transforms.join.CoGroupByKey;
 import org.apache.beam.sdk.transforms.join.KeyedPCollectionTuple;
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
@@ -463,11 +467,17 @@ public class PathsPipeline {
 		    
 		    promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(pathsUp).and(pathsDown));
 		    promInfo.apply(AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstestwithpaths").withoutSharding());
-		  
+
+		  //PCollection<PromFact> promInfo = p.apply(AvroIO.read(PromFact.class).from("gs://mrgris-dataflow-test/factstestwithpaths"));
 		    promInfo.apply(FileIO.<PromFact>write()
 		            .via(new SpatialiteSink())
-		            .to("gs://mrgris-dataflow-test/promout.spatialite")
-		            .withNumShards(1));		    
+		            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+						@Override
+						public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
+								Compression compression) {
+							return "promout.spatialite";
+						}
+		            }).withNumShards(1));
 	  }
 	  
   }

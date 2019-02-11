@@ -13,15 +13,14 @@ import java.util.Set;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
-import org.gdal.gdal.gdal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mrgris.prominence.MeshPoint.Lead;
 import com.mrgris.prominence.dem.DEMFile;
-import com.mrgris.prominence.dem.GDALUtil;
 import com.mrgris.prominence.util.DefaultMap;
 import com.mrgris.prominence.util.Util;
+import com.mrgris.prominence.util.WorkerUtils;
 
 public class TopologyBuilder extends DoFn<Prefix, Edge> {
 
@@ -37,7 +36,7 @@ public class TopologyBuilder extends DoFn<Prefix, Edge> {
 	        
     @Setup
     public void setup() {
-    	GDALUtil.initializeGDAL();
+    	WorkerUtils.initializeGDAL();
     }
     
     public static abstract class Builder {

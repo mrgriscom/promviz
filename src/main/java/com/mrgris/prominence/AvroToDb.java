@@ -21,8 +21,8 @@ import org.sqlite.SQLiteConfig;
 
 import com.google.common.collect.Sets;
 import com.mrgris.prominence.Prominence.PromFact;
-import com.mrgris.prominence.dem.GDALUtil;
 import com.mrgris.prominence.util.GeoCode;
+import com.mrgris.prominence.util.WorkerUtils;
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.GeometryFactory;
 import com.vividsolutions.jts.geom.LineString;
@@ -93,18 +93,9 @@ public class AvroToDb {
         PreparedStatement stInsProm;
         PreparedStatement stInsSS;
 
-        public static boolean initialized = false;
-        
         synchronized public static void installdb() {
-        	if (initialized) {
-        		return;
-        	}
-        	
-        	GDALUtil.initializeGDAL();
-        	GDALUtil.runproc(new ProcessBuilder("apt", "update"));
-        	GDALUtil.runproc(new ProcessBuilder("apt", "install", "-y", "libsqlite3-mod-spatialite"));
-        	
-        	initialized = true;
+        	WorkerUtils.initializeGDAL();
+        	WorkerUtils.initializeSpatialite();
         }
         
 		public void open(WritableByteChannel channel) throws IOException {

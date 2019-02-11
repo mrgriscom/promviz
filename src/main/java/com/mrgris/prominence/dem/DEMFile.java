@@ -14,12 +14,17 @@ import org.gdal.gdal.Band;
 import org.gdal.gdal.Dataset;
 import org.gdal.gdal.gdal;
 import org.gdal.gdalconst.gdalconstConstants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.mrgris.prominence.PointIndex;
 import com.mrgris.prominence.TopologyNetworkPipeline;
+import com.mrgris.prominence.util.WorkerUtils;
 
 @DefaultCoder(AvroCoder.class)
 public class DEMFile {
+	
+	  private static final Logger LOG = LoggerFactory.getLogger(DEMFile.class);
 	
 	static final boolean DEBUG_NODATA_IS_OCEAN = true;
 	
@@ -77,6 +82,14 @@ public class DEMFile {
 		return PointIndex.make(grid_id, x, y);		
 	}
 	
+	public int[] gridXYtoCR(int x, int y) {
+		int dx = (x - origin[0]) / (inv_x ? -1 : 1);
+		int dy = (y - origin[1]) / (inv_y ? -1 : 1);
+		int px = (flip_xy ? dy : dx);
+		int py = (flip_xy ? dx : dy);
+		return new int[] {px, height - 1 - py};
+	}
+	
 	public static class Sample {
 		public long ix;
 		public float elev;
@@ -94,11 +107,11 @@ public class DEMFile {
 		}
 	}
 		
-	public Iterable<Sample> samples(String cacheDir) {
+	public Iterable<Sample> samples(String cacheDir, int xmin, int ymin, int xmax, int ymax) {
 		return new Iterable<Sample>() {
 			@Override
 			public Iterator<Sample> iterator() {
-				return new SamplesIterator(cacheDir);
+				return new SamplesIterator(cacheDir, xmin, ymin, xmax, ymax);
 			}
 		};
 	}
@@ -132,10 +145,24 @@ public class DEMFile {
 		int r;
 		int c;
 		
-		public SamplesIterator(String cacheDir) {
-			if (!GDALUtil.initialized) {
-				throw new RuntimeException("GDAL has not been initialized");
-			}
+		int r0;
+		int c0;
+		int subwidth;
+		int subheight;
+		
+		public SamplesIterator(String cacheDir, int xmin, int ymin, int xmax, int ymax) {
+			WorkerUtils.checkGDAL();
+			
+			int[] cr0 = gridXYtoCR(xmin, ymin);
+			int[] cr1 = gridXYtoCR(xmax - 1, ymax - 1);
+			int cmin = Math.max(Math.min(cr0[0], cr1[0]), 0);
+			int cmax = Math.min(Math.max(cr0[0], cr1[0]) + 1, width);
+			int rmin = Math.max(Math.min(cr0[1], cr1[1]), 0);
+			int rmax = Math.min(Math.max(cr0[1], cr1[1]) + 1, height);
+			r0 = rmin;
+			c0 = cmin;
+			subwidth = cmax - cmin;
+			subheight = rmax - rmin;
 			
 			r = 0;
 			c = 0;
@@ -147,16 +174,19 @@ public class DEMFile {
 				}
 			}
 			
+			LOG.info(String.format("DEM loading %dx%d-%dx%d -> %dx%d-%dx%d",
+					xmin, ymin, xmax, ymax, rmin, cmin, rmax, cmax));
+			
 			Dataset ds = gdal.Open(localPath, gdalconstConstants.GA_ReadOnly);
 			Band band = ds.GetRasterBand(1);
-			data = new float[width * height];
-			band.ReadRaster(0, 0, width, height, data);
+			data = new float[subwidth * subheight];
+			band.ReadRaster(c0, r0, subwidth, subheight, data);
 			ds.delete();
 		}
 		
 		@Override
 		public boolean hasNext() {
-			boolean has = r < height;
+			boolean has = r < subheight;
 			if (!has) {
 				// cleanup?
 			}
@@ -165,11 +195,11 @@ public class DEMFile {
 
 		@Override
 		public Sample next() {
-			long ix = genRCIx(r, c);
-			double elev = data[r * width + c];
+			long ix = genRCIx(r0 + r, c0 + c);
+			double elev = data[r * subwidth + c];
 
 			c++;
-			if (c == width) {
+			if (c == subwidth) {
 				c = 0;
 				r++;
 			}

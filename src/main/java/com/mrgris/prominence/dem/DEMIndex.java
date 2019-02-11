@@ -12,6 +12,7 @@ import org.gdal.osr.SpatialReference;
 
 import com.google.gson.Gson;
 import com.mrgris.prominence.TopologyNetworkPipeline;
+import com.mrgris.prominence.util.WorkerUtils;
 
 public class DEMIndex {
 	
@@ -43,7 +44,9 @@ public class DEMIndex {
 		}
 	
 		CoordinateTransformation loadTransform() {
-	        SpatialReference dst = new SpatialReference();
+			WorkerUtils.checkGDAL();
+			
+			SpatialReference dst = new SpatialReference();
 	        dst.ImportFromEPSG(4326);
 	        
 	        String srsType = srs.substring(0, srs.indexOf(":"));
