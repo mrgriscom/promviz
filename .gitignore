@@ -1,7 +1,12 @@
 *~
-*.class
-.metadata/
-.settings/
-bin/
+
 *.pyc
+*.class
+
+bin/
+target/
+.classpath
+.metadata/
+.project
+.settings/
 
