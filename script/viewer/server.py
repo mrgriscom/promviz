@@ -17,11 +17,6 @@ import shapely.wkt
 import shapely.geometry
 import itertools
 
-import os.path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import settings
-import util
-
 def fetch_prom(where_clause, args):
     results = conn.execute('select point, saddle, prom_mm, min_bound, prom_parent, line_parent, prom_rank, AsWkt(thresh_path), AsWkt(parent_path), AsWkt(domain) from prom where %s' % where_clause, args)
     def to_rec(row):

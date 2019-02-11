@@ -1,33 +1,10 @@
-package promviz;
+package com.mrgris.prominence.legacy;
 
-import java.io.DataOutputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-
-import promviz.MeshPoint.Lead;
-import promviz.dem.DEMFile;
-import promviz.util.DefaultMap;
-import promviz.util.Logging;
-import promviz.util.Util;
-import promviz.util.WorkerPool;
-
-import com.google.common.base.Function;
-import com.google.common.collect.Iterables;
+// contains original checkpointing logic from saddle tracing, which i think is not yet in the beam code
 
 public class TopologyBuilder {
 
+	/*
 	static final int CHUNK_SIZE_EXP = 11;
 	static final int CHECKPOINT_FREQ = Util.pow2(11);
 	static final int CHECKPOINT_LEN = CHECKPOINT_FREQ;
@@ -111,14 +88,14 @@ public class TopologyBuilder {
 		Set<Long> pendingCheckpointsUp;
 		Set<Long> pendingCheckpointsDown;
 		
-		/* TODO even with the checkpointing rules, the checkpoint length threshold is still
+		/# TODO even with the checkpointing rules, the checkpoint length threshold is still
 		 * quite long. the is a tradeoff for lower memory consumption, but i'm worried all this
 		 * tracing will be unpleasantly slow. what if we also stored another set of checkpoints,
 		 * with a much shorter length threshold, to be discarded after the processing of this
 		 * chunk. traces would be short and fast, and memory would not creep up during the
 		 * pipeline. would probably also obviate the pending lead grouping optimization noted
 		 * above
-		 */
+		 #/
 		
 		public ChunkProcessor(ChunkInput input) {
 			this.input = input;
@@ -754,6 +731,8 @@ public class TopologyBuilder {
 	static int UD(boolean up) {
 		return (up ? 1 : -1);
 	}
+	
+	*/
 }
 	
 // verifications:	

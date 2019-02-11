@@ -1,33 +1,4 @@
-package promviz;
-
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.PriorityQueue;
-import java.util.Set;
-
-import promviz.Prominence.Backtrace;
-import promviz.Prominence.Path;
-import promviz.Prominence.PromBaseInfo;
-import promviz.Prominence.PromFact;
-import promviz.Prominence.PromPair;
-import promviz.Prominence.PromParent;
-import promviz.Prominence.PromPending;
-import promviz.Prominence.PromSubsaddle;
-import promviz.Prominence.PromThresh;
-import promviz.debug.Harness;
-import promviz.dem.DEMFile;
-import promviz.util.DefaultMap;
-import promviz.util.Logging;
-import promviz.util.ReverseComparator;
-
-import com.google.common.collect.Lists;
+package com.mrgris.prominence.legacy;
 
 /*
  * simplified, more intuitive prominence algorithms for creating reference datasets
@@ -40,6 +11,8 @@ import com.google.common.collect.Lists;
 
 public class ProminenceRef {
 
+	/*
+	
 	public static void promSearch(List<DEMFile> DEMs, boolean up, double cutoff) {
 		Map<Prefix, Set<DEMFile>> coverage = PagedElevGrid.partitionDEM(DEMs);
 		new PromSearch(coverage, up, cutoff).search();
@@ -389,4 +362,6 @@ public class ProminenceRef {
 			return ss;
 		}
 	}
+	
+	*/
 }
