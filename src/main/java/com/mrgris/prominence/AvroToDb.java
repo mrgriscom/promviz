@@ -102,13 +102,8 @@ public class AvroToDb {
         	
         	GDALUtil.initializeGDAL();
         	GDALUtil.runproc(new ProcessBuilder("apt", "update"));
-        	// just to get the necessary dependencies - we load our own build of spatialite itself
-        	GDALUtil.runproc(new ProcessBuilder("apt", "install", "-y", "libspatialite5", "wget"));
-        	// TODO fetch from cloud storage
-        	GDALUtil.runproc(new ProcessBuilder("wget", "-O", "/mod_spatialite.so", "http://mrgris.com/a/mod_spatialite.so"));
-//        	GDALUtil.runproc(new ProcessBuilder("apt", "install", "-y", "libsqlite3-mod-spatialite"));
-			//try { Thread.sleep(3*3600*1000); } catch (Exception e) { throw new RuntimeException(e); }
-
+        	GDALUtil.runproc(new ProcessBuilder("apt", "install", "-y", "libsqlite3-mod-spatialite"));
+        	
         	initialized = true;
         }
         
@@ -125,8 +120,7 @@ public class AvroToDb {
 	            dbpath = File.createTempFile("promout", "sqlite");
 		        conn = DriverManager.getConnection("jdbc:sqlite:" + dbpath.getPath(), config.toProperties());
 	            Statement stmt = conn.createStatement();
-	            stmt.execute("SELECT load_extension('/mod_spatialite')");
-	            //stmt.execute("SELECT load_extension('/usr/lib/x86_64-linux-gnu/libspatialite.so.5')");
+	            stmt.execute("SELECT load_extension('mod_spatialite')");
 	            stmt.execute("SELECT InitSpatialMetadata(1)");
 
 	            stmt.execute(
