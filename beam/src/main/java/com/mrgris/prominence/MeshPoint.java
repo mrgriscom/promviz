@@ -39,7 +39,23 @@ public class MeshPoint extends Point {
 	public List<MeshPoint> adjacent(IMesh m) {
 		List<MeshPoint> adj = new ArrayList<MeshPoint>();
 		for (long geocode : adjIx()) {
-			adj.add(geocode != PointIndex.NULL ? m.get(geocode) : null);
+			MeshPoint p;
+			try {
+				p = m.get(geocode);
+			} catch (IndexOutOfBoundsException e) {
+				// TODO i'm not sure we should be handling this here, but grid seams will probably work pretty similarly?
+				// either combine with handling of pending leads, or determine a priori which pages are non-contiguously
+				// adjacent (custom adjacency for grid seams or check grid xlimits for IDL)
+				if (PointIndex.split(geocode)[0] == PointIndex.split(this.ix)[0]) {
+					// same grid so must be IDL wraparound
+					PagedElevGrid pm = (PagedElevGrid)m;
+					pm.loadPage(pm.segmentPrefix(geocode));
+					p = m.get(geocode);
+				} else {
+					throw e;
+				}
+			}
+			adj.add(geocode != PointIndex.NULL ? p : null);
 		}
 		return adj;
 	}

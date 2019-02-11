@@ -35,8 +35,32 @@ def normalize_epoch(bound, epoch):
     world = box(-180, -90, 180, 90)
     return translate(bound, -360 * epoch, 0).intersection(world)
 
+LL_EPSILON = 1e-7
+def lonnorm(x):
+    return (x + 180.) % 360. - 180.
+def is_polar(p):
+    return abs(p[1]) > 90. - LL_EPSILON
+def is_lon_oppo(p0, p1):
+    return abs(lonnorm(p0[0] - p1[0])) > 180. - LL_EPSILON
+def rel_append(poly, points):
+    for p in points:
+        # normalize for IDL wraparound by setting lon to +/- 180 of the previous point's lon
+        last_lon = poly[-1][0]
+        if is_lon_oppo(p, poly[-1]) and is_polar(p):
+            # special handling for pole discontinuity segments - move in the direction of the original poly start point
+            delta_lon = math.copysign(180, poly[0][0] - last_lon)
+        elif all(is_polar(k) and abs(abs(k[0]) - 180.) < LL_EPSILON for k in (p, poly[-1])):
+            # respect pole caps already in place
+            delta_lon = p[0] - last_lon
+        else:
+            delta_lon = lonnorm(p[0] - last_lon)
+        poly.append((last_lon + delta_lon, p[1]))
+def relativize_poly(poly):
+    poly_wrapped = poly[:1]
+    rel_append(poly_wrapped, poly[1:])
+    return poly_wrapped
+        
 def non_geo_bound(srs, x0, y0, x1, y1, tolerance):
-    LL_EPSILON = 1e-7
     def make_tx(src, dst):
         transform = osr.CoordinateTransformation(src, dst)
         def tx(p):
@@ -51,9 +75,6 @@ def non_geo_bound(srs, x0, y0, x1, y1, tolerance):
     inv_tx = make_tx(geo, srs)
     midp = lambda p0, p1: [(a+b)/2. for a, b in zip(p0, p1)]
     dist = lambda p0, p1: sum((a-b)**2. for a, b in zip(p0, p1))**.5
-    lonnorm = lambda x: (x + 180.) % 360. - 180.
-    is_polar = lambda p: abs(p[1]) > 90. - LL_EPSILON
-    is_lon_oppo = lambda p0, p1: abs(lonnorm(p0[0] - p1[0])) > 180. - LL_EPSILON
     
     def yield_seg(start, end):
         # progressively sub-divide a line segment until the midpoint in lat/lon space closely approximates
@@ -99,19 +120,7 @@ def non_geo_bound(srs, x0, y0, x1, y1, tolerance):
     corners = [(x0, y0), (x0, y1), (x1, y1), (x1, y0)]
     segs = [(e, corners[(i + 1) % len(corners)]) for i, e in enumerate(corners)]
     poly = list(itertools.chain(*(yield_seg(*seg) for seg in segs)))
-
-    def rel_append(poly, points):
-        for p in points:
-            # normalize for IDL wraparound by setting lon to +/- 180 of the previous point's lon
-            last_lon = poly[-1][0]
-            if is_lon_oppo(p, poly[-1]) and is_polar(p):
-                # special handling for pole discontinuity segments - move in the direction of the original poly start point
-                delta_lon = math.copysign(180, poly[0][0] - last_lon)
-            else:
-                delta_lon = lonnorm(p[0] - last_lon)
-            poly.append((last_lon + delta_lon, p[1]))
-    poly_wrapped = poly[:1]
-    rel_append(poly_wrapped, poly[1:])
+    poly_wrapped = relativize_poly(poly)
 
     # handle pole caps
     winding = int(round(abs(poly_wrapped[0][0] - poly_wrapped[-1][0]) / 360.))
@@ -135,6 +144,7 @@ def non_geo_bound(srs, x0, y0, x1, y1, tolerance):
 
 def idl_normalize_bound(bound):
     xmin, _, xmax, _ = bound.bounds
+    # TODO: prevent degenerate polygons?
     return reduce(lambda a, b: a.union(b), (normalize_epoch(bound, epoch) for epoch in xrange(lon_epoch(xmin), lon_epoch(xmax) + 1)))
 
 def process_series(root, _glob, sidecars, series):
@@ -189,7 +199,7 @@ def process_dem(root, path, sidecars, series):
         dem['inv_x'] = True
     if dy < 0:
         dem['inv_y'] = True
-    
+
     dem['width'] = ds.RasterXSize
     dem['height'] = ds.RasterYSize
 
@@ -204,6 +214,11 @@ def process_dem(root, path, sidecars, series):
     x1, y1 = transform_px(gt, dem['width'], dem['height'])
     if grid['srs'] == 'epsg:4326':
         bound = box(x0, y0, x1, y1)
+
+        assert not (x0 < -180. and x1 > 180.), '%s wraps around globe more than once' % path
+        cyl_width = int(round(360. / (grid['spacing'] * x_stretch)))
+        crosses_idl = x0 < -180. or x1 > 180.
+        assert not (crosses_idl and cyl_width % 2 > 0), '%s crosses IDL with non-even grid width' % path
     else:
         tolerance = 0.1
         bound = non_geo_bound(srs, x0, y0, x1, y1, tolerance * grid['spacing'])

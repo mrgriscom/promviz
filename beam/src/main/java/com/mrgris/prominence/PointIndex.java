@@ -1,6 +1,5 @@
 package com.mrgris.prominence;
 
-import com.mrgris.prominence.dem.DEMFile;
 import com.mrgris.prominence.dem.DEMIndex;
 import com.mrgris.prominence.util.GeoCode;
 import com.mrgris.prominence.util.Util;
@@ -8,7 +7,7 @@ import com.mrgris.prominence.util.Util;
 public class PointIndex {
 	
 	static final int BITS_SEQ = 4; // signed
-	static final int BITS_X = 24;  // signed
+	public static final int BITS_X = 24;  // signed
 	static final int BITS_Y = 24;  // signed
 	static final int BITS_PROJ = 64 - BITS_X - BITS_Y - BITS_SEQ;
 

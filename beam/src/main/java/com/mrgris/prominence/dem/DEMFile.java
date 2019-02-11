@@ -6,8 +6,12 @@ import java.net.URL;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
 
+import org.apache.avro.reflect.Nullable;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.gdal.gdal.Band;
@@ -17,7 +21,7 @@ import org.gdal.gdalconst.gdalconstConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mrgris.prominence.PointIndex;
+import com.mrgris.prominence.Prefix;
 import com.mrgris.prominence.TopologyNetworkPipeline;
 import com.mrgris.prominence.util.WorkerUtils;
 
@@ -41,45 +45,68 @@ public class DEMFile {
 	public double nodata = Double.NaN;
 	public double z_unit = 1.;
 	
+	transient private DEMIndex.Grid _grid;
+	
 	// for deserialization
 	public DEMFile() {}
 				
-	public int xdim() {
+	protected DEMIndex.Grid grid() {
+		if (_grid == null) {
+			_grid = DEMIndex.instance().grids[grid_id];
+		}
+		return _grid;
+	}
+	
+	protected int xdim() {
 		return (flip_xy ? height : width);
 	}
-	public int ydim() {
+	protected int ydim() {
 		return (flip_xy ? width : height);
 	}
 	
-	public int xend() {
+	protected int xend() {
 		return origin[0] + (xdim() - 1) * (inv_x ? -1 : 1);
 	}
-	public int yend() {
+	protected int yend() {
 		return origin[1] + (ydim() - 1) * (inv_y ? -1 : 1);
 	}
 	
-	public int xmin() {
+	protected int xmin() {
 		return Math.min(origin[0], xend());
 	}
-	public int xmax() {
+	protected int xmax() {
 		return Math.max(origin[0], xend());
 	}
-	public int ymin() {
+	protected int ymin() {
 		return Math.min(origin[1], yend());
 	}
-	public int ymax() {
+	protected int ymax() {
 		return Math.max(origin[1], yend());
 	}		
 	
-	public long genRCIx(int r, int c) {
+	interface PageTiler {
+		void add(int xmin, int xmax);
+	}
+	public List<Prefix> overlappingPages(int pageSizeExp) {
+		List<Prefix> pages = new ArrayList<>();
+		PageTiler pt = (xmin, xmax) ->
+			pages.addAll(Arrays.asList(Prefix.tileInclusive(grid_id, xmin, ymin(), xmax, ymax(), pageSizeExp)));			
+		if (grid().isCylindrical() && (xmin() < grid().xmin() || xmax() > grid().xmax())) {
+			pt.add(grid().normX(xmin()), grid().xmax());
+			pt.add(grid().xmin(), grid().normX(xmax()));
+		} else {
+			pt.add(xmin(), xmax());
+		}
+		return pages;
+	}
+	
+	public long genRasterIx(int r, int c) {
 		int px = c;
 		int py = height - 1 - r;
-		return genAbsIx(origin[0] + (flip_xy ? py : px) * (inv_x ? -1 : 1),
-				 	    origin[1] + (flip_xy ? px : py) * (inv_y ? -1 : 1));
-	}
-
-	public long genAbsIx(int x, int y) {
-		return PointIndex.make(grid_id, x, y);		
+		return grid().genIx(
+				origin[0] + (flip_xy ? py : px) * (inv_x ? -1 : 1),
+				origin[1] + (flip_xy ? px : py) * (inv_y ? -1 : 1)
+			);
 	}
 	
 	public int[] gridXYtoCR(int x, int y) {
@@ -106,12 +133,12 @@ public class DEMFile {
 			this.isodist = isodist;
 		}
 	}
-		
-	public Iterable<Sample> samples(String cacheDir, int xmin, int ymin, int xmax, int ymax) {
+	
+	public Iterable<Sample> samples(String cacheDir, Iterable<Prefix> pages) {
 		return new Iterable<Sample>() {
 			@Override
 			public Iterator<Sample> iterator() {
-				return new SamplesIterator(cacheDir, xmin, ymin, xmax, ymax);
+				return new SamplesIterator(cacheDir, pages);
 			}
 		};
 	}
@@ -150,8 +177,31 @@ public class DEMFile {
 		int subwidth;
 		int subheight;
 		
-		public SamplesIterator(String cacheDir, int xmin, int ymin, int xmax, int ymax) {
+		public SamplesIterator(String cacheDir, Iterable<Prefix> pages) {
 			WorkerUtils.checkGDAL();
+			
+			int xmin = Integer.MAX_VALUE, ymin = Integer.MAX_VALUE,
+					xmax = Integer.MIN_VALUE, ymax = Integer.MIN_VALUE;
+			for (Prefix p : pages) {
+				int[] bounds = p.bounds();
+				int bxmin = bounds[0];
+				int bymin = bounds[1];
+				int bxmax = bounds[2];
+				int bymax = bounds[3];
+				if (grid().isCylindrical()) {
+					if (bxmax < DEMFile.this.xmin()) {
+						bxmin += grid().xwidth();
+						bxmax += grid().xwidth();
+					} else if (bxmin > DEMFile.this.xmax()) {
+						bxmin -= grid().xwidth();
+						bxmax -= grid().xwidth();					
+					}
+				}
+				xmin = Math.min(xmin, bxmin);
+				ymin = Math.min(ymin, bymin);
+				xmax = Math.max(xmax, bxmax);
+				ymax = Math.max(ymax, bymax);
+			}
 			
 			int[] cr0 = gridXYtoCR(xmin, ymin);
 			int[] cr1 = gridXYtoCR(xmax - 1, ymax - 1);
@@ -195,7 +245,7 @@ public class DEMFile {
 
 		@Override
 		public Sample next() {
-			long ix = genRCIx(r0 + r, c0 + c);
+			long ix = genRasterIx(r0 + r, c0 + c);
 			double elev = data[r * subwidth + c];
 
 			c++;

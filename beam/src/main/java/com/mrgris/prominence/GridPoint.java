@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.mrgris.prominence.dem.DEMFile;
+import com.mrgris.prominence.dem.DEMIndex;
 import com.mrgris.prominence.util.Util;
 
 public class GridPoint extends MeshPoint {
@@ -39,7 +40,8 @@ public class GridPoint extends MeshPoint {
 		for (int[] offset : offsets) {
 			boolean diagonal_connection = (Util.mod(offset[0] + offset[1], 2) == 0);
 			if (fully_connected || !diagonal_connection) {
-				adj.add(PointIndex.make(_ix[0], rc[0] + offset[0], rc[1] + offset[1]));
+				// refer to grid for any wraparound
+				adj.add(DEMIndex.instance().grids[_ix[0]].genIx(rc[0] + offset[0], rc[1] + offset[1]));
 			}
 		}
 		long[] adjix = new long[adj.size()];

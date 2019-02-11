@@ -9,12 +9,18 @@ import java.net.URL;
 
 import org.gdal.osr.CoordinateTransformation;
 import org.gdal.osr.SpatialReference;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.gson.Gson;
+import com.mrgris.prominence.PointIndex;
 import com.mrgris.prominence.TopologyNetworkPipeline;
+import com.mrgris.prominence.util.Util;
 import com.mrgris.prominence.util.WorkerUtils;
 
 public class DEMIndex {
+	
+	  private static final Logger LOG = LoggerFactory.getLogger(DEMIndex.class);
 	
 	static DEMIndex _inst;
 	
@@ -36,7 +42,6 @@ public class DEMIndex {
 		CoordinateTransformation tx;
 		boolean _cyl_init;
 		int cyl_width;
-		
 		
 		public double[] toProjXY(int x, int y) {
 			return new double[] {(x + subpx_offset[0] + origin_offset[0]) * spacing * x_stretch,
@@ -82,6 +87,9 @@ public class DEMIndex {
 			if (!_cyl_init) {
 				if (srs.equals("epsg:4326")) {
 					cyl_width = (int)Math.round(360. / (spacing * x_stretch));
+					if (cyl_width % 2 > 0) {
+						LOG.warn(String.format("grid %d (%s) cyl width not even", id, srs));
+					}
 				} else {
 					cyl_width = -1;
 				}
@@ -89,6 +97,24 @@ public class DEMIndex {
 			}
 			return cyl_width > 0;
 		}
+		
+		protected int xwidth() {
+			return isCylindrical() ? cyl_width : (1 << PointIndex.BITS_X);
+		}
+		public int xmin() {
+			return -xwidth()/2;
+		}
+		public int xmax() {
+			return xwidth()/2 - 1;
+		}
+		public int normX(int x) {
+			return Util.mod(x - xmin(), xwidth()) + xmin();
+		}
+		
+		public long genIx(int x, int y) {
+			return PointIndex.make(id, isCylindrical() ? normX(x) : x, y);		
+		}
+
 	}
 	
 	public Grid[] grids;

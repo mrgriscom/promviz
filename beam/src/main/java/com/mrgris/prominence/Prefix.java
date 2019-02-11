@@ -49,30 +49,32 @@ public class Prefix implements Comparable<Prefix> {
 		}
 		
 		int[] p = PointIndex.split(prefix);
-		int _dim = Util.pow2(level) + 2 * fringe;
-		return tile(p[0], p[1], p[2], _dim, _dim, -fringe, -fringe, chRes);
+		int tx0 = p[1] >> chRes;
+		int ty0 = p[2] >> chRes;
+		int tdim = Util.pow2(level) + 2 * fringe;
+		return _tile(p[0], tx0 - fringe, ty0 - fringe, tdim, tdim, chRes);
 	}
 	
-	public static Prefix[] tile(int proj, int x0, int y0, int width, int height, int xo, int yo, int res) {
+	// tx/ty/w/h are grid *tile* coordinates, i.e., chunks of size 2^res
+	public static Prefix[] _tile(int proj, int tx0, int ty0, int width, int height, int res) {
 		Prefix[] pp = new Prefix[width * height];
 		int dim = Util.pow2(res);
 		int n = 0;
 		for (int i = 0; i < width; i++) {
 			for (int j = 0; j < height; j++) {
-				pp[n++] = new Prefix(PointIndex.make(
-						proj,
-						x0 + (i + xo) * dim,
-						y0 + (j + yo) * dim
-					), res);
+				pp[n++] = new Prefix(PointIndex.make(proj, (tx0 + i) * dim, (ty0 + j) * dim), res);
 			}
 		}
 		return pp;
 	}
 	
+	// x/y are grid coordinates
 	public static Prefix[] tileInclusive(int proj, int x0, int y0, int x1, int y1, int res) {
-		int width = ((x1 - x0) >> res) + 1;
-		int height = ((y1 - y0) >> res) + 1;
-		return tile(proj, x0, y0, width, height, 0, 0, res);
+		int tx0 = (x0 >> res);
+		int ty0 = (y0 >> res);
+		int tx1 = (x1 >> res);
+		int ty1 = (y1 >> res);
+		return _tile(proj, tx0, ty0, tx1 - tx0 + 1, ty1 - ty0 + 1, res);
 	}
 	
 	public int[] bounds() {

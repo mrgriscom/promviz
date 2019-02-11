@@ -199,18 +199,7 @@ public class PagedElevGrid implements IMesh {
 		});
 		
 		for (DEMFile dem : DEMs) {
-			int xmin = Integer.MAX_VALUE, ymin = Integer.MAX_VALUE,
-				xmax = Integer.MIN_VALUE, ymax = Integer.MIN_VALUE;
-			for (Prefix p : map.get(dem)) {
-				int[] bounds = p.bounds();
-				xmin = Math.min(xmin, bounds[0]);
-				ymin = Math.min(ymin, bounds[1]);
-				xmax = Math.max(xmax, bounds[2]);
-				ymax = Math.max(ymax, bounds[3]);
-			}
-			
-			// TODO could be smarter than blindly iterating over entire DEM -- compute and load only relevant sub-rectangle?
-			for (DEMFile.Sample s : dem.samples(demCacheDir, xmin, ymin, xmax, ymax)) {
+			for (DEMFile.Sample s : dem.samples(demCacheDir, map.get(dem))) {
 				Prefix p = segmentPrefix(s.ix);
 				if (map.get(dem).contains(p)) {
 					segments.get(p).set(s.ix, s.elev);
