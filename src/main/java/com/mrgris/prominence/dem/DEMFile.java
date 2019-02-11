@@ -116,7 +116,7 @@ public class DEMFile {
 		};
 	}
 	
-	static String cacheFileFromS3(String cacheDir, String path) {
+	static String cacheFileFromGCS(String cacheDir, String path) {
 		String cachedFile = path;
 		if (cachedFile.endsWith(".gz")) {
 			cachedFile = cachedFile.substring(0, cachedFile.length() - ".gz".length());
@@ -167,10 +167,10 @@ public class DEMFile {
 			r = 0;
 			c = 0;
 			
-			String localPath = cacheFileFromS3(cacheDir, path);
+			String localPath = cacheFileFromGCS(cacheDir, path);
 			if (sidecars != null) {
 				for (String sidecar : sidecars) {
-					cacheFileFromS3(cacheDir, sidecar);
+					cacheFileFromGCS(cacheDir, sidecar);
 				}
 			}
 			

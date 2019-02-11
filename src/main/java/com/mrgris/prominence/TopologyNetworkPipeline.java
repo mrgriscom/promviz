@@ -116,11 +116,8 @@ public class TopologyNetworkPipeline {
 	  GeometryFactory gf = new GeometryFactory();
 	  WKTReader wkt = new WKTReader(gf);
 	  
-	  Polygon regionPoly;
-	  if (region.equals(global)) {
-		  // not actually used
-		  regionPoly = makeQuadrant(gf, -180, 180, -90, 90);
-	  } else {
+	  Polygon regionPoly = null;
+	  if (!region.equals(global)) {
 		  List<Coordinate> regionCoords = new ArrayList<>();
 		  for (String ll : region.split(" ")) {
 			  String[] s = ll.split(",");
