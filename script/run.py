@@ -28,7 +28,7 @@ def bound_to_wkt(bound):
 bound_wkt = bound_to_wkt(bound)
 
 subprocess.call(r"""export GOOGLE_APPLICATION_CREDENTIALS=private/credentials/prominence-0e0ffcfbf903.json && \
-    mvn -Pdataflow-runner compile exec:java -Dexec.mainClass=com.mrgris.prominence.FullPipeline \
+    mvn -Pdataflow-runner compile exec:java -Dexec.mainClass=com.mrgris.prominence.%(pipeline)s \
 	-Dexec.args="--project=prominence-163319 \
           --gcpTempLocation=gs://mrgris-promviz/tmp/ \
           --stagingLocation=gs://mrgris-promviz/staging/ \
@@ -40,4 +40,6 @@ subprocess.call(r"""export GOOGLE_APPLICATION_CREDENTIALS=private/credentials/pr
 """ % {
     'bound': bound_wkt,
     'series': series,
+    #'pipeline': 'FullPipeline',
+    'pipeline': 'PathsPipeline',
 }, shell=True)

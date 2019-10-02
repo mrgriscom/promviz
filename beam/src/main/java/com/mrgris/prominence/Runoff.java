@@ -6,8 +6,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.mrgris.prominence.PathsPipeline.BasinSaddleEdge;
 import com.mrgris.prominence.PathsPipeline.PathSearcher;
-import com.mrgris.prominence.PathsPipeline.PathSearcher.BasinSaddleEdge;
 import com.mrgris.prominence.Prominence.PromFact.Saddle;
 
 /* TODO

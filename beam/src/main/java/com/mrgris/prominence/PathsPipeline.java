@@ -22,12 +22,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
 import org.apache.avro.reflect.Nullable;
+import org.apache.beam.repackaged.beam_sdks_java_extensions_protobuf.com.google.common.collect.Iterators;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
@@ -52,12 +54,16 @@ import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
+import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
+import org.apache.beam.sdk.values.TupleTagList;
 import org.apache.beam.sdk.values.TypeDescriptor;
+import org.apache.beam.vendor.grpc.v1_13_1.com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Sets;
 import com.mrgris.prominence.AvroToDb.SpatialiteSink;
 import com.mrgris.prominence.Edge.HalfEdge;
 import com.mrgris.prominence.Prominence.PromFact;
@@ -87,13 +93,65 @@ public class PathsPipeline {
   private static final Logger LOG = LoggerFactory.getLogger(PathsPipeline.class);
   
   @DefaultCoder(AvroCoder.class)
-  static class TrimmedEdge {
-	  List<Long> breadcrumbs;
-	  boolean startsSaddle;
-	  int traceNum;
+  static class PrunedEdge {
+	  long srcIx;
+	  long dstIx;
+	  int saddleTraceNum = -1;
+	  ArrayList<Long> interimIxs;
 	  
-	  public TrimmedEdge() {
-		  breadcrumbs = new ArrayList<>();
+	  public PrunedEdge() {
+		  interimIxs = new ArrayList<>();
+	  }
+  }
+  
+  static class BasinSaddleEdge {
+	  long ix;
+	  int trace;
+	  
+	  public BasinSaddleEdge(long ix, int trace) {
+		  this.ix = ix;
+		  this.trace = trace;
+	  }
+	  
+		@Override
+		public boolean equals(Object o) {
+			if (o instanceof BasinSaddleEdge) {
+				BasinSaddleEdge bse = (BasinSaddleEdge)o;
+				return this.ix == bse.ix && this.trace == bse.trace;
+			} else {
+				return false;
+			}
+		}
+		
+		@Override
+		public int hashCode() {
+			return Objects.hash(ix, trace);
+		}
+  }
+  
+  static class MST {
+	  Map<Object, Long> backtrace;  // key is either long or BasinSaddleEdge
+	  Map<Long, List<Integer>> basinSaddles;
+	  Map<Object, List<Long>> trimmedSegments;
+	  
+	  public MST() {
+		  backtrace = new HashMap<>();
+		  trimmedSegments = new HashMap<>();
+		  basinSaddles = new DefaultMap<Long, List<Integer>>() {
+				@Override
+				public List<Integer> defaultValue(Long key) {
+					return new ArrayList<>();
+				}
+			  };
+	  }
+	  	  
+	  // helpful in various situations, as the terminal point doesn't always have an explicit null chained after
+	  public long getDeadendAsNull(Object cur) {
+		  if (backtrace.containsKey(cur)) {
+			  return backtrace.get(cur);
+		  } else {
+			  return PointIndex.NULL;
+		  }
 	  }
   }
   
@@ -101,32 +159,7 @@ public class PathsPipeline {
 	  Map<Object, Long> backtrace;
 	  Map<Long, List<Integer>> anchors;
 	  
-	  static class BasinSaddleEdge {
-		  long ix;
-		  int trace;
-		  
-		  public BasinSaddleEdge(long ix, int trace) {
-			  this.ix = ix;
-			  this.trace = trace;
-		  }
-		  
-			@Override
-			public boolean equals(Object o) {
-				if (o instanceof BasinSaddleEdge) {
-					BasinSaddleEdge bse = (BasinSaddleEdge)o;
-					return this.ix == bse.ix && this.trace == bse.trace;
-				} else {
-					return false;
-				}
-			}
-			
-			@Override
-			public int hashCode() {
-				return Objects.hash(ix, trace);
-			}
-	  }
-	  
-	  public PathSearcher(Iterable<Edge> mst, Iterable<KV<Long, Integer>> keyPointsIt) {
+	  public PathSearcher(Iterable<PrunedEdge> mst) {
 		  anchors = new DefaultMap<Long, List<Integer>>() {
 			@Override
 			public List<Integer> defaultValue(Long key) {
@@ -135,106 +168,11 @@ public class PathsPipeline {
 		  };
 		  backtrace = new HashMap<>();
 		  
-		  List<Edge> basinSaddleEdges = new ArrayList<>();
-		  Set<Long> terminalSaddles = new HashSet<>();
-		  for (Edge e : mst) {
-			  if (e.a == PointIndex.NULL) {
-				  // process only after main mst has been built
-				  basinSaddleEdges.add(e);
-			  } else {
-				  backtrace.put(e.a, e.saddle);
-				  if (e.b != PointIndex.NULL) {
-					  backtrace.put(e.saddle, e.b);
-				  } else {
-					  terminalSaddles.add(e.saddle);
-				  }
+		  for (PrunedEdge e : mst) {
+			  if (e.dstIx != PointIndex.NULL) {
+				  backtrace.put(e.srcIx, e.dstIx);
 			  }
 		  }
-		  for (Edge e : basinSaddleEdges) {
-			  if (backtrace.containsKey(e.saddle) || terminalSaddles.contains(e.saddle)) {
-				  // through various quirks, the two MSTs can sometimes share saddles, particularly
-				  // near the edge of the data region, though strictly speaking this isn't supposed
-				  // to happen. give precedence to the mst over the basin saddles in this case.
-				  continue;
-			  }
-			  
-			  anchors.get(e.saddle).add(e.tagB);
-			  if (e.b != PointIndex.NULL) {
-				  backtrace.put(new BasinSaddleEdge(e.saddle, e.tagB), e.b);
-			  }
-		  }
-		  
-		  Map<Long, Integer> keyPoints = new HashMap<>();
-		  for (KV<Long, Integer> kp : keyPointsIt) {
-			  keyPoints.put(kp.getKey(), kp.getValue());
-		  }
-		  Set<Long> junctions = new HashSet<>();
-		  Set<Long> seen = new HashSet<>();
-		  Set<Object> traceStart = new HashSet<>();
-		  for (long ix : keyPoints.keySet()) {
-			  if (anchors.containsKey(ix)) {
-				  for (int traceNum : anchors.get(ix)) {
-					  traceStart.add(new BasinSaddleEdge(ix, traceNum));
-				  }
-			  } else {
-				  traceStart.add(ix);
-			  }
-		  }
-		  for (Object cur : traceStart) {
-			  while (true) {
-				  cur = get(cur);
-				  long ix = (long)cur;
-				  if (ix == PointIndex.NULL || keyPoints.containsKey(ix)) {
-					  break;
-				  } else if (seen.contains(ix)) {
-					  junctions.add(ix);
-					  break;
-				  } else {
-					  seen.add(ix);
-				  }
-			  }
-		  }		  		  
-		  for (long j : junctions) {
-			  keyPoints.put(j, MeshPoint.CLASS_SUMMIT); // junctions can never be saddles
-		  }
-		  traceStart.addAll(junctions);
-		  
-		  Map<Object, Long> trimmedBacktrace = new HashMap<>();
-		  for (Object start : traceStart) {
-			  TrimmedEdge seg = new TrimmedEdge();
-			  if (start instanceof BasinSaddleEdge) {
-				  BasinSaddleEdge bse = (BasinSaddleEdge)start;
-				  seg.breadcrumbs.add(bse.ix);
-				  seg.traceNum = bse.trace;
-				  seg.startsSaddle = true;
-			  } else {
-				  if (keyPoints.get(start) == MeshPoint.CLASS_SADDLE) {
-					  seg.startsSaddle = true;
-				  }
-				  seg.breadcrumbs.add((long)start);
-			  }
-			  
-			  Object cur = start;
-			  long ix;
-			  while (true) {
-				  cur = get(cur);
-				  ix = (long)cur; // how to tell if peak or saddle?
-				  if (ix != PointIndex.NULL) {
-					  seg.breadcrumbs.add(ix);
-				  }
-				  if (ix == PointIndex.NULL || keyPoints.containsKey(ix)) {
-					  break;
-				  }
-			  }
-			  if (ix != PointIndex.NULL) {
-				  trimmedBacktrace.put(start, ix);
-			  }
-			  if (seg.breadcrumbs.size() > 1) {
-				  emitEdge(seg);
-			  }
-		  }		  		  
-		  System.out.println("backtrace size before " + backtrace.size() + " after " + trimmedBacktrace.size());
-		  backtrace = trimmedBacktrace;
 	  }
 
 	  public long get(Object cur) {
@@ -306,7 +244,7 @@ public class PathsPipeline {
 	  }
 	  
 	  public abstract void emitPath(PromFact pf);
-	  public abstract void emitEdge(TrimmedEdge seg);
+	  //public abstract void emitEdge(TrimmedEdge seg);
   }
   
   @DefaultCoder(AvroCoder.class)
@@ -360,6 +298,31 @@ public class PathsPipeline {
 			  .apply(Flatten.pCollections());
 	  
 	  PCollection<Long> promBasinSaddles = promOppo.apply(MapElements.into(new TypeDescriptor<Long>() {}).via(pf -> pf.saddle.s.ix));
+	  
+	  // remove basin saddles that already exist in mst. this is contradictory and shouldn't happen but does due to
+	  // some quirks. might go away with support for EOW saddles?
+	  PCollection<Long> promSaddles = mst.apply(MapElements.into(new TypeDescriptor<Long>() {}).via(e -> e.saddle));
+	  final TupleTag<Iterable<Void>> main = new TupleTag<Iterable<Void>>() {};	  
+	  final TupleTag<Iterable<Void>> subtract = new TupleTag<Iterable<Void>>() {};
+	  promBasinSaddles = KeyedPCollectionTuple
+			  .of(main, promBasinSaddles.apply(MapElements.into(new TypeDescriptor<KV<Long, Void>>() {})
+					  .via(ix -> KV.of(ix, null))).apply(GroupByKey.create()))
+			  .and(subtract, promSaddles.apply(MapElements.into(new TypeDescriptor<KV<Long, Void>>() {})
+					  .via(ix -> KV.of(ix, null))).apply(GroupByKey.create()))
+			  .apply(CoGroupByKey.create())
+			  .apply(ParDo.of(new DoFn<KV<Long, CoGbkResult>, Long>() {
+				  @ProcessElement
+				  public void processElement(ProcessContext c, MultiOutputReceiver out) {
+					  KV<Long, CoGbkResult> elem = c.element();
+					  long ix = elem.getKey();
+					  boolean mainMatch = Iterators.size(elem.getValue().getAll(main).iterator()) > 0;
+					  boolean subtrMatch = Iterators.size(elem.getValue().getAll(subtract).iterator()) > 0;
+					  if (mainMatch && !subtrMatch) {
+						  c.output(ix);
+					  }
+				  }
+			  }));
+	  	  
       // in theory this could get too big for a side input, but estimate <30M points globally for P20m
 	  final PCollectionView<Map<Long, Void>> saddleLookup = promBasinSaddles.apply(MapElements
     		  .into(new TypeDescriptor<KV<Long, Void>>() {}).via(ix -> KV.of(ix, null))).apply(View.asMap());
@@ -377,56 +340,378 @@ public class PathsPipeline {
 		  }		  
 	  }).withSideInputs(saddleLookup));
 
-	  PCollection<KV<Long, Integer>> keyPoints = PCollectionList.of(
-			  prom.apply(ParDo.of(new DoFn<PromFact, KV<Long, Integer>>(){
+	  PCollection<Long> keyPoints = PCollectionList.of(
+			  prom.apply(ParDo.of(new DoFn<PromFact, Long>(){
 				  @ProcessElement
 				  public void processElement(ProcessContext c) {
 					  PromFact pf = c.element();
-					  c.output(KV.of(pf.p.ix, MeshPoint.CLASS_SUMMIT));
-					  c.output(KV.of(pf.saddle.s.ix, MeshPoint.CLASS_SADDLE));
+					  c.output(pf.p.ix);
+					  //c.output(KV.of(pf.saddle.s.ix, MeshPoint.CLASS_SADDLE)); // included implicitly; makes pmst smaller
 					  if (pf.thresh != null) {
-						  c.output(KV.of(pf.thresh.ix, MeshPoint.CLASS_SUMMIT));
+						  c.output(pf.thresh.ix);
 					  }
 				  }
 			  }))
-			  ).and(promBasinSaddles.apply(MapElements.into(new TypeDescriptor<KV<Long, Integer>>(){})
-					  .via(ix -> KV.of(ix, MeshPoint.CLASS_SADDLE)))).apply(Flatten.pCollections()).apply(Distinct.create());
-	  	  
+			  ).and(promBasinSaddles).apply(Flatten.pCollections()).apply(Distinct.create());
+
+	  PCollection<KV<Prefix, Iterable<Edge>>> mstChunked =
+			  PCollectionList.of(mst).and(mstSaddleAnchors).apply(Flatten.pCollections()).apply(
+					  ParDo.of(new DoFn<Edge, KV<Prefix, Edge>>(){
+						  @ProcessElement
+						  public void processElement(ProcessContext c) {
+							  Edge e = c.element();
+							  long srcIx = (e.a != PointIndex.NULL ? e.a : e.saddle);  // handles basin saddle anchors
+							  long dstIx = e.b;
+							  Prefix srcPrefix = ProminencePipeline.chunkingPrefix(srcIx, TopologyNetworkPipeline.CHUNK_SIZE_EXP);
+							  Prefix dstPrefix = (dstIx == PointIndex.NULL ? null : ProminencePipeline.chunkingPrefix(srcIx, TopologyNetworkPipeline.CHUNK_SIZE_EXP));
+							  c.output(KV.of(srcPrefix, e));
+							  if (dstPrefix != null && !dstPrefix.equals(srcPrefix)) {
+								  // also need to know which edges flow IN to the chunk
+								  // maybe better to separate into a different pcollection?
+								  c.output(KV.of(dstPrefix, e));
+							  }
+						  }
+					  })).apply(GroupByKey.create());
+	  PCollection<KV<Prefix, Iterable<Long>>> keyPointsChunked =
+			  keyPoints.apply(MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(kp -> 
+			  KV.of(ProminencePipeline.chunkingPrefix(kp, TopologyNetworkPipeline.CHUNK_SIZE_EXP), kp)))
+	  		.apply(GroupByKey.create());
+
+	  final TupleTag<Iterable<Edge>> mstTag = new TupleTag<Iterable<Edge>>() {};	  
+	  final TupleTag<Iterable<Long>> keyPointsTag = new TupleTag<Iterable<Long>>() {};
+      final TupleTag<KV<Long, Long>> outPatchPanel = new TupleTag<KV<Long, Long>>(){};
+      final TupleTag<Long> outRelevantInflows = new TupleTag<Long>(){};
+      PCollectionTuple mstTrace = KeyedPCollectionTuple
+			    .of(mstTag, mstChunked)
+			    .and(keyPointsTag, keyPointsChunked)
+			    .apply(CoGroupByKey.create())
+			    .apply(ParDo.of(
+		  new DoFn<KV<Prefix, CoGbkResult>, KV<Long, Long>>() {
+		    @ProcessElement
+		    public void processElement(ProcessContext c) {
+		      KV<Prefix, CoGbkResult> elem = c.element();
+		      Prefix pf = elem.getKey();
+		      Iterable<Edge> mst = elem.getValue().getOnly(mstTag, Lists.newArrayList());
+		      Iterable<Long> keyPoints = elem.getValue().getOnly(keyPointsTag, Lists.newArrayList());
+		      
+		      MST chunkMst = new MST();
+		      for (Edge e : mst) {
+		    	  if (e.a != PointIndex.NULL) {
+		    		  chunkMst.backtrace.put(e.a, e.b);
+		    	  } else {
+		    		  chunkMst.backtrace.put(new BasinSaddleEdge(e.saddle, e.tagB), e.b);
+					  chunkMst.basinSaddles.get(e.saddle).add(e.tagB);
+		    	  }
+		      }
+		      Set<Long> inflows = new HashSet<>();
+		      for (Map.Entry<Object, Long> kv : chunkMst.backtrace.entrySet()) {
+		    	  Object src = kv.getKey();
+		    	  long srcIx = (src instanceof BasinSaddleEdge ? ((BasinSaddleEdge)src).ix : (long)src);
+		    	  long dstix = kv.getValue();
+		    	  if (!pf.isParent(srcIx)) {
+		    		  inflows.add(dstix);
+		    	  }
+		      }
+
+		      // this might be made more efficient bc it involves a lot of redundant re-tracing
+		      for (long inflow : inflows) {
+		    	  long cur = inflow;
+		    	  while (true) {
+		    		  cur = chunkMst.getDeadendAsNull(cur);
+		    		  if (cur == PointIndex.NULL) {
+		    			  break;
+		    		  } else if (!pf.isParent(cur)) {
+		    			  c.output(outPatchPanel, KV.of(inflow, cur));
+		    			  break;
+		    		  }
+		    	  }
+		      }
+			  Set<Object> traceStart = new HashSet<>();
+			  for (long ix : keyPoints) {
+				  if (chunkMst.basinSaddles.containsKey(ix)) {
+					  for (int traceNum : chunkMst.basinSaddles.get(ix)) {
+						  traceStart.add(new BasinSaddleEdge(ix, traceNum));
+					  }
+				  } else {
+					  traceStart.add(ix);
+				  }
+			  }
+			  for (Object start : traceStart) {
+				  long cur = chunkMst.getDeadendAsNull(start);
+				  while (true) {
+		    		  if (cur == PointIndex.NULL) {
+		    			  break;
+		    		  } else if (!pf.isParent(cur)) {
+		    			  c.output(outRelevantInflows, cur);
+		    			  break;
+		    		  }
+		    		  cur = chunkMst.getDeadendAsNull(cur);
+				  }
+			  }		  		  
+		    }
+		  }
+		).withOutputTags(outPatchPanel, TupleTagList.of(outRelevantInflows))
+	);
+
+	  PCollection<KV<Integer, Iterable<KV<Long, Long>>>> patchPanelSingleton =
+			  mstTrace.get(outPatchPanel).apply(MapElements.into(new TypeDescriptor<KV<Integer, KV<Long, Long>>>() {})
+					  .via(e -> KV.of(0, e))).apply(GroupByKey.create());
+	  PCollection<KV<Integer, Iterable<Long>>> relevantInflowsSingleton =
+			  mstTrace.get(outRelevantInflows).apply(MapElements.into(new TypeDescriptor<KV<Integer, Long>>() {})
+					  .via(e -> KV.of(0, e))).apply(GroupByKey.create());
+
+	  final TupleTag<Iterable<KV<Long, Long>>> ppTag = new TupleTag<Iterable<KV<Long, Long>>>(){};
+	  final TupleTag<Iterable<Long>> riTag = new TupleTag<Iterable<Long>>() {};
+      PCollection<Long> allRelevantInflows = KeyedPCollectionTuple
+			    .of(ppTag, patchPanelSingleton)
+			    .and(riTag, relevantInflowsSingleton)
+			    .apply(CoGroupByKey.create())
+			    .apply(ParDo.of(
+		  new DoFn<KV<Integer, CoGbkResult>, Long>() {
+		    @ProcessElement
+		    public void processElement(ProcessContext c) {
+		      KV<Integer, CoGbkResult> e = c.element();
+		      Iterable<KV<Long, Long>> patchPanel = e.getValue().getOnly(ppTag, Lists.newArrayList());
+		      Iterable<Long> relevantInflows = e.getValue().getOnly(riTag, Lists.newArrayList());
+		      
+		      MST chunkMst = new MST();
+		      for (KV<Long, Long> edge : patchPanel) {
+	    		  chunkMst.backtrace.put(edge.getKey(), edge.getValue());
+		      }
+		      Set<Long> seen = new HashSet<>();
+		      for (long start : relevantInflows) {
+		    	  long cur = start;
+		    	  while (true) {
+		    		  c.output(cur);
+		    		  seen.add(cur);
+		    		  cur = chunkMst.getDeadendAsNull(cur);
+		    		  if (cur == PointIndex.NULL || seen.contains(cur)) {
+		    			  break;
+		    		  }
+		    	  }
+		      }
+		    }
+		  }
+		));
+      PCollection<KV<Prefix, Iterable<Long>>> inflowsByChunk = 
+			  allRelevantInflows.apply(MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(inflow -> 
+			  KV.of(ProminencePipeline.chunkingPrefix(inflow, TopologyNetworkPipeline.CHUNK_SIZE_EXP), inflow)))
+	  		.apply(GroupByKey.create());
+      final TupleTag<Iterable<Long>> inflowsTag = new TupleTag<Iterable<Long>>() {};
+      final TupleTag<PrunedEdge> outCompleteEdge = new TupleTag<PrunedEdge>() {};
+      final TupleTag<PrunedEdge> outIncompleteEdge = new TupleTag<PrunedEdge>() {};
+      PCollectionTuple edgesOut = KeyedPCollectionTuple
+			    .of(mstTag, mstChunked)
+			    .and(keyPointsTag, keyPointsChunked)
+			    .and(inflowsTag, inflowsByChunk)
+			    .apply(CoGroupByKey.create())
+			    .apply(ParDo.of(
+		  new DoFn<KV<Prefix, CoGbkResult>, PrunedEdge>() {
+		    @ProcessElement
+		    public void processElement(ProcessContext c, MultiOutputReceiver out) {
+		      KV<Prefix, CoGbkResult> elem = c.element();
+		      Prefix pf = elem.getKey();
+		      Iterable<Edge> mst = elem.getValue().getOnly(mstTag, Lists.newArrayList());
+		      Iterable<Long> keyPointsIt = elem.getValue().getOnly(keyPointsTag, Lists.newArrayList());
+		      Iterable<Long> inflowsIt = elem.getValue().getOnly(inflowsTag, Lists.newArrayList());
+		      
+		      MST chunkMst = new MST();
+		      for (Edge e : mst) {
+		    	  if (e.a != PointIndex.NULL) {
+		    		  if (!pf.isParent(e.a)) {
+		    			  continue;
+		    		  }
+		    		  chunkMst.backtrace.put(e.a, e.b);
+		    	  } else {
+		    		  if (!pf.isParent(e.saddle)) {
+		    			  continue;
+		    		  }
+		    		  chunkMst.backtrace.put(new BasinSaddleEdge(e.saddle, e.tagB), e.b);
+					  chunkMst.basinSaddles.get(e.saddle).add(e.tagB);
+		    	  }
+		      }
+			  
+			  Set<Long> keyPoints = Sets.newHashSet(keyPointsIt);
+			  Set<Long> inflows = Sets.newHashSet(inflowsIt);
+			  Set<Long> junctions = new HashSet<>();
+			  Set<Long> seen = new HashSet<>();
+			  
+			  Set<Object> traceStart = new HashSet<>();
+			  for (long ix : keyPoints) {
+				  if (chunkMst.basinSaddles.containsKey(ix)) {
+					  for (int traceNum : chunkMst.basinSaddles.get(ix)) {
+						  traceStart.add(new BasinSaddleEdge(ix, traceNum));
+					  }
+				  } else {
+					  traceStart.add(ix);
+				  }
+			  }
+			  traceStart.addAll(inflows);
+			  for (Object start : traceStart) {
+				  long cur;
+				  if (start instanceof BasinSaddleEdge) {
+					  cur = chunkMst.backtrace.get(start);
+				  } else {
+					  cur = (long)start;
+				  }
+				  while (true) {
+					  if (seen.contains(cur)) {
+						  junctions.add(cur);
+						  break;
+					  }
+					  seen.add(cur);
+					  cur = chunkMst.getDeadendAsNull(cur);
+					  if (cur == PointIndex.NULL) {
+						  break;
+					  }
+				  }
+			  }		  		  
+			  traceStart.addAll(junctions);
+			  for (Object start : traceStart) {
+				  PrunedEdge seg = new PrunedEdge();
+				  if (start instanceof BasinSaddleEdge) {
+					  BasinSaddleEdge bse = (BasinSaddleEdge)start;
+					  seg.srcIx = bse.ix;
+					  seg.saddleTraceNum = bse.trace;
+				  } else {
+					  seg.srcIx = (long)start;
+				  }
+				  long cur = chunkMst.getDeadendAsNull(start);
+				  if (cur == PointIndex.NULL) {
+					  continue;
+				  }
+				  while (true) {
+					  if (!pf.isParent(cur)) {
+						  // even if also a junction -- must be resolved in coalesce stage
+						  seg.dstIx = cur;
+						  c.output(outIncompleteEdge, seg);
+						  break;
+					  } else if (junctions.contains(cur) || cur == PointIndex.NULL) {
+						  // don't think this handles global maxes right
+						  seg.dstIx = cur;
+						  c.output(outCompleteEdge, seg);
+						  break;
+					  }
+					  seg.interimIxs.add(cur);
+					  cur = chunkMst.getDeadendAsNull(cur);
+				  }
+			  }
+		    }}).withOutputTags(outCompleteEdge, TupleTagList.of(outIncompleteEdge)));
+      
+	  PCollection<KV<Integer, Iterable<PrunedEdge>>> incompleteEdgesSingleton =
+			  edgesOut.get(outIncompleteEdge).apply(MapElements.into(new TypeDescriptor<KV<Integer, PrunedEdge>>() {})
+					  .via(e -> KV.of(0, e)))
+	  		.apply(GroupByKey.create());
+	  PCollection<PrunedEdge> completedEdges = incompleteEdgesSingleton.apply(ParDo.of(
+			  new DoFn<KV<Integer, Iterable<PrunedEdge>>, PrunedEdge>() {
+				    @ProcessElement
+				    public void processElement(ProcessContext c) {
+				    	KV<Integer, Iterable<PrunedEdge>> elem = c.element();
+				      Iterable<PrunedEdge> edges = elem.getValue();
+				      
+				      MST chunkMst = new MST();
+				      for (PrunedEdge pe : edges) {
+				    	  if (pe.saddleTraceNum == -1) {
+				    		  chunkMst.backtrace.put(pe.srcIx, pe.dstIx);
+				    	  } else {
+				    		  chunkMst.backtrace.put(new BasinSaddleEdge(pe.srcIx, pe.saddleTraceNum), pe.dstIx);
+							  chunkMst.basinSaddles.get(pe.srcIx).add(pe.saddleTraceNum);				    		  
+				    	  }
+				      }
+					  
+					  Set<Long> junctions = new HashSet<>();
+					  Set<Long> seen = new HashSet<>();					  
+					  Set<Object> traceStart = new HashSet<>();
+					  Set<Long> allDst = new HashSet<>();
+					  allDst.addAll(chunkMst.backtrace.values());
+					  for (Object o : chunkMst.backtrace.keySet()) {
+						  if (o instanceof BasinSaddleEdge) {
+							  traceStart.add(o);
+						  } else {
+							  long ix = (long)o;
+							  if (!allDst.contains(ix)) {
+								  traceStart.add(ix);
+							  }
+						  }
+					  }
+					  for (Object start : traceStart) {
+						  long cur;
+						  if (start instanceof BasinSaddleEdge) {
+							  cur = chunkMst.backtrace.get(start);
+						  } else {
+							  cur = (long)start;
+						  }
+						  while (true) {
+							  if (seen.contains(cur)) {
+								  junctions.add(cur);
+								  break;
+							  }
+							  seen.add(cur);
+							  cur = chunkMst.getDeadendAsNull(cur);
+							  if (cur == PointIndex.NULL) {
+								  break;
+							  }
+						  }
+					  }		  		  
+					  traceStart.addAll(junctions);
+					  for (Object start : traceStart) {
+						  PrunedEdge seg = new PrunedEdge();
+						  if (start instanceof BasinSaddleEdge) {
+							  BasinSaddleEdge bse = (BasinSaddleEdge)start;
+							  seg.srcIx = bse.ix;
+							  seg.saddleTraceNum = bse.trace;
+						  } else {
+							  seg.srcIx = (long)start;
+						  }
+						  long cur = chunkMst.getDeadendAsNull(start);
+						  while (true) {
+							  if (junctions.contains(cur) || cur == PointIndex.NULL) {
+								  seg.dstIx = cur;
+								  break;
+							  }
+							  seg.interimIxs.add(cur);
+							  // not sure handles global max correctly
+							  cur = chunkMst.getDeadendAsNull(cur);
+						  }
+						  // FIXME need to fill in breadcrumbs from original pruned edges
+						  c.output(seg);
+					  }
+				    }}));
+
+	  PCollection<PrunedEdge> pmst = PCollectionList.of(edgesOut.get(outCompleteEdge)).and(completedEdges)
+			  .apply(Flatten.pCollections());
+	  PCollection<KV<Integer, Iterable<PrunedEdge>>> pmstSingleton =
+			  pmst.apply(MapElements.into(new TypeDescriptor<KV<Integer, PrunedEdge>>() {}).via(e -> KV.of(0, e)))
+	  		.apply(GroupByKey.create());
+      // may need to strip out breadcrumbs from edges when reconstituting pmst (for memory reasons)
+	  
 	  PCollection<KV<Integer, Iterable<PathTask>>> taskSingleton =
 			  tasks.apply(MapElements.into(new TypeDescriptor<KV<Integer, PathTask>>() {}).via(task -> KV.of(0, task)))
 	  		.apply(GroupByKey.create());
-	  PCollection<KV<Integer, Iterable<Edge>>> mstSingleton =
-			  PCollectionList.of(mst).and(mstSaddleAnchors).apply(Flatten.pCollections())
-			  .apply(MapElements.into(new TypeDescriptor<KV<Integer, Edge>>() {}).via(e -> KV.of(0, e)))
-	  		.apply(GroupByKey.create());
-	  PCollection<KV<Integer, Iterable<KV<Long, Integer>>>> keyPointsSingleton =
-			  keyPoints.apply(MapElements.into(new TypeDescriptor<KV<Integer, KV<Long, Integer>>>() {}).via(kp -> KV.of(0, kp)))
-	  		.apply(GroupByKey.create());
-
-	  final TupleTag<Iterable<PathTask>> taskTag = new TupleTag<>();
-	  final TupleTag<Iterable<Edge>> mstTag = new TupleTag<>();	  
-	  final TupleTag<Iterable<KV<Long, Integer>>> keyPointsTag = new TupleTag<>();	  
+	  
+	  final TupleTag<Iterable<PathTask>> taskTag = new TupleTag<Iterable<PathTask>>() {};
+	  final TupleTag<Iterable<PrunedEdge>> pmstTag = new TupleTag<Iterable<PrunedEdge>>() {};
       return KeyedPCollectionTuple
 			    .of(taskTag, taskSingleton)
-			    .and(mstTag, mstSingleton)
-			    .and(keyPointsTag, keyPointsSingleton)
+			    .and(pmstTag, pmstSingleton)
 			    .apply(CoGroupByKey.create())
 			    .apply(ParDo.of(
 		  new DoFn<KV<Integer, CoGbkResult>, PromFact>() {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
 		      KV<Integer, CoGbkResult> e = c.element();
-		      Iterable<PathTask> tasks = e.getValue().getAll(taskTag).iterator().next();
-		      Iterable<Edge> mst = e.getValue().getAll(mstTag).iterator().next();
-		      Iterable<KV<Long, Integer>> keyPoints = e.getValue().getAll(keyPointsTag).iterator().next();
+		      Iterable<PathTask> tasks = e.getValue().getOnly(taskTag);
+		      Iterable<PrunedEdge> pmst = e.getValue().getOnly(pmstTag);
 		      
-		      PathSearcher searcher = new PathSearcher(mst, keyPoints) {
+		      PathSearcher searcher = new PathSearcher(pmst) {
 		    	  public void emitPath(PromFact pf) {
 		    		  c.output(pf);
 		    	  }
+		    	  /*
 		    	  public void emitEdge(TrimmedEdge seg) {
 		    		  // TODO
 		    	  }
+		    	  */
 		      };
 		      for (PathTask task : tasks) {
 		    	  searcher.search(task);

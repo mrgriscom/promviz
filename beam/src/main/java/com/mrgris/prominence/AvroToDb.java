@@ -67,6 +67,11 @@ public class AvroToDb {
 			double ll[] = PointIndex.toLatLon(ix);
 			coords.add(new Coordinate(ll[1], ll[0]));
 		}
+		// FIXME
+		if (coords.size() == 1) {
+			coords.add(coords.get(0));
+		}
+		
 		return gf.createLineString(new CoordinateArraySequence(coords.toArray(new Coordinate[coords.size()])));
 	}
 	
