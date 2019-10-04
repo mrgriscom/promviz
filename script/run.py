@@ -33,7 +33,7 @@ subprocess.call(r"""export GOOGLE_APPLICATION_CREDENTIALS=private/credentials/pr
           --gcpTempLocation=gs://mrgris-promviz/tmp/ \
           --stagingLocation=gs://mrgris-promviz/staging/ \
           --runner=DataflowRunner \
-          --numWorkers=10 \
+          --numWorkers=%(workers)s \
           --bound='%(bound)s' \
           --series=%(series)s \
         "
@@ -42,4 +42,5 @@ subprocess.call(r"""export GOOGLE_APPLICATION_CREDENTIALS=private/credentials/pr
     'series': series,
     #'pipeline': 'FullPipeline',
     'pipeline': 'PathsPipeline',
+    'workers': 10,
 }, shell=True)

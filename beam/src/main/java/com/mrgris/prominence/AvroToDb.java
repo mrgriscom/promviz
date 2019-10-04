@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.Set;
 
 import org.apache.beam.sdk.io.FileIO;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.vendor.grpc.v1_13_1.com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.sqlite.SQLiteConfig;
@@ -244,4 +246,181 @@ public class AvroToDb {
 			curBatchSize = 0;
 		}
 	}
+	
+	
+	
+	
+	
+	static class MSTDebugSink implements FileIO.Sink<KV<Long, Long>> {
+		final int BATCH_SIZE = 5000;
+		WritableByteChannel finalDst;
+
+		File dbpath;
+		Connection conn;
+		int curBatchSize = 0;
+		PreparedStatement stInsEdge;
+
+        synchronized public static void installdb() {
+        	WorkerUtils.initializeGDAL();
+        	WorkerUtils.initializeSpatialite();
+        }
+        
+		public void open(WritableByteChannel channel) throws IOException {
+			// save channel till end
+			finalDst = channel;
+						
+			// install db
+			installdb();			
+			try {
+				// set up db
+	            SQLiteConfig config = new SQLiteConfig();
+	            config.enableLoadExtension(true);
+	            dbpath = File.createTempFile("edgedump", "sqlite");
+		        conn = DriverManager.getConnection("jdbc:sqlite:" + dbpath.getPath(), config.toProperties());
+	            Statement stmt = conn.createStatement();
+	            stmt.execute("SELECT load_extension('mod_spatialite')");
+	            stmt.execute("SELECT InitSpatialMetadata(1)");
+
+	            stmt.execute(
+	                "create table edge (id int);"
+	            );
+	            stmt.execute("SELECT AddGeometryColumn('edge', 'e', 4326, 'LINESTRING', 'XY');");
+	            
+	            conn.setAutoCommit(false);
+	            String insEdge = "insert into edge values (0,GeomFromText(?, 4326))";
+	            stInsEdge = conn.prepareStatement(insEdge);
+			} catch (SQLException e) {
+				throw new IOException(e);
+			}
+		}
+
+		public void write(KV<Long, Long> edge) throws IOException {
+			if (edge.getValue() == PointIndex.NULL) {
+				return;
+			}
+			try {
+				stInsEdge.setString(1, makePath(Lists.newArrayList(edge.getKey(), edge.getValue())).toText());
+				stInsEdge.addBatch();
+	
+				// potentially flush batch
+				curBatchSize += 1;
+				if (curBatchSize % BATCH_SIZE == 0) {
+					flushBatch();
+				}
+			} catch (SQLException e) {
+				throw new IOException(e);
+			}
+		}
+
+		public void flush() throws IOException {
+			// flush remaining and finalize db
+			try {
+				if (curBatchSize > 0) {
+					flushBatch();
+				}
+				conn.close();
+			} catch (SQLException e) {
+				throw new IOException(e);
+			}
+			
+			// copy db to cloud
+			FileInputStream fis = new FileInputStream(dbpath);
+			fis.getChannel().transferTo(0, Long.MAX_VALUE, finalDst);
+			fis.close();
+		}
+		
+		void flushBatch() throws SQLException {
+			stInsEdge.executeBatch();
+			conn.commit();
+			curBatchSize = 0;
+		}
+	}
+	static class PointsDebugSink implements FileIO.Sink<Long> {
+		final int BATCH_SIZE = 5000;
+		WritableByteChannel finalDst;
+
+		File dbpath;
+		Connection conn;
+		int curBatchSize = 0;
+		PreparedStatement stInsEdge;
+
+        synchronized public static void installdb() {
+        	WorkerUtils.initializeGDAL();
+        	WorkerUtils.initializeSpatialite();
+        }
+        
+		public void open(WritableByteChannel channel) throws IOException {
+			// save channel till end
+			finalDst = channel;
+						
+			// install db
+			installdb();			
+			try {
+				// set up db
+	            SQLiteConfig config = new SQLiteConfig();
+	            config.enableLoadExtension(true);
+	            dbpath = File.createTempFile("ptdump", "sqlite");
+		        conn = DriverManager.getConnection("jdbc:sqlite:" + dbpath.getPath(), config.toProperties());
+	            Statement stmt = conn.createStatement();
+	            stmt.execute("SELECT load_extension('mod_spatialite')");
+	            stmt.execute("SELECT InitSpatialMetadata(1)");
+
+	            stmt.execute(
+	                "create table pts (id int);"
+	            );
+	            stmt.execute("SELECT AddGeometryColumn('pts', 'p', 4326, 'POINT', 'XY');");
+	            
+	            conn.setAutoCommit(false);
+	            String insEdge = "insert into pts values (0,GeomFromText(?, 4326))";
+	            stInsEdge = conn.prepareStatement(insEdge);
+			} catch (SQLException e) {
+				throw new IOException(e);
+			}
+		}
+
+		public void write(Long ix) throws IOException {
+			if (ix == PointIndex.NULL) {
+				return;
+			}
+			try {
+				double coords[] = PointIndex.toLatLon(ix);
+				com.vividsolutions.jts.geom.Point pt = gf.createPoint(new Coordinate(coords[1], coords[0]));
+
+				stInsEdge.setString(1, pt.toText());
+				stInsEdge.addBatch();
+	
+				// potentially flush batch
+				curBatchSize += 1;
+				if (curBatchSize % BATCH_SIZE == 0) {
+					flushBatch();
+				}
+			} catch (SQLException e) {
+				throw new IOException(e);
+			}
+		}
+
+		public void flush() throws IOException {
+			// flush remaining and finalize db
+			try {
+				if (curBatchSize > 0) {
+					flushBatch();
+				}
+				conn.close();
+			} catch (SQLException e) {
+				throw new IOException(e);
+			}
+			
+			// copy db to cloud
+			FileInputStream fis = new FileInputStream(dbpath);
+			fis.getChannel().transferTo(0, Long.MAX_VALUE, finalDst);
+			fis.close();
+		}
+		
+		void flushBatch() throws SQLException {
+			stInsEdge.executeBatch();
+			conn.commit();
+			curBatchSize = 0;
+		}
+	}
+
 }
