@@ -43,6 +43,7 @@ import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Partition;
 import org.apache.beam.sdk.transforms.Partition.PartitionFn;
+import org.apache.beam.sdk.transforms.SimpleFunction;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
 import org.apache.beam.sdk.transforms.join.CoGroupByKey;
@@ -172,25 +173,64 @@ public class PathsPipeline {
   }
   
   static abstract class PathSearcher {
+	  
+	  // more memory efficient than list
+	  // (doesn't seem to matter)
+	  static class SaddleDirs {
+		  public int a = -1;
+		  public int b = -1;
+		  
+		  public void add(int n) {
+			  if (n < 0) {
+				  throw new RuntimeException();
+			  }
+			  if (a == -1) {
+				  a = n;
+			  } else if (b == -1) {
+				  b = n;
+			  } else {
+				  throw new RuntimeException();
+			  }
+		  }
+		  
+		  public int[] toArr() {
+			  if (a == -1) {
+				  return new int[] {};
+			  } else if (b == -1) {
+				  return new int[] {a};				  
+			  } else {
+				  return new int[] {a, b};
+			  }
+		  }
+	  }
+	  
 	  Map<Object, Long> backtrace;
-	  Map<Long, List<Integer>> anchors;
+	  Map<Long, SaddleDirs> anchors;
 	  
 	  public PathSearcher(Iterable<PrunedEdge> mst) {
-		  anchors = new DefaultMap<Long, List<Integer>>() {
+		  anchors = new DefaultMap<Long, SaddleDirs>() {
 			@Override
-			public List<Integer> defaultValue(Long key) {
-				return new ArrayList<>();
+			public SaddleDirs defaultValue(Long key) {
+				return new SaddleDirs();
 			}
 		  };
 		  backtrace = new HashMap<>();
 		  
 		  for (PrunedEdge e : mst) {
-			  if (e.dstIx != PointIndex.NULL) {
-				  backtrace.put(e.srcIx, e.dstIx);
+			  if (e.saddleTraceNum == -1) {
+				  if (e.dstIx != PointIndex.NULL) {
+					  backtrace.put(e.srcIx, e.dstIx);
+				  }
+			  } else {
+				  anchors.get(e.srcIx).add(e.saddleTraceNum);
+				  if (e.dstIx != PointIndex.NULL) {
+					  backtrace.put(new BasinSaddleEdge(e.srcIx, e.saddleTraceNum), e.dstIx);
+
+				  }
 			  }
 		  }
 	  }
-
+		  
 	  public long get(Object cur) {
 		  if (backtrace.containsKey(cur)) {
 			  return backtrace.get(cur);
@@ -668,7 +708,7 @@ public class PathsPipeline {
 						  }
 						  break;
 					  }
-					  if (chunkMst.backtrace.containsKey(start)) {
+					  if (chunkMst.backtrace.containsKey(cur)) {
 						  seg.interimIxs.add(cur);
 						  cur = chunkMst.getDeadendAsNull(cur);
 					  } else {
@@ -835,10 +875,11 @@ public class PathsPipeline {
 	  
 	  PCollection<PrunedEdge> pmst = PCollectionList.of(edgesOut.get(outCompleteEdge)).and(completedEdges)
 			  .apply(Flatten.pCollections());
+      // may need to strip out breadcrumbs from edges when reconstituting pmst (for memory reasons)
+	  // (but only if all PrunedEdges are kept in memory, rather than processed as iterable
 	  PCollection<KV<Integer, Iterable<PrunedEdge>>> pmstSingleton =
 			  pmst.apply(MapElements.into(new TypeDescriptor<KV<Integer, PrunedEdge>>() {}).via(e -> KV.of(0, e)))
 	  		.apply(GroupByKey.create());
-      // may need to strip out breadcrumbs from edges when reconstituting pmst (for memory reasons)
 	  
 	    pmst.apply(MapElements.into(new TypeDescriptor<KV<Long,Long>>() {}).via(pe -> KV.of(pe.srcIx, pe.dstIx)))
 	    .apply(FileIO.<KV<Long, Long>>write()
@@ -920,7 +961,6 @@ public class PathsPipeline {
 		    promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(pathsUp).and(pathsDown));
 		    promInfo.apply(AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstestwithpaths").withoutSharding());
 
-		  //PCollection<PromFact> promInfo = p.apply(AvroIO.read(PromFact.class).from("gs://mrgris-dataflow-test/factstestwithpaths"));
 		    promInfo.apply(FileIO.<PromFact>write()
 		            .via(new SpatialiteSink())
 		            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {

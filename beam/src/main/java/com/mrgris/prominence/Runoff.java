@@ -30,12 +30,12 @@ public class Runoff {
 		Set<Trace> clockwise = new HashSet<>();
 		for (Saddle s : seeds) {
 			long ix = s.s.ix;
-			List<Integer> traceNums = mst.anchors.get(ix);
+			int[] traceNums = mst.anchors.get(ix).toArr();
   	        // anchors may be empty if no runoff resolves in opposite world (or basin saddle conflicted with mst)
-			if (traceNums.isEmpty()) {
+			if (traceNums.length == 0) {
 				continue;
 			}
-			if (traceNums.size() != 2) {
+			if (traceNums.length != 2) {
 				throw new RuntimeException();
 			}
 			if (s.traceNumTowardsP == Edge.TAG_NULL) {
@@ -47,7 +47,7 @@ public class Runoff {
 				}
 			}
 			
-			int[] anchorTags = new int[] {traceNums.get(0), traceNums.get(1)};
+			int[] anchorTags = new int[] {traceNums[0], traceNums[1]};
 			Arrays.sort(anchorTags);
 			// (assumes trace #s increase clockwise)
 			int traceClockwise;

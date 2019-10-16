@@ -42,5 +42,5 @@ subprocess.call(r"""export GOOGLE_APPLICATION_CREDENTIALS=private/credentials/pr
     'series': series,
     #'pipeline': 'FullPipeline',
     'pipeline': 'PathsPipeline',
-    'workers': 10,
+    'workers': 20,
 }, shell=True)
