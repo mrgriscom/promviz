@@ -316,10 +316,12 @@ public class PathsPipeline {
 	  ArrayList<Saddle> saddles;
   }
   
-  public static PCollection<PromFact> searchPaths(PCollection<PromFact> prom, PCollection<PromFact> promOppo,
+  static String ud(boolean up) { return up ? "-Up" : "-Down"; }
+  
+  public static PCollection<PromFact> searchPaths(boolean up, PCollection<PromFact> prom, PCollection<PromFact> promOppo,
 		  PCollection<Edge> mst, PCollection<Edge> rawNetwork) {
 	  PCollection<PathTask> tasks = PCollectionList.of(
-			  prom.apply(ParDo.of(new DoFn<PromFact, PathTask>() {
+			  prom.apply("PathTasks"+ud(up), ParDo.of(new DoFn<PromFact, PathTask>() {
 				  @ProcessElement
 				  public void processElement(ProcessContext c) {
 					  PromFact pf = c.element();
@@ -338,7 +340,7 @@ public class PathsPipeline {
 				  }
 			  })))
 			  .and(
-					  promOppo.apply(ParDo.of(new DoFn<PromFact, PathTask>() {
+					  promOppo.apply("DomainTasks"+ud(up), ParDo.of(new DoFn<PromFact, PathTask>() {
 						  @ProcessElement
 						  public void processElement(ProcessContext c) {
 							  PromFact pf = c.element();
@@ -353,7 +355,7 @@ public class PathsPipeline {
 					  })))			  
 			  .apply(Flatten.pCollections());
 	  
-	  PCollection<Long> promBasinSaddles = promOppo.apply(MapElements.into(new TypeDescriptor<Long>() {}).via(pf -> pf.saddle.s.ix));
+	  PCollection<Long> promBasinSaddles = promOppo.apply("GetBasinSaddles"+ud(up), MapElements.into(new TypeDescriptor<Long>() {}).via(pf -> pf.saddle.s.ix));
 	  
 	  // remove basin saddles that already exist in mst. this is contradictory and shouldn't happen but does due to
 	  // some quirks. might go away with support for EOW saddles?
@@ -366,7 +368,7 @@ public class PathsPipeline {
 			  .and(subtract, promSaddles.apply(MapElements.into(new TypeDescriptor<KV<Long, Void>>() {})
 					  .via(ix -> KV.of(ix, null))).apply(GroupByKey.create()))
 			  .apply(CoGroupByKey.create())
-			  .apply(ParDo.of(new DoFn<KV<Long, CoGbkResult>, Long>() {
+			  .apply("RemoveBasinSaddlesAppearingInMst"+ud(up), ParDo.of(new DoFn<KV<Long, CoGbkResult>, Long>() {
 				  @ProcessElement
 				  public void processElement(ProcessContext c, MultiOutputReceiver out) {
 					  KV<Long, CoGbkResult> elem = c.element();
@@ -382,7 +384,7 @@ public class PathsPipeline {
       // in theory this could get too big for a side input, but estimate <30M points globally for P20m
 	  final PCollectionView<Map<Long, Void>> saddleLookup = promBasinSaddles.apply(MapElements
     		  .into(new TypeDescriptor<KV<Long, Void>>() {}).via(ix -> KV.of(ix, null))).apply(View.asMap());
-	  PCollection<Edge> mstSaddleAnchors = rawNetwork.apply(ParDo.of(new DoFn<Edge, Edge>() {
+	  PCollection<Edge> mstSaddleAnchors = rawNetwork.apply("GetBasinSaddleAnchors"+ud(up), ParDo.of(new DoFn<Edge, Edge>() {
 		  @ProcessElement
 		  public void processElement(ProcessContext c) {
 			  Map<Long, Void> relevantSaddles = c.sideInput(saddleLookup);
@@ -397,7 +399,7 @@ public class PathsPipeline {
 	  }).withSideInputs(saddleLookup));
 
 	  PCollection<Long> keyPoints = PCollectionList.of(
-			  prom.apply(ParDo.of(new DoFn<PromFact, Long>(){
+			  prom.apply("MstKeyPoints"+ud(up), ParDo.of(new DoFn<PromFact, Long>(){
 				  @ProcessElement
 				  public void processElement(ProcessContext c) {
 					  PromFact pf = c.element();
@@ -434,7 +436,7 @@ public class PathsPipeline {
 
 	  
 	  PCollection<KV<Prefix, Iterable<Edge>>> mstChunked =
-			  PCollectionList.of(mst).and(mstSaddleAnchors).apply(Flatten.pCollections()).apply(
+			  PCollectionList.of(mst).and(mstSaddleAnchors).apply(Flatten.pCollections()).apply("ChunkMst"+ud(up), 
 					  ParDo.of(new DoFn<Edge, KV<Prefix, Edge>>(){
 						  @ProcessElement
 						  public void processElement(ProcessContext c) {
@@ -445,7 +447,7 @@ public class PathsPipeline {
 						  }
 					  })).apply(GroupByKey.create());
 	  PCollection<KV<Prefix, Long>> mstChunkInflows =
-			  PCollectionList.of(mst).and(mstSaddleAnchors).apply(Flatten.pCollections()).apply(
+			  PCollectionList.of(mst).and(mstSaddleAnchors).apply(Flatten.pCollections()).apply("ChunkMstInflows"+ud(up), 
 					  ParDo.of(new DoFn<Edge, KV<Prefix, Long>>(){
 						  @ProcessElement
 						  public void processElement(ProcessContext c) {
@@ -463,7 +465,7 @@ public class PathsPipeline {
 					  }));
 	  
 	  PCollection<KV<Prefix, Iterable<Long>>> keyPointsChunked =
-			  keyPoints.apply(MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(kp -> 
+			  keyPoints.apply("ChunkKeyPoints"+ud(up), MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(kp -> 
 			  KV.of(ProminencePipeline.chunkingPrefix(kp, TopologyNetworkPipeline.CHUNK_SIZE_EXP), kp)))
 	  		.apply(GroupByKey.create());
 
@@ -477,7 +479,7 @@ public class PathsPipeline {
 			    .and(mstChunkInflowsTag, mstChunkInflows)
 			    .and(keyPointsTag, keyPointsChunked)
 			    .apply(CoGroupByKey.create())
-			    .apply(ParDo.of(
+			    .apply("TraceMstChunks"+ud(up), ParDo.of(
 		  new DoFn<KV<Prefix, CoGbkResult>, KV<Long, Long>>() {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
@@ -560,10 +562,10 @@ public class PathsPipeline {
 
       
 	  PCollection<KV<Integer, Iterable<KV<Long, Long>>>> patchPanelSingleton =
-			  mstTrace.get(outPatchPanel).apply(MapElements.into(new TypeDescriptor<KV<Integer, KV<Long, Long>>>() {})
+			  mstTrace.get(outPatchPanel).apply("PatchPanelSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, KV<Long, Long>>>() {})
 					  .via(e -> KV.of(0, e))).apply(GroupByKey.create());
 	  PCollection<KV<Integer, Iterable<Long>>> relevantInflowsSingleton =
-			  mstTrace.get(outRelevantInflows).apply(Distinct.create()).apply(MapElements.into(new TypeDescriptor<KV<Integer, Long>>() {})
+			  mstTrace.get(outRelevantInflows).apply(Distinct.create()).apply("RelevantInflowsSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, Long>>() {})
 					  .via(e -> KV.of(0, e))).apply(GroupByKey.create());
 
 	  final TupleTag<Iterable<KV<Long, Long>>> ppTag = new TupleTag<Iterable<KV<Long, Long>>>(){};
@@ -572,7 +574,7 @@ public class PathsPipeline {
 			    .of(ppTag, patchPanelSingleton)
 			    .and(riTag, relevantInflowsSingleton)
 			    .apply(CoGroupByKey.create())
-			    .apply(ParDo.of(
+			    .apply("TracePatchPanel"+ud(up), ParDo.of(
 		  new DoFn<KV<Integer, CoGbkResult>, Long>() {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
@@ -610,7 +612,7 @@ public class PathsPipeline {
 	            }).withNumShards(1));
 
       PCollection<KV<Prefix, Iterable<Long>>> inflowsByChunk = 
-			  allRelevantInflows.apply(MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(inflow -> 
+			  allRelevantInflows.apply("RechunkInflows"+ud(up), MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(inflow -> 
 			  KV.of(ProminencePipeline.chunkingPrefix(inflow, TopologyNetworkPipeline.CHUNK_SIZE_EXP), inflow)))
 	  		.apply(GroupByKey.create());
       final TupleTag<Iterable<Long>> inflowsTag = new TupleTag<Iterable<Long>>() {};
@@ -622,7 +624,7 @@ public class PathsPipeline {
 			    .and(keyPointsTag, keyPointsChunked)
 			    .and(inflowsTag, inflowsByChunk)
 			    .apply(CoGroupByKey.create())
-			    .apply(ParDo.of(
+			    .apply("ChunkedMstToEdges"+ud(up), ParDo.of(
 		  new DoFn<KV<Prefix, CoGbkResult>, PrunedEdge>() {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
@@ -686,6 +688,7 @@ public class PathsPipeline {
 					  seg.saddleTraceNum = bse.trace;
 				  } else {
 					  seg.srcIx = (long)start;
+					  // add saddle to interim
 				  }
 				  if (!chunkMst.backtrace.containsKey(start)) {
 					  // is root, no edge
@@ -710,6 +713,7 @@ public class PathsPipeline {
 					  }
 					  if (chunkMst.backtrace.containsKey(cur)) {
 						  seg.interimIxs.add(cur);
+						  // add saddle
 						  cur = chunkMst.getDeadendAsNull(cur);
 					  } else {
 						  seg.dstIx = cur;
@@ -752,11 +756,11 @@ public class PathsPipeline {
 
       
 	  PCollection<KV<Integer, Iterable<PrunedEdge>>> incompleteEdgesSingleton =
-			  edgesOut.get(outIncompleteEdge).apply(MapElements.into(new TypeDescriptor<KV<Integer, PrunedEdge>>() {})
+			  edgesOut.get(outIncompleteEdge).apply("IncompleteEdgesSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, PrunedEdge>>() {})
 					  .via(e -> KV.of(0, e)))
 	  		.apply(GroupByKey.create());
 	  PCollection<KV<Integer, Iterable<Long>>> inflowJunctionsSingleton =
-			  edgesOut.get(outInflowJunctions).apply(MapElements.into(new TypeDescriptor<KV<Integer, Long>>() {})
+			  edgesOut.get(outInflowJunctions).apply("InflowJunctionsSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, Long>>() {})
 					  .via(e -> KV.of(0, e)))
 	  		.apply(GroupByKey.create());
 
@@ -766,7 +770,7 @@ public class PathsPipeline {
 			    .of(incEdge, incompleteEdgesSingleton)
 			    .and(inflJct, inflowJunctionsSingleton)
 			    .apply(CoGroupByKey.create())
-			    .apply(ParDo.of(
+			    .apply("MergeIncompleteEdges"+ud(up), ParDo.of(
 		  new DoFn<KV<Integer, CoGbkResult>, PrunedEdge>() {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
@@ -878,7 +882,7 @@ public class PathsPipeline {
       // may need to strip out breadcrumbs from edges when reconstituting pmst (for memory reasons)
 	  // (but only if all PrunedEdges are kept in memory, rather than processed as iterable
 	  PCollection<KV<Integer, Iterable<PrunedEdge>>> pmstSingleton =
-			  pmst.apply(MapElements.into(new TypeDescriptor<KV<Integer, PrunedEdge>>() {}).via(e -> KV.of(0, e)))
+			  pmst.apply("PrunedMstSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, PrunedEdge>>() {}).via(e -> KV.of(0, e)))
 	  		.apply(GroupByKey.create());
 	  
 	    pmst.apply(MapElements.into(new TypeDescriptor<KV<Long,Long>>() {}).via(pe -> KV.of(pe.srcIx, pe.dstIx)))
@@ -894,7 +898,7 @@ public class PathsPipeline {
 
 	  
 	  PCollection<KV<Integer, Iterable<PathTask>>> taskSingleton =
-			  tasks.apply(MapElements.into(new TypeDescriptor<KV<Integer, PathTask>>() {}).via(task -> KV.of(0, task)))
+			  tasks.apply("TasksSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, PathTask>>() {}).via(task -> KV.of(0, task)))
 	  		.apply(GroupByKey.create());
 	  
 	  final TupleTag<Iterable<PathTask>> taskTag = new TupleTag<Iterable<PathTask>>() {};
@@ -903,7 +907,7 @@ public class PathsPipeline {
 			    .of(taskTag, taskSingleton)
 			    .and(pmstTag, pmstSingleton)
 			    .apply(CoGroupByKey.create())
-			    .apply(ParDo.of(
+			    .apply("SearchPaths"+ud(up), ParDo.of(
 		  new DoFn<KV<Integer, CoGbkResult>, PromFact>() {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
@@ -946,7 +950,7 @@ public class PathsPipeline {
 		    PCollection<Edge> rawNetworkUp = pp.tp.networkUp;
 		    PCollection<Edge> rawNetworkDown = pp.tp.networkDown;
 
-		    PCollectionList<PromFact> promByDir = promInfo.apply(Partition.of(2, new PartitionFn<PromFact>() {
+		    PCollectionList<PromFact> promByDir = promInfo.apply("SplitPromFacts", Partition.of(2, new PartitionFn<PromFact>() {
 				@Override
 				public int partitionFor(PromFact e, int numPartitions) {
 					return Point.compareElev(e.p, e.saddle.s) > 0 ? 0 : 1;
@@ -955,13 +959,13 @@ public class PathsPipeline {
 		    PCollection<PromFact> promInfoUp = promByDir.get(0);
 		    PCollection<PromFact> promInfoDown = promByDir.get(1);
 
-		    PCollection<PromFact> pathsUp = searchPaths(promInfoUp, promInfoDown, mstUp, rawNetworkUp);
-		    PCollection<PromFact> pathsDown = searchPaths(promInfoDown, promInfoUp, mstDown, rawNetworkDown);
+		    PCollection<PromFact> pathsUp = searchPaths(true, promInfoUp, promInfoDown, mstUp, rawNetworkUp);
+		    PCollection<PromFact> pathsDown = searchPaths(false, promInfoDown, promInfoUp, mstDown, rawNetworkDown);
 		    
 		    promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(pathsUp).and(pathsDown));
-		    promInfo.apply(AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstestwithpaths").withoutSharding());
+		    promInfo.apply("WritePromFactsWithPaths", AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstestwithpaths").withoutSharding());
 
-		    promInfo.apply(FileIO.<PromFact>write()
+		    promInfo.apply("WriteSpatialite", FileIO.<PromFact>write()
 		            .via(new SpatialiteSink())
 		            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
 						@Override

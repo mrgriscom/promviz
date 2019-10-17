@@ -117,7 +117,7 @@ public class TopologyNetworkPipeline {
 		  }
 	  }
 	  
-	    return p.apply(Create.of(DEMs)).apply("DemFilesToOverlappingPages", ParDo.of(new DoFn<DEMFile, KV<Prefix, DEMFile>>() {
+	    return p.apply("FilterDemsForRegion", Create.of(DEMs)).apply("DemFilesToOverlappingPages", ParDo.of(new DoFn<DEMFile, KV<Prefix, DEMFile>>() {
 		      @ProcessElement
 		      public void processElement(ProcessContext c) {
 		    	DEMFile dem = c.element();
@@ -179,7 +179,7 @@ public class TopologyNetworkPipeline {
 	  public void freshRun (boolean write) {
 		  initDEMs();
 		  PCollection<KV<Prefix, DEMFile>> pfm = this.pageFileMapping;
-		    PCollection<Prefix> chunks = pfm.apply(
+		    PCollection<Prefix> chunks = pfm.apply("PagesToChunks",
 		    		MapElements.into(new TypeDescriptor<Prefix>() {}).via(kv -> kv.getKey()))
 		    		.apply(Distinct.create())
 		    		.apply(MapElements.into(new TypeDescriptor<Prefix>() {}).via(pr -> new Prefix(pr, CHUNK_SIZE_EXP)))
@@ -195,16 +195,16 @@ public class TopologyNetworkPipeline {
 		    networkDown = network.get(downEdgesTag);
 		    
 		    if (write) {
-		    	networkUp.apply("OutputUp",
+		    	networkUp.apply("WriteRawNetwork-Up",
 		    	    AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/network-up"));
-		    	networkDown.apply("OutputDown",
+		    	networkDown.apply("WriteRawNetwork-Down",
 		    	    AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/network-down"));
 		    }
 	  }
 	  
 	  public void previousRun() {
-		  networkUp = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-up-*"));
-		  networkDown = p.apply(AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-down-*"));
+		  networkUp = p.apply("LoadRawNetwork-Up", AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-up-*"));
+		  networkDown = p.apply("LoadRawNetwork-Down", AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-down-*"));
 	  }
   }
   
