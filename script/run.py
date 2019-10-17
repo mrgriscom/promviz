@@ -44,6 +44,7 @@ subprocess.call(r"""export GOOGLE_APPLICATION_CREDENTIALS=private/credentials/pr
 	-Dexec.args="--project=prominence-163319 \
           --gcpTempLocation=gs://mrgris-promviz/tmp/ \
           --stagingLocation=gs://mrgris-promviz/staging/ \
+          --outputLocation=gs://mrgris-promviz/output/%(timestamp)s/ \
           --runner=DataflowRunner \
           --numWorkers=%(workers)s \
           --bound='%(bound)s' \

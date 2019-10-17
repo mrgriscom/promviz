@@ -153,7 +153,11 @@ public class TopologyNetworkPipeline {
 	  transient PCollection<Edge> networkUp;
 	  transient PCollection<Edge> networkDown;
 		  
+	  transient String outputRoot;
+	  
 	  public interface MyOptions extends PipelineOptions {
+		  String getOutputLocation();
+		  void setOutputLocation(String _);
 		  String getBound();
 		  void setBound(String _);
 		  String getSeries();
@@ -167,6 +171,7 @@ public class TopologyNetworkPipeline {
 		                                            .as(MyOptions.class);
 		  
 		    p = Pipeline.create(options);
+		    outputRoot = options.getOutputLocation();
 		    this.demCtx = new DEMContext(options.getBound(), options.getSeries());
 	  }
 	  
@@ -194,17 +199,19 @@ public class TopologyNetworkPipeline {
 		    networkUp = network.get(upEdgesTag);
 		    networkDown = network.get(downEdgesTag);
 		    
+		    
+		    
 		    if (write) {
 		    	networkUp.apply("WriteRawNetwork-Up",
-		    	    AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/network-up"));
+		    	    AvroIO.write(Edge.class).to(outputRoot + "network-up"));
 		    	networkDown.apply("WriteRawNetwork-Down",
-		    	    AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/network-down"));
+		    	    AvroIO.write(Edge.class).to(outputRoot + "network-down"));
 		    }
 	  }
 	  
 	  public void previousRun() {
-		  networkUp = p.apply("LoadRawNetwork-Up", AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-up-*"));
-		  networkDown = p.apply("LoadRawNetwork-Down", AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/network-down-*"));
+		  networkUp = p.apply("LoadRawNetwork-Up", AvroIO.read(Edge.class).from(outputRoot + "network-up-*"));
+		  networkDown = p.apply("LoadRawNetwork-Down", AvroIO.read(Edge.class).from(outputRoot + "network-down-*"));
 	  }
   }
   

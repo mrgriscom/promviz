@@ -266,16 +266,16 @@ public class ProminencePipeline {
 		    mstDown = promSearchDown.get(mstTag);
 		    
 		    if (write) {
-		    	facts.apply("WritePromFacts", AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstest").withoutSharding());
-		    	mstUp.apply("WriteMst-Up", AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/mst-up").withoutSharding());
-		    	mstDown.apply("WriteMst-Down", AvroIO.write(Edge.class).to("gs://mrgris-dataflow-test/mst-down").withoutSharding());
+		    	facts.apply("WritePromFacts", AvroIO.write(PromFact.class).to(tp.outputRoot + "promfacts"));
+		    	mstUp.apply("WriteMst-Up", AvroIO.write(Edge.class).to(tp.outputRoot + "mst-up"));
+		    	mstDown.apply("WriteMst-Down", AvroIO.write(Edge.class).to(tp.outputRoot + "mst-down"));
 		    }
 	  }
 
 	  public void previousRun() {
-		   facts = p.apply("LoadPromFacts", AvroIO.read(PromFact.class).from("gs://mrgris-dataflow-test/factstest"));
-		   mstUp = p.apply("LoadMst-Up", AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/mst-up"));
-		   mstDown = p.apply("LoadMst-Down", AvroIO.read(Edge.class).from("gs://mrgris-dataflow-test/mst-down"));
+		   facts = p.apply("LoadPromFacts", AvroIO.read(PromFact.class).from(tp.outputRoot + "promfacts-*"));
+		   mstUp = p.apply("LoadMst-Up", AvroIO.read(Edge.class).from(tp.outputRoot + "mst-up-*"));
+		   mstDown = p.apply("LoadMst-Down", AvroIO.read(Edge.class).from(tp.outputRoot + "mst-down-*"));
 	  }
 	  
   }

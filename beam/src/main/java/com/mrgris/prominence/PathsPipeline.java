@@ -318,7 +318,7 @@ public class PathsPipeline {
   
   static String ud(boolean up) { return up ? "-Up" : "-Down"; }
   
-  public static PCollection<PromFact> searchPaths(boolean up, PCollection<PromFact> prom, PCollection<PromFact> promOppo,
+  public static PCollection<PromFact> searchPaths(boolean up, String debugDst, PCollection<PromFact> prom, PCollection<PromFact> promOppo,
 		  PCollection<Edge> mst, PCollection<Edge> rawNetwork) {
 	  PCollection<PathTask> tasks = PCollectionList.of(
 			  prom.apply("PathTasks"+ud(up), ParDo.of(new DoFn<PromFact, PathTask>() {
@@ -414,7 +414,7 @@ public class PathsPipeline {
 
 	    keyPoints.apply(FileIO.<Long>write()
 	            .via(new PointsDebugSink())
-	            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+	            .to(debugDst).withNaming(new FileNaming() {
 					@Override
 					public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
 							Compression compression) {
@@ -426,7 +426,7 @@ public class PathsPipeline {
 	    mst.apply(MapElements.into(new TypeDescriptor<KV<Long,Long>>() {}).via(e -> KV.of(e.a, e.b)))
 	    .apply(FileIO.<KV<Long, Long>>write()
 	            .via(new MSTDebugSink())
-	            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+	            .to(debugDst).withNaming(new FileNaming() {
 					@Override
 					public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
 							Compression compression) {
@@ -542,7 +542,7 @@ public class PathsPipeline {
 	    mstTrace.get(outPatchPanel)
 	    .apply("writepp", FileIO.<KV<Long, Long>>write()
 	            .via(new MSTDebugSink())
-	            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+	            .to(debugDst).withNaming(new FileNaming() {
 					@Override
 					public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
 							Compression compression) {
@@ -552,7 +552,7 @@ public class PathsPipeline {
 
 	    mstTrace.get(outRelevantInflows).apply(FileIO.<Long>write()
 	            .via(new PointsDebugSink())
-	            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+	            .to(debugDst).withNaming(new FileNaming() {
 					@Override
 					public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
 							Compression compression) {
@@ -603,7 +603,7 @@ public class PathsPipeline {
 		));
 	    allRelevantInflows.apply(FileIO.<Long>write()
 	            .via(new PointsDebugSink())
-	            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+	            .to(debugDst).withNaming(new FileNaming() {
 					@Override
 					public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
 							Compression compression) {
@@ -736,7 +736,7 @@ public class PathsPipeline {
 	    edgesOut.get(outCompleteEdge).apply(MapElements.into(new TypeDescriptor<KV<Long,Long>>() {}).via(e -> KV.of(e.srcIx, e.dstIx)))
 	    .apply(FileIO.<KV<Long, Long>>write()
 	            .via(new MSTDebugSink())
-	            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+	            .to(debugDst).withNaming(new FileNaming() {
 					@Override
 					public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
 							Compression compression) {
@@ -746,7 +746,7 @@ public class PathsPipeline {
 	    edgesOut.get(outIncompleteEdge).apply(MapElements.into(new TypeDescriptor<KV<Long,Long>>() {}).via(e -> KV.of(e.srcIx, e.dstIx)))
 	    .apply(FileIO.<KV<Long, Long>>write()
 	            .via(new MSTDebugSink())
-	            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+	            .to(debugDst).withNaming(new FileNaming() {
 					@Override
 					public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
 							Compression compression) {
@@ -868,7 +868,7 @@ public class PathsPipeline {
 	    completedEdges.apply(MapElements.into(new TypeDescriptor<KV<Long,Long>>() {}).via(e -> KV.of(e.srcIx, e.dstIx)))
 	    .apply(FileIO.<KV<Long, Long>>write()
 	            .via(new MSTDebugSink())
-	            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+	            .to(debugDst).withNaming(new FileNaming() {
 					@Override
 					public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
 							Compression compression) {
@@ -888,7 +888,7 @@ public class PathsPipeline {
 	    pmst.apply(MapElements.into(new TypeDescriptor<KV<Long,Long>>() {}).via(pe -> KV.of(pe.srcIx, pe.dstIx)))
 	    .apply(FileIO.<KV<Long, Long>>write()
 	            .via(new MSTDebugSink())
-	            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+	            .to(debugDst).withNaming(new FileNaming() {
 					@Override
 					public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
 							Compression compression) {
@@ -959,15 +959,15 @@ public class PathsPipeline {
 		    PCollection<PromFact> promInfoUp = promByDir.get(0);
 		    PCollection<PromFact> promInfoDown = promByDir.get(1);
 
-		    PCollection<PromFact> pathsUp = searchPaths(true, promInfoUp, promInfoDown, mstUp, rawNetworkUp);
-		    PCollection<PromFact> pathsDown = searchPaths(false, promInfoDown, promInfoUp, mstDown, rawNetworkDown);
+		    PCollection<PromFact> pathsUp = searchPaths(true, pp.tp.outputRoot, promInfoUp, promInfoDown, mstUp, rawNetworkUp);
+		    PCollection<PromFact> pathsDown = searchPaths(false, pp.tp.outputRoot, promInfoDown, promInfoUp, mstDown, rawNetworkDown);
 		    
 		    promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(pathsUp).and(pathsDown));
-		    promInfo.apply("WritePromFactsWithPaths", AvroIO.write(PromFact.class).to("gs://mrgris-dataflow-test/factstestwithpaths").withoutSharding());
+		    //promInfo.apply("WritePromFactsWithPaths", AvroIO.write(PromFact.class).to(pp.tp.outputRoot + "promfactswithpaths").withoutSharding());
 
 		    promInfo.apply("WriteSpatialite", FileIO.<PromFact>write()
 		            .via(new SpatialiteSink())
-		            .to("gs://mrgris-dataflow-test").withNaming(new FileNaming() {
+		            .to(pp.tp.outputRoot).withNaming(new FileNaming() {
 						@Override
 						public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
 								Compression compression) {
