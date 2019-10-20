@@ -24,7 +24,7 @@ public class Runoff {
 	
 	// what is happening with segments with only 1 point?
 	
-	public static List<List<Long>> runoff(List<Saddle> seeds, PathSearcher mst) {
+	public static List<ArrayList<Long>> runoff(List<Saddle> seeds, PathSearcher mst) {
 		List<Trace> traces = new ArrayList<>();
 		Set<Trace> completed = new HashSet<>();
 		Set<Trace> clockwise = new HashSet<>();
@@ -141,19 +141,19 @@ public class Runoff {
 			}
 		}
 		
-		List<List<Long>> ro = new ArrayList<List<Long>>();
+		List<ArrayList<Long>> ro = new ArrayList<>();
 		for (Trace t : traces) {
-			// remove terminal nulls from final result
-			if (t.find(PointIndex.NULL) != -1) {
-				t.trimAt(-1);
-			}
+//			// remove terminal nulls from final result
+//			if (t.find(PointIndex.NULL) != -1) {
+//				t.trimAt(-1);
+//			}			
 			ro.add(t.path);
 		}
 		return ro;
 	}
 
 	static class Trace {
-		List<Long> path = new ArrayList<Long>();
+		ArrayList<Long> path = new ArrayList<Long>();
 		Set<Long> set = new HashSet<Long>();
 		
 		boolean contains(long ix) {

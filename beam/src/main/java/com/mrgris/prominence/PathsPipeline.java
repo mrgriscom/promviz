@@ -31,7 +31,6 @@ import org.apache.avro.reflect.Nullable;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
-import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.io.FileIO.Write.FileNaming;
@@ -43,7 +42,6 @@ import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Partition;
 import org.apache.beam.sdk.transforms.Partition.PartitionFn;
-import org.apache.beam.sdk.transforms.SimpleFunction;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
 import org.apache.beam.sdk.transforms.join.CoGroupByKey;
@@ -239,7 +237,7 @@ public class PathsPipeline {
 		  }
 	  }
 	  
-		public List<Long> getAtoB(long start, long end) {
+		public ArrayList<ArrayList<Long>> getAtoB(long start, long end) {
 			List<Long> fromA = new ArrayList<>();
 			List<Long> fromB = new ArrayList<>();
 			Set<Long> inFromA = new HashSet<>();
@@ -274,32 +272,64 @@ public class PathsPipeline {
 				}
 			}
 
-			List<Long> path = new ArrayList<>();
+			ArrayList<Long> Aseg = new ArrayList<>();
+			ArrayList<Long> Bseg = new ArrayList<>();
 			int i = fromA.indexOf(intersection);
-			path.addAll(i != -1 ? fromA.subList(0, i) : fromA);
-			path.add(intersection);
-			List<Long> path2 = new ArrayList<>();
+			if (i != -1) {
+				Aseg.addAll(fromA.subList(0, i + 1)); // incl intersection
+			} else {
+				Aseg.addAll(fromA);
+				Aseg.add(PointIndex.NULL);
+			}
 			i = fromB.indexOf(intersection);
-			path2 = (i != -1 ? fromB.subList(0, i) : fromB);
-			Collections.reverse(path2);
-			path.addAll(path2);
-			return path;
+			if (i != -1) {
+				Bseg.addAll(fromB.subList(0, i + 1)); // incl intersection
+			} else {
+				Bseg.addAll(fromB);
+				Bseg.add(PointIndex.NULL);
+			}
+			return Lists.newArrayList(Aseg, Bseg);
+			
+//			List<Long> path = new ArrayList<>();
+//			int i = fromA.indexOf(intersection);
+//			path.addAll(i != -1 ? fromA.subList(0, i) : fromA);
+//			path.add(intersection);
+//			List<Long> path2 = new ArrayList<>();
+//			i = fromB.indexOf(intersection);
+//			path2 = (i != -1 ? fromB.subList(0, i) : fromB);
+//			Collections.reverse(path2);
+//			path.addAll(path2);
+//			return path;
 		}
 	  
+//		  void search(PathTask task) {
+//		  PromFact fact = new PromFact();
+//		  fact.p = task.p;
+//		  if (task.type == PathTask.TYPE_THRESH) {
+//			  fact.threshPath = getAtoB(task.p.ix, task.target);
+//		  } else if (task.type == PathTask.TYPE_PARENT) {		  
+//		  	  fact.parentPath = getAtoB(task.p.ix, task.target);
+//		  } else if (task.type == PathTask.TYPE_DOMAIN) {
+//			  fact.domainBoundary = Runoff.runoff(task.saddles, this);
+//		  }
+//		  emitPath(fact);
+//	  }
+	  
 	  void search(PathTask task) {
-		  PromFact fact = new PromFact();
-		  fact.p = task.p;
+		  PathFragments path = new PathFragments();
+		  path.p = task.p;
+		  path.type = task.type;
 		  if (task.type == PathTask.TYPE_THRESH) {
-			  fact.threshPath = getAtoB(task.p.ix, task.target);
+			  path.fragments = getAtoB(task.p.ix, task.target);
 		  } else if (task.type == PathTask.TYPE_PARENT) {		  
-		  	  fact.parentPath = getAtoB(task.p.ix, task.target);
+			  path.fragments = getAtoB(task.p.ix, task.target);
 		  } else if (task.type == PathTask.TYPE_DOMAIN) {
-			  fact.domainBoundary = Runoff.runoff(task.saddles, this);
+			  path.fragments = (ArrayList)Runoff.runoff(task.saddles, this);
 		  }
-		  emitPath(fact);
+		  emitPath(path);
 	  }
 	  
-	  public abstract void emitPath(PromFact pf);
+	  public abstract void emitPath(PathFragments pf);
 	  //public abstract void emitEdge(TrimmedEdge seg);
   }
   
@@ -314,6 +344,46 @@ public class PathsPipeline {
 	  long target;
 	  @Nullable
 	  ArrayList<Saddle> saddles;
+  }
+  
+  @DefaultCoder(AvroCoder.class)
+  static class PathFragments {
+	  Point p;
+	  int type;
+	  ArrayList<ArrayList<Long>> fragments;
+	  
+	  public PathFragments() {
+		  fragments = new ArrayList<>();
+	  }
+  }
+
+  @DefaultCoder(AvroCoder.class)
+  static class PathTaskId {
+	  long ix;
+	  int type;
+	  
+	  public PathTaskId() {}
+	  
+	  public PathTaskId(long ix, int type) {
+		  this.ix = ix;
+		  this.type = type;
+	  }
+	  
+		@Override
+		public boolean equals(Object o) {
+			if (o instanceof PathTaskId) {
+				PathTaskId pe = (PathTaskId)o;
+				return this.ix == pe.ix && this.type == pe.type;
+			} else {
+				return false;
+			}
+		}
+		
+		@Override
+		public int hashCode() {
+			return Objects.hash(ix, type);
+		}
+
   }
   
   static String ud(boolean up) { return up ? "-Up" : "-Down"; }
@@ -635,9 +705,11 @@ public class PathsPipeline {
 		      Iterable<Long> inflowsIt = elem.getValue().getOnly(inflowsTag, Lists.newArrayList());
 		      
 		      MST chunkMst = new MST();
+		      Map<Long, Long> saddles = new HashMap<>();
 		      for (Edge e : mst) {
 		    	  if (e.a != PointIndex.NULL) {
 		    		  chunkMst.backtrace.put(e.a, e.b);
+		    		  saddles.put(e.a, e.saddle);
 		    	  } else {
 		    		  chunkMst.backtrace.put(new BasinSaddleEdge(e.saddle, e.tagB), e.b);
 					  chunkMst.basinSaddles.get(e.saddle).add(e.tagB);
@@ -688,7 +760,7 @@ public class PathsPipeline {
 					  seg.saddleTraceNum = bse.trace;
 				  } else {
 					  seg.srcIx = (long)start;
-					  // add saddle to interim
+					  seg.interimIxs.add(saddles.get(seg.srcIx));
 				  }
 				  if (!chunkMst.backtrace.containsKey(start)) {
 					  // is root, no edge
@@ -713,7 +785,7 @@ public class PathsPipeline {
 					  }
 					  if (chunkMst.backtrace.containsKey(cur)) {
 						  seg.interimIxs.add(cur);
-						  // add saddle
+						  seg.interimIxs.add(saddles.get(cur));
 						  cur = chunkMst.getDeadendAsNull(cur);
 					  } else {
 						  seg.dstIx = cur;
@@ -903,12 +975,12 @@ public class PathsPipeline {
 	  
 	  final TupleTag<Iterable<PathTask>> taskTag = new TupleTag<Iterable<PathTask>>() {};
 	  final TupleTag<Iterable<PrunedEdge>> pmstTag = new TupleTag<Iterable<PrunedEdge>>() {};
-      return KeyedPCollectionTuple
+      PCollection<PathFragments> coarsePaths = KeyedPCollectionTuple
 			    .of(taskTag, taskSingleton)
 			    .and(pmstTag, pmstSingleton)
 			    .apply(CoGroupByKey.create())
 			    .apply("SearchPaths"+ud(up), ParDo.of(
-		  new DoFn<KV<Integer, CoGbkResult>, PromFact>() {
+		  new DoFn<KV<Integer, CoGbkResult>, PathFragments>() {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
 		      KV<Integer, CoGbkResult> e = c.element();
@@ -916,7 +988,7 @@ public class PathsPipeline {
 		      Iterable<PrunedEdge> pmst = e.getValue().getOnly(pmstTag);
 		      
 		      PathSearcher searcher = new PathSearcher(pmst) {
-		    	  public void emitPath(PromFact pf) {
+		    	  public void emitPath(PathFragments pf) {
 		    		  c.output(pf);
 		    	  }
 		    	  /*
@@ -932,6 +1004,112 @@ public class PathsPipeline {
 		  }
 		));
 	  
+      PCollection<KV<Long, PathTaskId>> mstNodeToPath = coarsePaths.apply(ParDo.of(
+    		  new DoFn<PathFragments, KV<Long, PathTaskId>>() {
+    			    @ProcessElement
+    			    public void processElement(ProcessContext c) {
+    			    	PathFragments path = c.element();
+    			    	for (List<Long> seg : path.fragments) {
+    			    		for (Long ix : seg) {
+    			    			// FIXME need special handling for BasinSaddleEdges
+    			    			if (ix != PointIndex.NULL) {
+    			    				c.output(KV.of(ix, new PathTaskId(path.p.ix, path.type)));
+    			    			}
+    			    		}
+    			    	}
+    			    }
+    		  }));
+	  PCollection<KV<Long, PrunedEdge>> mstNodeToEdge = pmst.apply(MapElements.into(new TypeDescriptor<KV<Long, PrunedEdge>>() {}).via(pe -> KV.of(pe.srcIx, pe)));
+
+	  final TupleTag<PathTaskId> aa = new TupleTag<>();
+	  final TupleTag<PrunedEdge> bb = new TupleTag<>();
+	  PCollection<KV<PathTaskId, PrunedEdge>> edgesByPath = KeyedPCollectionTuple
+	  .of(aa, mstNodeToPath)
+	  .and(bb, mstNodeToEdge)
+	  .apply(CoGroupByKey.create())
+	  .apply(ParDo.of(
+		  new DoFn<KV<Long, CoGbkResult>, KV<PathTaskId, PrunedEdge>>() {
+		    @ProcessElement
+		    public void processElement(ProcessContext c) {
+		      KV<Long, CoGbkResult> e = c.element();
+		      Iterable<PathTaskId> tasks = e.getValue().getAll(aa);
+		      List<PrunedEdge> edges = Lists.newArrayList(e.getValue().getAll(bb)); // should be a getonly except for basin saddle edges
+		      
+		      for (PathTaskId task : tasks) {
+		    	  for (PrunedEdge pe : edges) {
+		    		  c.output(KV.of(task, pe));
+		    	  }
+		      }
+		    }
+		  }
+		));
+
+	  PCollection<KV<PathTaskId, PathFragments>> pathsById = coarsePaths.apply(MapElements.into(new TypeDescriptor<KV<PathTaskId, PathFragments>>() {}).via(pf -> KV.of(new PathTaskId(pf.p.ix, pf.type), pf)));
+	  final TupleTag<PathFragments> cc = new TupleTag<>();
+	  PCollection<PromFact> finePaths = KeyedPCollectionTuple
+	  .of(cc, pathsById)
+	  .and(bb, edgesByPath)
+	  .apply(CoGroupByKey.create())
+	  .apply(ParDo.of(
+		  new DoFn<KV<PathTaskId, CoGbkResult>, PromFact>() {
+		    @ProcessElement
+		    public void processElement(ProcessContext c) {
+		      KV<PathTaskId, CoGbkResult> e = c.element();
+		      PathFragments frags = e.getValue().getOnly(cc);
+		      Iterable<PrunedEdge> eIt = e.getValue().getAll(bb);
+		      
+		      Map<Long, PrunedEdge> edges = new HashMap<>();
+		      for (PrunedEdge pe : eIt) {
+		    	  edges.put(pe.srcIx, pe);
+		      }
+
+		      PromFact fact = new PromFact();
+		    	fact.p = frags.p;
+		    	
+		    	if (frags.type == PathTask.TYPE_THRESH || frags.type == PathTask.TYPE_PARENT) {
+		    		List<Long> path = assemble(frags.fragments.get(0), edges);
+		    		List<Long> contra = assemble(frags.fragments.get(1), edges);
+		    		Collections.reverse(contra);
+		    		path.addAll(contra.subList(1, contra.size()));
+		    		if (frags.type == PathTask.TYPE_THRESH) {
+		    			fact.threshPath = path;
+		    		} else {
+		    			fact.parentPath = path;
+		    		}
+		    	} else if (frags.type == PathTask.TYPE_DOMAIN) {
+		    		// handle later
+		    		return;
+//		    		fact.domainBoundary = new ArrayList<>();
+//		    		for (List<Long> frag : frags.fragments) {
+//		    			if (frag.get(frag.size() - 1) == PointIndex.NULL) {
+//		    				frag = frag.subList(0, frag.size() - 1);
+//		    			}
+//		    			fact.domainBoundary.add(frag);
+//		    		}
+		    	}
+		    	c.output(fact);
+
+		    }
+		    
+		    List<Long> assemble(List<Long> keys, Map<Long, PrunedEdge> edges) {
+		    	List<Long> seg = new ArrayList<>();
+		    	for (int i = 0; i < keys.size(); i++) {
+		    		long ix = keys.get(i);
+		    		seg.add(ix);
+		    		if (i < keys.size() - 1) {
+		    			PrunedEdge pe = edges.get(ix);
+		    			if (pe == null) {
+		    				// shouldn't happen to plow forward
+		    				continue;
+		    			}
+		    			seg.addAll(pe.interimIxs);
+		    		}
+		    	}
+		    	return seg;
+		    }
+		  }
+		));
+	  return finePaths;
   }
   
   public static class PathPipeline implements Serializable {
