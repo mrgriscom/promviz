@@ -42,6 +42,7 @@ import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Partition;
 import org.apache.beam.sdk.transforms.Partition.PartitionFn;
+import org.apache.beam.sdk.transforms.Values;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
 import org.apache.beam.sdk.transforms.join.CoGroupByKey;
@@ -302,19 +303,6 @@ public class PathsPipeline {
 //			return path;
 		}
 	  
-//		  void search(PathTask task) {
-//		  PromFact fact = new PromFact();
-//		  fact.p = task.p;
-//		  if (task.type == PathTask.TYPE_THRESH) {
-//			  fact.threshPath = getAtoB(task.p.ix, task.target);
-//		  } else if (task.type == PathTask.TYPE_PARENT) {		  
-//		  	  fact.parentPath = getAtoB(task.p.ix, task.target);
-//		  } else if (task.type == PathTask.TYPE_DOMAIN) {
-//			  fact.domainBoundary = Runoff.runoff(task.saddles, this);
-//		  }
-//		  emitPath(fact);
-//	  }
-	  
 	  void search(PathTask task) {
 		  PathFragments path = new PathFragments();
 		  path.p = task.p;
@@ -385,11 +373,43 @@ public class PathsPipeline {
 		}
 
   }
+
+  @DefaultCoder(AvroCoder.class)
+  static class EdgeId {
+	  long ix;
+	  int dir = -1;
+	  
+	  public EdgeId() {}
+	  
+	  public EdgeId(long ix, int dir) {
+		  this.ix = ix;
+		  this.dir = dir;
+	  }
+	  
+		@Override
+		public boolean equals(Object o) {
+			if (o instanceof EdgeId) {
+				EdgeId pe = (EdgeId)o;
+				return this.ix == pe.ix && this.dir == pe.dir;
+			} else {
+				return false;
+			}
+		}
+		
+		@Override
+		public int hashCode() {
+			return Objects.hash(ix, dir);
+		}
+
+  }
+
   
   static String ud(boolean up) { return up ? "-Up" : "-Down"; }
   
-  public static PCollection<PromFact> searchPaths(boolean up, String debugDst, PCollection<PromFact> prom, PCollection<PromFact> promOppo,
+  public static PCollection<PromFact> searchPaths(boolean up, TopoPipeline tp, PCollection<PromFact> prom, PCollection<PromFact> promOppo,
 		  PCollection<Edge> mst, PCollection<Edge> rawNetwork) {
+	  String debugDst = tp.outputRoot;
+	  
 	  PCollection<PathTask> tasks = PCollectionList.of(
 			  prom.apply("PathTasks"+ud(up), ParDo.of(new DoFn<PromFact, PathTask>() {
 				  @ProcessElement
@@ -925,8 +945,8 @@ public class PathsPipeline {
 								  seg.dstIx = cur;
 								  break;
 							  }
-							  // don't add -- just an inflow marker?
-							  //seg.interimIxs.add(cur);
+							  // don't add -- just an inflow marker? (but still a legit point right?); not adding breaks tracing
+							  seg.interimIxs.add(cur);
 							  if (edgeMap.containsKey(cur)) {
 								  // should always be true??
 								  seg.interimIxs.addAll(edgeMap.get(cur).interimIxs);
@@ -1004,6 +1024,100 @@ public class PathsPipeline {
 		  }
 		));
 	  
+      PCollection<KV<Long, EdgeId>> saddlesToEdges = pmst.apply("SaddlesPerPMSTEdge"+ud(up), ParDo.of(new DoFn<PrunedEdge, KV<Long, EdgeId>>() {
+		    @ProcessElement
+		    public void processElement(ProcessContext c) {
+		    	PrunedEdge pe = c.element();
+		    	boolean isSaddle = (pe.saddleTraceNum != -1);
+		    	EdgeId eid = new EdgeId(pe.srcIx, pe.saddleTraceNum);
+		    	if (isSaddle) {
+		    		c.output(KV.of(pe.srcIx, eid));
+		    	}
+		    	for (int i = (isSaddle ? 1 : 0); i < pe.interimIxs.size(); i += 2) {
+		    		c.output(KV.of(pe.interimIxs.get(i), eid));
+		    	}
+		    }
+      }));
+
+      PCollection<KV<Prefix, Iterable<Long>>> chunkedSaddles = saddlesToEdges.apply(MapElements.into(new TypeDescriptor<Long>() {}).via(kv -> kv.getKey()))
+    		  .apply(Distinct.create()).apply(MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {})
+           .via(ix -> KV.of(new Prefix(ix, TopologyNetworkPipeline.CHUNK_SIZE_EXP), ix)))
+	    		.apply("ChunkedSaddles"+ud(up), GroupByKey.create())/*.apply(Values.create())*/;
+      PCollection<KV<Long, KV<Integer, List<Long>>>> saddleTraces = chunkedSaddles.apply("DetailedTraceSaddles"+ud(up), ParDo.of(new TopologyTracer(up, tp.pageCoverage)).withSideInputs(tp.pageCoverage));
+	  final TupleTag<EdgeId> peTag = new TupleTag<>();
+	  final TupleTag<KV<Integer, List<Long>>> traceTag = new TupleTag<>();
+      PCollection<KV<EdgeId, KV<Long, KV<Integer, List<Long>>>>> tracesCrossRefed = KeyedPCollectionTuple
+			    .of(peTag, saddlesToEdges)
+			    .and(traceTag, saddleTraces)
+			    .apply(CoGroupByKey.create())
+			    .apply("TraceCrossrefToPMSTEdge"+ud(up), ParDo.of(
+		  new DoFn<KV<Long, CoGbkResult>, KV<EdgeId, KV<Long, KV<Integer, List<Long>>>>>() {
+		    @ProcessElement
+		    public void processElement(ProcessContext c) {
+		      KV<Long, CoGbkResult> e = c.element();
+		      long saddle = e.getKey();
+		      List<EdgeId> edges = Lists.newArrayList(e.getValue().getAll(peTag));
+		      for (KV<Integer, List<Long>> xx : e.getValue().getAll(traceTag)) {
+		    	  int dir = xx.getKey();
+		    	  List<Long> path = xx.getValue();
+		    	  for (EdgeId eid : edges) {
+		    		  boolean emit = (eid.ix != saddle || eid.dir == dir);
+		    		  if (emit) {
+		    			  c.output(KV.of(eid, KV.of(saddle, KV.of(dir, path))));
+		    		  }
+		    	  }
+		      }
+		    }
+		  }
+		));
+	  PCollection<KV<EdgeId, PrunedEdge>> indexedEdges = pmst.apply(MapElements.into(new TypeDescriptor<KV<EdgeId, PrunedEdge>>() {})
+			  .via(pe -> KV.of(new EdgeId(pe.srcIx, pe.saddleTraceNum), pe)));
+	  final TupleTag<PrunedEdge> qqqqq = new TupleTag<>();
+	  final TupleTag<KV<Long, KV<Integer, List<Long>>>> wwwww = new TupleTag<>();
+      PCollection<PrunedEdge> detailedPMST = KeyedPCollectionTuple
+			    .of(wwwww, tracesCrossRefed)
+			    .and(qqqqq, indexedEdges)
+			    .apply(CoGroupByKey.create())
+			    .apply("AssembleDetailedPMST"+ud(up), ParDo.of(
+		  new DoFn<KV<EdgeId, CoGbkResult>, PrunedEdge>() {
+		    @ProcessElement
+		    public void processElement(ProcessContext c) {
+		      KV<EdgeId, CoGbkResult> e = c.element();
+		      PrunedEdge pe = e.getValue().getOnly(qqqqq);
+		      
+		      Map<KV<Long, Long>, List<Long>> traces = new HashMap<>();
+		      for (KV<Long, KV<Integer, List<Long>>> trace : e.getValue().getAll(wwwww)) {
+		    	  long saddle = trace.getKey();
+		    	  List<Long> path = trace.getValue().getValue();
+		    	  long terminus = path.get(path.size() - 1);
+		    	  traces.put(KV.of(saddle, terminus), path);
+		      }
+
+		      PrunedEdge detail = new PrunedEdge();
+		      detail.srcIx = pe.srcIx;
+		      detail.dstIx = pe.dstIx;
+		      detail.saddleTraceNum = pe.saddleTraceNum;
+		      for (int i = 0; i < pe.interimIxs.size() + 1; i++) {
+		    	  long start = (i == 0 ? pe.srcIx : pe.interimIxs.get(i - 1));
+		    	  long end = (i == pe.interimIxs.size() ? pe.dstIx : pe.interimIxs.get(i));
+		    	  boolean startIsSaddle = (i % 2 == (pe.saddleTraceNum == -1 ? 1 : 0));
+		    	  long saddle = (startIsSaddle ? start : end);
+		    	  long summit = (startIsSaddle ? end : start);
+		    	  List<Long> seg = traces.get(KV.of(saddle, summit));
+		    	  seg = seg.subList(0, seg.size() - 1); // final point redundant with pe.interimIxs (start point already absent)
+		    	  if (!startIsSaddle) {
+		    		  Collections.reverse(seg);
+		    	  }
+		    	  detail.interimIxs.addAll(seg);
+		    	  if (i < pe.interimIxs.size()) {
+		    		  detail.interimIxs.add(pe.interimIxs.get(i));
+		    	  }
+		      }
+		      c.output(detail);
+		    }
+		  }
+		));
+      
       PCollection<KV<Long, PathTaskId>> mstNodeToPath = coarsePaths.apply(ParDo.of(
     		  new DoFn<PathFragments, KV<Long, PathTaskId>>() {
     			    @ProcessElement
@@ -1019,7 +1133,7 @@ public class PathsPipeline {
     			    	}
     			    }
     		  }));
-	  PCollection<KV<Long, PrunedEdge>> mstNodeToEdge = pmst.apply(MapElements.into(new TypeDescriptor<KV<Long, PrunedEdge>>() {}).via(pe -> KV.of(pe.srcIx, pe)));
+	  PCollection<KV<Long, PrunedEdge>> mstNodeToEdge = detailedPMST.apply(MapElements.into(new TypeDescriptor<KV<Long, PrunedEdge>>() {}).via(pe -> KV.of(pe.srcIx, pe)));
 
 	  final TupleTag<PathTaskId> aa = new TupleTag<>();
 	  final TupleTag<PrunedEdge> bb = new TupleTag<>();
@@ -1027,7 +1141,7 @@ public class PathsPipeline {
 	  .of(aa, mstNodeToPath)
 	  .and(bb, mstNodeToEdge)
 	  .apply(CoGroupByKey.create())
-	  .apply(ParDo.of(
+	  .apply("CrossrefPathsToEdges"+ud(up), ParDo.of(
 		  new DoFn<KV<Long, CoGbkResult>, KV<PathTaskId, PrunedEdge>>() {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
@@ -1050,25 +1164,31 @@ public class PathsPipeline {
 	  .of(cc, pathsById)
 	  .and(bb, edgesByPath)
 	  .apply(CoGroupByKey.create())
-	  .apply(ParDo.of(
+	  .apply("CoarseToFinePaths"+ud(up), ParDo.of(
 		  new DoFn<KV<PathTaskId, CoGbkResult>, PromFact>() {
+		      Map<Long, PrunedEdge> edges = new HashMap<>();
+		      Map<BasinSaddleEdge, PrunedEdge> basinSaddleEdges = new HashMap<>();  
+			  
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
 		      KV<PathTaskId, CoGbkResult> e = c.element();
 		      PathFragments frags = e.getValue().getOnly(cc);
 		      Iterable<PrunedEdge> eIt = e.getValue().getAll(bb);
-		      
-		      Map<Long, PrunedEdge> edges = new HashMap<>();
+
 		      for (PrunedEdge pe : eIt) {
-		    	  edges.put(pe.srcIx, pe);
+		    	  if (pe.saddleTraceNum == -1) {
+		    		  edges.put(pe.srcIx, pe);
+		    	  } else {
+		    		  basinSaddleEdges.put(new BasinSaddleEdge(pe.srcIx, pe.saddleTraceNum), pe);
+		    	  }
 		      }
 
 		      PromFact fact = new PromFact();
 		    	fact.p = frags.p;
 		    	
 		    	if (frags.type == PathTask.TYPE_THRESH || frags.type == PathTask.TYPE_PARENT) {
-		    		List<Long> path = assemble(frags.fragments.get(0), edges);
-		    		List<Long> contra = assemble(frags.fragments.get(1), edges);
+		    		List<Long> path = assemble(frags.fragments.get(0));
+		    		List<Long> contra = assemble(frags.fragments.get(1));
 		    		Collections.reverse(contra);
 		    		path.addAll(contra.subList(1, contra.size()));
 		    		if (frags.type == PathTask.TYPE_THRESH) {
@@ -1077,29 +1197,36 @@ public class PathsPipeline {
 		    			fact.parentPath = path;
 		    		}
 		    	} else if (frags.type == PathTask.TYPE_DOMAIN) {
-		    		// handle later
-		    		return;
-//		    		fact.domainBoundary = new ArrayList<>();
-//		    		for (List<Long> frag : frags.fragments) {
-//		    			if (frag.get(frag.size() - 1) == PointIndex.NULL) {
-//		    				frag = frag.subList(0, frag.size() - 1);
-//		    			}
-//		    			fact.domainBoundary.add(frag);
-//		    		}
+		    		fact.domainBoundary = new ArrayList<>();
+		    		for (List<Long> frag : frags.fragments) {
+		    			frag = assemble(frag);
+		    			if (frag.get(frag.size() - 1) == PointIndex.NULL) {
+		    				frag = frag.subList(0, frag.size() - 1);
+		    			}
+		    			fact.domainBoundary.add(frag);
+		    		}
 		    	}
 		    	c.output(fact);
 
 		    }
 		    
-		    List<Long> assemble(List<Long> keys, Map<Long, PrunedEdge> edges) {
+		    List<Long> assemble(List<Long> keys) {
 		    	List<Long> seg = new ArrayList<>();
 		    	for (int i = 0; i < keys.size(); i++) {
 		    		long ix = keys.get(i);
 		    		seg.add(ix);
 		    		if (i < keys.size() - 1) {
 		    			PrunedEdge pe = edges.get(ix);
+		    			if (pe == null && i == 0) {
+		    				for (PrunedEdge bspe : basinSaddleEdges.values()) {
+		    					if (bspe.srcIx == ix && bspe.dstIx == keys.get(1)) {
+		    						pe = bspe;
+		    						break;
+		    					}
+		    				}
+		    			}
 		    			if (pe == null) {
-		    				// shouldn't happen to plow forward
+		    				// shouldn't happen but plow forward
 		    				continue;
 		    			}
 		    			seg.addAll(pe.interimIxs);
@@ -1137,8 +1264,8 @@ public class PathsPipeline {
 		    PCollection<PromFact> promInfoUp = promByDir.get(0);
 		    PCollection<PromFact> promInfoDown = promByDir.get(1);
 
-		    PCollection<PromFact> pathsUp = searchPaths(true, pp.tp.outputRoot, promInfoUp, promInfoDown, mstUp, rawNetworkUp);
-		    PCollection<PromFact> pathsDown = searchPaths(false, pp.tp.outputRoot, promInfoDown, promInfoUp, mstDown, rawNetworkDown);
+		    PCollection<PromFact> pathsUp = searchPaths(true, pp.tp, promInfoUp, promInfoDown, mstUp, rawNetworkUp);
+		    PCollection<PromFact> pathsDown = searchPaths(false, pp.tp, promInfoDown, promInfoUp, mstDown, rawNetworkDown);
 		    
 		    promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(pathsUp).and(pathsDown));
 		    //promInfo.apply("WritePromFactsWithPaths", AvroIO.write(PromFact.class).to(pp.tp.outputRoot + "promfactswithpaths").withoutSharding());
@@ -1158,6 +1285,7 @@ public class PathsPipeline {
   
   public static void main(String[] args) {
 	  TopoPipeline tp = new TopoPipeline(args);
+	  tp.initDEMs();
 	  tp.previousRun();
 	  PromPipeline pp = new PromPipeline(tp);
 	  pp.previousRun();

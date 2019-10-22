@@ -110,6 +110,8 @@ public class MeshPoint extends Point {
 		boolean up;
 		int len;
 		boolean fromCheckpoint; // ie p0 is not a saddle
+		List<MeshPoint> trace;
+		boolean tracingEnabled = false;
 		
 		public Lead(boolean up, MeshPoint p0, MeshPoint p, int i) {
 			this.up = up;
@@ -119,6 +121,27 @@ public class MeshPoint extends Point {
 			this.len = 0;
 		}
 
+		public void enableTracing() {
+			if (tracingEnabled) {
+				return;
+			}
+			if (len > 0) {
+				throw new RuntimeException();
+			}
+			
+			tracingEnabled = true;
+			trace = new ArrayList<>();
+			trace.add(p);
+		}
+		
+		public void setNextP(MeshPoint p) {
+			this.p = p;
+			this.len++;
+			if (tracingEnabled) {
+				trace.add(p);
+			}
+		}
+		
 		public Lead follow(IMesh mesh) {
 			return this.p.leads(mesh)[this.up ? 0 : 1][0];
 		}
