@@ -35,6 +35,21 @@ public class Point {
 		this(p.ix, p.elev, p.isodist);
 	}
 	
+	public double relCompare(Point a, Point b) {
+		double diffA = a.elev - this.elev;
+		double diffB = b.elev - this.elev;
+		if (diffA != 0.0 || diffB != 0.0) {
+			return diffA / diffB;
+		}
+		diffA = (double)a.isodist - this.isodist;
+		diffB = (double)b.isodist - this.isodist;
+		if (diffA != 0.0 || diffB != 0.0) {
+			return diffA / diffB;
+		}
+		// TODO handle point-ix based comparison
+		return 1;
+	}
+	
 	// a point's "height" is effectively (elev, isodist, pseudorandom id (geocode with reversed bits, seq #)
 	public static int compareElev(Point a, Point b) {
 		if (a.elev != b.elev) {

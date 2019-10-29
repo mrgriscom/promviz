@@ -160,6 +160,20 @@ public class MeshPoint extends Point {
 		}
 	}
 	
+	double getAdjDist(Point p, int gridx, int gridy, double xstretch, double diagstretch) {
+		int[] pcs = PointIndex.split(p.ix);
+		int dx = pcs[1] - gridx;
+		int dy = pcs[2] - gridy;
+		// TODO check that point is grid-adjacent
+		if (dx == 0) {
+			return 1.;
+		} else if (dy == 0) {
+			return xstretch;
+		} else {
+			return diagstretch;
+		}
+	}
+	
 	Lead[][] leads(IMesh m) {
 		List<MeshPoint> adjacent = this.adjacent(m);
 		int[] cohort = new int[adjacent.size()];
@@ -178,17 +192,38 @@ public class MeshPoint extends Point {
 			cohort[i] = (cohort[i] + (startsUp ? 0 : 1)) % num_cohorts; // 'up' cohorts must be even-numbered
 		}
 		
+		int[] pcs = PointIndex.split(ix);
+		int gridx = pcs[1];
+		int gridy = pcs[2];
+		// FIXME very inefficient to compute this for every point
+		double lat = PointIndex.toLatLon(ix)[0];
+		double xstretch = Math.cos(Math.toRadians(lat));
+		double diagstretch = Math.pow(xstretch*xstretch + 1., .5);
+		
 		Lead[][] L = {new Lead[num_cohorts / 2], new Lead[num_cohorts / 2]};
 		for (int cur_cohort = 0; cur_cohort < num_cohorts; cur_cohort++) {
 			MeshPoint best = null;
+			double bestRelDist = 0;
 			for (int i = 0; i < adjacent.size(); i++) {
 				if (cohort[i] != cur_cohort) {
 					continue;
 				}
-				
+
 				MeshPoint p = adjacent.get(i);
-				if (best == null || best.compareElev(p) == this.compareElev(best)) {
+				double adjDist = getAdjDist(p, gridx, gridy, xstretch, diagstretch);
+				boolean newBest = false;
+				if (best == null) {
+					newBest = true;
+				} else {
+					// TODO does this handle negative infinity properly
+					double rcmp = this.relCompare(p, best);
+					if (rcmp > adjDist/bestRelDist) {
+						newBest = true;
+					}
+				}
+				if (newBest) {
 					best = p;
+					bestRelDist = adjDist;
 				}
 			}
 			boolean up = (this.compareElev(best) < 0);
@@ -197,77 +232,4 @@ public class MeshPoint extends Point {
 		return L;
 	}
 	
-	public boolean adjAdd(long ixTo) {
-		return adjAdd(ixTo, -1, false);
-	}
-	public boolean adjAdd(long ixTo, int tag, boolean rev) {
-		// FUCKING JAVA!!
-		// all this does is add the new point's geocode to the adjacency array if it isn't already in there
-		boolean exists = false;
-		for (long l : this._adjacent) {
-			if (l == ixTo) {
-				exists = true;
-				break;
-			}
-		}
-		if (!exists) {
-			long[] new_ = new long[this._adjacent.length + 1];
-			System.arraycopy(this._adjacent, 0, new_, 0, this._adjacent.length);
-			new_[this._adjacent.length] = ixTo;
-			this._adjacent = new_;
-
-			if (_tagging != null) {
-				int[] tnew_ = new int[this._tagging.length + 1];
-				System.arraycopy(this._tagging, 0, tnew_, 0, this._tagging.length);
-				this._tagging = tnew_;
-			}
-		}
-		this.setTag(ixTo, tag, rev);
-		return !exists;
-	}
-	
-	static int encTag(int tag, boolean rev) {
-		return (tag < 0 ? 0 : (rev ? -1 : 1) * (1 + tag));
-	}
-	
-	public void setTag(long dst, int tag, boolean rev) {
-		if (tag == -1) {
-			return;
-		}
-		if (_tagging == null) {
-			_tagging = new int[_adjacent.length];
-		}
-		for (int i = 0; i < _adjacent.length; i++) {
-			if (_adjacent[i] == dst) {
-				_tagging[i] = encTag(tag, rev);
-				return;
-			}
-		}
-		throw new NoSuchElementException();
-	}
-	
-	// returns in 'encoded' format
-	public int getTag(long dst) {
-		if (_tagging != null) {
-			for (int i = 0; i < _adjacent.length; i++) {
-				if (_adjacent[i] == dst) {
-					return _tagging[i];
-				}
-			}
-			throw new NoSuchElementException();
-		}
-		return 0;
-	}
-	
-	public long getByTag(int tag, boolean rev) {
-		tag = encTag(tag, rev);
-		if (_tagging != null) {
-			for (int i = 0; i < _tagging.length; i++) {
-				if (_tagging[i] == tag) {
-					return _adjacent[i];
-				}
-			}
-		}
-		return -1;
-	}
 }
