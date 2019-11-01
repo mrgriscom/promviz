@@ -13,7 +13,6 @@ import java.util.Set;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollectionView;
-import org.apache.beam.sdk.values.TupleTag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,16 +25,14 @@ import com.mrgris.prominence.util.WorkerUtils;
 
 // TODO - merge with TopologyBuilder
 
-public class TopologyTracer extends DoFn<KV<Prefix, Iterable<Long>>, KV<Long, KV<Integer, List<Long>>>> {
+public class TopologyTracer extends DoFn<KV<Prefix, Iterable<KV<Long, Boolean>>>, KV<Long, KV<Integer, List<Long>>>> {
 
     private static final Logger LOG = LoggerFactory.getLogger(TopologyTracer.class);
 
-    boolean up;
     PCollectionView<Map<Prefix, Iterable<DEMFile>>> coverageSideInput;
     //TupleTag<Edge> sideOutput;
         
-    public TopologyTracer(boolean up, PCollectionView<Map<Prefix, Iterable<DEMFile>>> coverageSideInput) {//, TupleTag<Edge> sideOutput) {
-    	this.up = up;
+    public TopologyTracer(PCollectionView<Map<Prefix, Iterable<DEMFile>>> coverageSideInput) {//, TupleTag<Edge> sideOutput) {
     	this.coverageSideInput = coverageSideInput;
     	//this.sideOutput = sideOutput;
     }
@@ -43,9 +40,18 @@ public class TopologyTracer extends DoFn<KV<Prefix, Iterable<Long>>, KV<Long, KV
     @ProcessElement
     public void processElement(ProcessContext c) {
     	Prefix pf = c.element().getKey();
-    	Set<Long> saddles = Sets.newHashSet(c.element().getValue());
-    	new Builder(c.sideInput(coverageSideInput), up) {
-    		void emitLead(boolean up, Lead lead) {
+    	
+    	Map<Long, List<Boolean>> saddles = new DefaultMap<Long, List<Boolean>>() {
+			@Override
+			public List<Boolean> defaultValue(Long key) {
+				return new ArrayList<Boolean>();
+			}
+    	};
+    	for (KV<Long, Boolean> kv : c.element().getValue()) {
+    		saddles.get(kv.getKey()).add(kv.getValue());
+    	}
+    	new Builder(c.sideInput(coverageSideInput)) {
+    		void emitLead(Lead lead) {
     			List<Long> path = new ArrayList<>();
     			for (Point p : lead.trace) {
     				path.add(p != null ? p.ix : PointIndex.NULL);
@@ -68,17 +74,15 @@ public class TopologyTracer extends DoFn<KV<Prefix, Iterable<Long>>, KV<Long, KV
     public static abstract class Builder {
     	PagedElevGrid mesh;
     	List<Lead> pending; // TODO group by common (term, up)?
-    	boolean up;
     	
-    	public Builder(Map<Prefix, Iterable<DEMFile>> coverage, boolean up) {
-    		this.up = up; // TODO both dirs should be processed simultaneously
+    	public Builder(Map<Prefix, Iterable<DEMFile>> coverage) {
     		this.mesh = _createMesh(coverage); // TODO implement LRU for mesh since we don't checkpoint for now
     		this.pending = new ArrayList<>();
     	}
 		
-    	abstract void emitLead(boolean up, Lead edge);
+    	abstract void emitLead(Lead edge);
 
-    	void build(Prefix pf, Set<Long> saddles) {
+    	void build(Prefix pf, Map<Long, List<Boolean>> saddles) {
     		// TODO switch to just needed pages (need to add buffer though)
 //			final Set<Prefix> pages = new HashSet<Prefix>();
 //    		for (long ix : saddles) {
@@ -88,7 +92,7 @@ public class TopologyTracer extends DoFn<KV<Prefix, Iterable<Long>>, KV<Long, KV
     		mesh.loadForPrefix(pf, 1);
     		
 			Set<Long> pureSaddles = new HashSet<>();
-			for (long ix : saddles) {
+			for (long ix : saddles.keySet()) {
 				pureSaddles.add(PointIndex.clone(ix, 0));
 			}
     		for (long ix : pureSaddles) {
@@ -107,7 +111,7 @@ public class TopologyTracer extends DoFn<KV<Prefix, Iterable<Long>>, KV<Long, KV
 			this.mesh.destroy();
        	}
     	
-		void processSaddle(MeshPoint saddle, Set<Long> saddles) {
+		void processSaddle(MeshPoint saddle, Map<Long, List<Boolean>> saddles) {
 			Lead[][] leads = saddle.leads(mesh);
 			if (leads[0].length > 2) {
 				// multi-saddle
@@ -144,11 +148,10 @@ public class TopologyTracer extends DoFn<KV<Prefix, Iterable<Long>>, KV<Long, KV
 			
 			for (Lead[] dirLeads : leads) {
 				for (Lead lead : dirLeads) {
-					if (lead.up != up || !saddles.contains(lead.p0.ix)) {
-						continue;
+					if (saddles.containsKey(lead.p0.ix) && saddles.get(lead.p0.ix).contains(lead.up)) {
+						lead.enableTracing();
+						processLead(lead);
 					}
-					lead.enableTracing();
-					processLead(lead);
 				}
 			}
 		}
@@ -282,9 +285,9 @@ public class TopologyTracer extends DoFn<KV<Prefix, Iterable<Long>>, KV<Long, KV
 				lead.setNextP(null);
 			}
 			
-			emitLead(up, lead);
+			emitLead(lead);
 		}
-		
+	
 		static class SaddleAndDir {
 			long saddle;
 			boolean up;
