@@ -100,6 +100,7 @@ public class Prominence extends DoFn<Iterable<KV<Long, Iterable<HalfEdge>>>, Pro
 		
 		@Nullable
 		List<Long> threshPath;
+		double threshTrim = -1;
 		@Nullable
 		List<Long> parentPath;
 		@Nullable

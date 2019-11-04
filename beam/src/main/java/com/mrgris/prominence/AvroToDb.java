@@ -61,6 +61,9 @@ public class AvroToDb {
 	}
 	
 	static LineString makePath(List<Long> ixs) {
+		return makePath(ixs, 0);
+	}
+	static LineString makePath(List<Long> ixs, double trim) {
 		List<Coordinate> coords = new ArrayList<>();
 		for (long ix : ixs) {
 			if (ix == PointIndex.NULL) {
@@ -72,6 +75,18 @@ public class AvroToDb {
 		// FIXME
 		if (coords.size() == 1) {
 			coords.add(coords.get(0));
+		}
+		
+		if (trim > 0) {
+			Coordinate a = coords.get(coords.size() - 1 - (int)Math.ceil(trim));
+			Coordinate b = coords.get(coords.size() - 1 - (int)Math.floor(trim));
+			double frac = trim % 1.;
+			Coordinate last = new Coordinate(
+				(1-frac)*b.x + frac*a.x,
+				(1-frac)*b.y + frac*a.y
+			);
+			coords = new ArrayList<>(coords.subList(0, coords.size() - (int)Math.ceil(trim)));
+			coords.add(last);
 		}
 		
 		return gf.createLineString(new CoordinateArraySequence(coords.toArray(new Coordinate[coords.size()])));
@@ -189,7 +204,7 @@ public class AvroToDb {
 				stInsProm.setInt(5, pf.thresh == null ? 1 : 0);
 				stInsProm.setObject(6, pf.parent != null ? geocode(pf.parent) : null);
 				stInsProm.setObject(7, pf.pthresh != null ? geocode(pf.pthresh) : null);
-				stInsProm.setString(8, pf.threshPath != null ? makePath(pf.threshPath).toText() : null);
+				stInsProm.setString(8, pf.threshPath != null ? makePath(pf.threshPath, pf.threshTrim).toText() : null);
 				stInsProm.setString(9, pf.parentPath != null ? makePath(pf.parentPath).toText() : null);
 				stInsProm.setString(10, pf.domainBoundary != null ? makeDomain(pf.domainBoundary).toText() : null);
 				stInsProm.addBatch();

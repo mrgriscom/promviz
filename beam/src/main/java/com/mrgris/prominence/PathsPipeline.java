@@ -42,7 +42,6 @@ import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Partition;
 import org.apache.beam.sdk.transforms.Partition.PartitionFn;
-import org.apache.beam.sdk.transforms.Values;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
 import org.apache.beam.sdk.transforms.join.CoGroupByKey;
@@ -61,6 +60,7 @@ import org.apache.beam.vendor.grpc.v1_13_1.com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Sets;
 import com.mrgris.prominence.AvroToDb.MSTDebugSink;
 import com.mrgris.prominence.AvroToDb.PointsDebugSink;
@@ -350,19 +350,21 @@ public class PathsPipeline {
   static class PathTaskId {
 	  long ix;
 	  int type;
+	  boolean up;   // not needed to disambiguate, but makes bookkeeping easier
 	  
 	  public PathTaskId() {}
 	  
-	  public PathTaskId(long ix, int type) {
+	  public PathTaskId(long ix, int type, boolean up) {
 		  this.ix = ix;
 		  this.type = type;
+		  this.up = up;
 	  }
 	  
 		@Override
 		public boolean equals(Object o) {
 			if (o instanceof PathTaskId) {
 				PathTaskId pe = (PathTaskId)o;
-				return this.ix == pe.ix && this.type == pe.type;
+				return this.ix == pe.ix && this.type == pe.type && this.up == pe.up;
 			} else {
 				return false;
 			}
@@ -370,7 +372,7 @@ public class PathsPipeline {
 		
 		@Override
 		public int hashCode() {
-			return Objects.hash(ix, type);
+			return Objects.hash(ix, type, up);
 		}
 
   }
@@ -1036,13 +1038,42 @@ public class PathsPipeline {
 			  .via(pe -> KV.of(new EdgeId(pe.srcIx, pe.saddleTraceNum, up), pe)));
   }
   
+  static PCollection<KV<PathTaskId, PathFragments>> indexPaths(PCollection<PathFragments> paths, boolean up) {
+	  return paths.apply(MapElements.into(new TypeDescriptor<KV<PathTaskId, PathFragments>>() {})
+			  .via(pf -> KV.of(new PathTaskId(pf.p.ix, pf.type, up), pf)));
+  }
+  
   public static PCollection<PromFact> fillOutPaths(PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage,
 		  PCollectionTuple searchUp, PCollectionTuple searchDown) {
       PCollection<KV<EdgeId, PrunedEdge>> indexedEdges = PCollectionList
     		  .of(indexPMST(searchUp.get(fullPmstTag), true))
     		  .and(indexPMST(searchDown.get(fullPmstTag), false))
     		  .apply(Flatten.pCollections());
+      PCollection<KV<PathTaskId, PathFragments>> coarsePaths = PCollectionList
+    		  .of(indexPaths(searchUp.get(pathFragsTag), true))
+    		  .and(indexPaths(searchDown.get(pathFragsTag), false))
+    		  .apply(Flatten.pCollections());
 
+      PCollection<KV<EdgeId, KV<Point, Boolean>>> thresholdSegments = coarsePaths.apply(
+    		  ParDo.of(new DoFn<KV<PathTaskId, PathFragments>, KV<EdgeId, KV<Point, Boolean>>>() {
+		    @ProcessElement
+		    public void processElement(ProcessContext c) {
+		    	PathFragments path = c.element().getValue();
+		    	boolean up = c.element().getKey().up;
+		    	if (path.type != PathTask.TYPE_THRESH) {
+		    		return;
+		    	}
+		    	
+		    	List<Long> srcFrag = path.fragments.get(0);
+		    	List<Long> dstFrag = path.fragments.get(1);
+		    		    	
+		    	boolean cutoffFromStart = (dstFrag.size() != 1);
+		    	long edgeIx = (cutoffFromStart ? dstFrag.get(0) :
+		    		srcFrag.get(srcFrag.size() - 2)); // last ix before intersection pt
+		    	c.output(KV.of(new EdgeId(edgeIx, -1, up), KV.of(path.p, cutoffFromStart)));	
+		    }
+      }));
+      
       PCollection<KV<Long, EdgeId>> saddlesToEdges = indexedEdges.apply("SaddlesPerPMSTEdge",
     		  ParDo.of(new DoFn<KV<EdgeId, PrunedEdge>, KV<Long, EdgeId>>() {
 		    @ProcessElement
@@ -1064,26 +1095,26 @@ public class PathsPipeline {
     		  .apply(Distinct.create()).apply(MapElements.into(new TypeDescriptor<KV<Prefix, KV<Long, Boolean>>>() {})
            .via(kv -> KV.of(new Prefix(kv.getKey(), TopologyNetworkPipeline.CHUNK_SIZE_EXP), kv)))
 	    		.apply("ChunkedSaddles", GroupByKey.create());//.apply(Values.create());*/
-      PCollection<KV<Long, KV<Integer, List<Long>>>> saddleTraces = chunkedSaddles.apply("DetailedTraceSaddles",
+      PCollection<KV<Long, KV<Integer, List<Point>>>> saddleTraces = chunkedSaddles.apply("DetailedTraceSaddles",
     		  ParDo.of(new TopologyTracer(pageCoverage)).withSideInputs(pageCoverage));
 	  final TupleTag<EdgeId> peTag = new TupleTag<>();
-	  final TupleTag<KV<Integer, List<Long>>> traceTag = new TupleTag<>();
+	  final TupleTag<KV<Integer, List<Point>>> traceTag = new TupleTag<>();
 	  
-      PCollection<KV<EdgeId, KV<Long, KV<Integer, List<Long>>>>> tracesCrossRefed = KeyedPCollectionTuple
+      PCollection<KV<EdgeId, KV<Long, KV<Integer, List<Point>>>>> tracesCrossRefed = KeyedPCollectionTuple
 			    .of(peTag, saddlesToEdges)
 			    .and(traceTag, saddleTraces)
 			    .apply(CoGroupByKey.create())
 			    .apply("TraceCrossrefToPMSTEdge", ParDo.of(
-		  new DoFn<KV<Long, CoGbkResult>, KV<EdgeId, KV<Long, KV<Integer, List<Long>>>>>() {
+		  new DoFn<KV<Long, CoGbkResult>, KV<EdgeId, KV<Long, KV<Integer, List<Point>>>>>() {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
 		      KV<Long, CoGbkResult> e = c.element();
 		      long saddle = e.getKey();
 		      List<EdgeId> edges = Lists.newArrayList(e.getValue().getAll(peTag));
-		      for (KV<Integer, List<Long>> xx : e.getValue().getAll(traceTag)) {
+		      for (KV<Integer, List<Point>> xx : e.getValue().getAll(traceTag)) {
 		    	  int dir = xx.getKey();
 		    	  boolean up = (dir % 2 == 0);
-		    	  List<Long> path = xx.getValue();
+		    	  List<Point> path = xx.getValue();
 		    	  for (EdgeId eid : edges) {
 		    		  boolean emit = (eid.ix != saddle || eid.dir == dir) && eid.up == up;
 		    		  if (emit) {
@@ -1095,26 +1126,39 @@ public class PathsPipeline {
 		  }
 		));
 	  final TupleTag<PrunedEdge> qqqqq = new TupleTag<>();
-	  final TupleTag<KV<Long, KV<Integer, List<Long>>>> wwwww = new TupleTag<>();
-      PCollection<PrunedEdge> detailedPMST = KeyedPCollectionTuple
+	  final TupleTag<KV<Long, KV<Integer, List<Point>>>> wwwww = new TupleTag<>();
+	  final TupleTag<KV<Point, Boolean>> eeeee = new TupleTag<>();
+	  final TupleTag<PrunedEdge> rrrr = new TupleTag<PrunedEdge>() {};
+	  final TupleTag<PromFact> tttt = new TupleTag<PromFact>() {};
+	  PCollectionTuple joinedTraces = KeyedPCollectionTuple
 			    .of(wwwww, tracesCrossRefed)
 			    .and(qqqqq, indexedEdges)
+			    .and(eeeee, thresholdSegments)
 			    .apply(CoGroupByKey.create())
 			    .apply("AssembleDetailedPMST", ParDo.of(
 		  new DoFn<KV<EdgeId, CoGbkResult>, PrunedEdge>() {
 		    @ProcessElement
 		    public void processElement(ProcessContext c) {
 		      KV<EdgeId, CoGbkResult> e = c.element();
-		      PrunedEdge pe = e.getValue().getOnly(qqqqq);
+		      PrunedEdge pe = e.getValue().getOnly(qqqqq, null);
+		      if (pe == null) {
+		    	  // FIXME not sure why this sometimes happens
+		    	  LOG.warn("no edge for " + e.getKey().ix + ":" + e.getKey().dir + ":" + e.getKey().up);
+		    	  return;
+		      }
 		      
-		      Map<KV<Long, Long>, List<Long>> traces = new HashMap<>();
-		      for (KV<Long, KV<Integer, List<Long>>> trace : e.getValue().getAll(wwwww)) {
+		      Map<KV<Long, Long>, List<Point>> traces = new HashMap<>();
+		      for (KV<Long, KV<Integer, List<Point>>> trace : e.getValue().getAll(wwwww)) {
 		    	  long saddle = trace.getKey();
-		    	  List<Long> path = trace.getValue().getValue();
-		    	  long terminus = path.get(path.size() - 1);
+		    	  List<Point> path = trace.getValue().getValue();
+		    	  // NOTE: PointIndex.NULL will be wrapped in Point object!!
+		    	  long terminus = Point.toIx(path.get(path.size() - 1));
 		    	  traces.put(KV.of(saddle, terminus), path);
 		      }
 
+		      List<Point> startTrace = null;
+		      List<Point> endTrace = null;		      
+		      
 		      PrunedEdge detail = new PrunedEdge();
 		      detail.srcIx = pe.srcIx;
 		      detail.dstIx = pe.dstIx;
@@ -1125,32 +1169,54 @@ public class PathsPipeline {
 		    	  boolean startIsSaddle = (i % 2 == (pe.saddleTraceNum == -1 ? 1 : 0));
 		    	  long saddle = (startIsSaddle ? start : end);
 		    	  long summit = (startIsSaddle ? end : start);
-		    	  List<Long> seg = traces.get(KV.of(saddle, summit));
-		    	  seg = seg.subList(0, seg.size() - 1); // final point redundant with pe.interimIxs (start point already absent)
-		    	  if (!startIsSaddle) {
-		    		  Collections.reverse(seg);
+		    	  List<Point> seg = traces.get(KV.of(saddle, summit));
+		    	  if (i == 0) {
+		    		  startTrace = seg;
+		    	  } else if (i == pe.interimIxs.size()) {
+		    		  endTrace = seg;
 		    	  }
-		    	  detail.interimIxs.addAll(seg);
+		    	  // note: these are just view transformations and don't modify seg
+		    	  seg = seg.subList(1, seg.size() - 1); // start saddle and final point redundant with pe.interimIxs
+		    	  if (!startIsSaddle) {
+		    		  seg = Lists.reverse(seg);
+		    	  }
+		    	  Iterators.addAll(detail.interimIxs, seg.stream().map(Point::toIx).iterator());
 		    	  if (i < pe.interimIxs.size()) {
 		    		  detail.interimIxs.add(pe.interimIxs.get(i));
 		    	  }
 		      }
 		      c.output(detail);
+		      
+		      for (KV<Point, Boolean> kv : e.getValue().getAll(eeeee)) {
+		    	  Point p = kv.getKey();
+		    	  List<Point> trace = Lists.reverse(kv.getValue() ? startTrace : endTrace);
+		    	  for (int i = 1; i < trace.size(); i++) {
+		    		  if (Point.compareElev(trace.get(i - 1), p) != Point.compareElev(trace.get(i), p)) {
+		    			  double frac = trace.get(i).relCompare(p, trace.get(i - 1));
+		    			  PromFact pf = new PromFact();
+		    			  pf.p = p;
+		    			  pf.threshTrim = i - frac;
+		    			  c.output(tttt, pf);
+		    		  }
+		    	  }
+		      }
 		    }
 		  }
-		));
-      
-      PCollection<PathFragments> coarsePaths = PCollectionList.of(searchUp.get(pathFragsTag)).and(searchDown.get(pathFragsTag)).apply(Flatten.pCollections());
+		).withOutputTags(rrrr, TupleTagList.of(tttt)));
+	  PCollection<PrunedEdge> detailedPMST = joinedTraces.get(rrrr);
+	  PCollection<PromFact> threshCutoffs = joinedTraces.get(tttt);
+	  
       PCollection<KV<Long, PathTaskId>> mstNodeToPath = coarsePaths.apply(ParDo.of(
-    		  new DoFn<PathFragments, KV<Long, PathTaskId>>() {
+    		  new DoFn<KV<PathTaskId, PathFragments>, KV<Long, PathTaskId>>() {
     			    @ProcessElement
     			    public void processElement(ProcessContext c) {
-    			    	PathFragments path = c.element();
+    			    	PathTaskId id = c.element().getKey();
+    			    	PathFragments path = c.element().getValue();
     			    	for (List<Long> seg : path.fragments) {
     			    		for (Long ix : seg) {
     			    			// FIXME need special handling for BasinSaddleEdges
     			    			if (ix != PointIndex.NULL) {
-    			    				c.output(KV.of(ix, new PathTaskId(path.p.ix, path.type)));
+    			    				c.output(KV.of(ix, id));
     			    			}
     			    		}
     			    	}
@@ -1181,10 +1247,9 @@ public class PathsPipeline {
 		  }
 		));
 
-	  PCollection<KV<PathTaskId, PathFragments>> pathsById = coarsePaths.apply(MapElements.into(new TypeDescriptor<KV<PathTaskId, PathFragments>>() {}).via(pf -> KV.of(new PathTaskId(pf.p.ix, pf.type), pf)));
 	  final TupleTag<PathFragments> cc = new TupleTag<>();
 	  PCollection<PromFact> finePaths = KeyedPCollectionTuple
-	  .of(cc, pathsById)
+	  .of(cc, coarsePaths)
 	  .and(bb, edgesByPath)
 	  .apply(CoGroupByKey.create())
 	  .apply("CoarseToFinePaths", ParDo.of(
@@ -1259,7 +1324,7 @@ public class PathsPipeline {
 		    }
 		  }
 		));
-	  return finePaths;
+	  return PCollectionList.of(finePaths).and(threshCutoffs).apply(Flatten.pCollections());
   }
   
   public static class PathPipeline implements Serializable {

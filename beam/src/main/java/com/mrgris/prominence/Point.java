@@ -35,6 +35,10 @@ public class Point {
 		this(p.ix, p.elev, p.isodist);
 	}
 	
+	public static long toIx(Point p) {
+		return p != null ? p.ix : PointIndex.NULL;
+	}
+	
 	public double relCompare(Point a, Point b) {
 		double diffA = a.elev - this.elev;
 		double diffB = b.elev - this.elev;

@@ -25,7 +25,7 @@ import com.mrgris.prominence.util.WorkerUtils;
 
 // TODO - merge with TopologyBuilder
 
-public class TopologyTracer extends DoFn<KV<Prefix, Iterable<KV<Long, Boolean>>>, KV<Long, KV<Integer, List<Long>>>> {
+public class TopologyTracer extends DoFn<KV<Prefix, Iterable<KV<Long, Boolean>>>, KV<Long, KV<Integer, List<Point>>>> {
 
     private static final Logger LOG = LoggerFactory.getLogger(TopologyTracer.class);
 
@@ -52,11 +52,7 @@ public class TopologyTracer extends DoFn<KV<Prefix, Iterable<KV<Long, Boolean>>>
     	}
     	new Builder(c.sideInput(coverageSideInput)) {
     		void emitLead(Lead lead) {
-    			List<Long> path = new ArrayList<>();
-    			for (Point p : lead.trace) {
-    				path.add(p != null ? p.ix : PointIndex.NULL);
-    			}
-    			c.output(KV.of(lead.p0.ix, KV.of(lead.i, path)));
+    			c.output(KV.of(lead.p0.ix, KV.of(lead.i, lead.trace)));
 //    			if (up) {
 //    				c.output(edge);
 //    			} else {

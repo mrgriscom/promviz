@@ -110,6 +110,9 @@ public class ProminencePipeline {
 	    		  	    	if (pf.threshPath != null) {
 	    		  	    		combined.threshPath = pf.threshPath;
 	    		  	    	}
+	    		  	    	if (pf.threshTrim >= 0) {
+	    		  	    		combined.threshTrim = pf.threshTrim;
+	    		  	    	}
 	    		  	    	if (pf.parentPath != null) {
 	    		  	    		combined.parentPath = pf.parentPath;
 	    		  	    	}
