@@ -1175,7 +1175,7 @@ public class PathsPipeline {
 		    	  } else if (i == pe.interimIxs.size()) {
 		    		  endTrace = seg;
 		    	  }
-		    	  // note: these are just view transformations and don't modify seg
+		    	  // note: these are just view transformations and mustn't modify seg
 		    	  seg = seg.subList(1, seg.size() - 1); // start saddle and final point redundant with pe.interimIxs
 		    	  if (!startIsSaddle) {
 		    		  seg = Lists.reverse(seg);

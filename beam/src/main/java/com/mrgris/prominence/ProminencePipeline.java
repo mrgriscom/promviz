@@ -18,10 +18,13 @@
 package com.mrgris.prominence;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.AvroIO;
@@ -142,7 +145,39 @@ public class ProminencePipeline {
   
   static String ud(boolean up) { return up ? "-Up" : "-Down"; }
   
-  public static PCollectionTuple dirPipeline(Pipeline p, boolean up, PCollection<Edge> network, PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage) {
+  static List<Integer> getCoalesceSteps(List<DEMFile> DEMs, int baseSize) {
+	  List<Integer> steps = new ArrayList<>();
+	  Set<Prefix> pages = new HashSet<>();
+	  for (DEMFile dem : DEMs) {
+		  for (Prefix page : dem.overlappingPages(baseSize)) {
+			  pages.add(page);
+		  }
+	  }    	
+
+	  int level = baseSize;
+	  Set<Prefix> coalescedPages = pages;
+	  while (true) {
+		  level += Prominence.COALESCE_STEP;
+		  if (level >= PointIndex.BITS_X) {
+			  break;
+		  }
+		  int lastSize = coalescedPages.size();
+		  coalescedPages = new HashSet<>();
+		  for (Prefix page : pages) {
+			  coalescedPages.add(chunkingPrefix(page.prefix, level));
+		  }
+		  if (coalescedPages.size() == 1) {
+			  break;
+		  }
+		  if (coalescedPages.size() != lastSize) {
+			  steps.add(level);
+		  }
+	  }
+	  
+	  return steps;
+  }
+  
+  public static PCollectionTuple dirPipeline(Pipeline p, boolean up, PCollection<Edge> network, PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage, List<DEMFile> dems) {
 	    // TODO verify edges since read from outside source
 	  PCollection<KV<Long, Iterable<HalfEdge>>> minimalFronts = network.apply("MinimalFronts"+ud(up), ParDo.of(new DoFn<Edge, KV<Long, HalfEdge>>() {
 		      @ProcessElement
@@ -170,11 +205,11 @@ public class ProminencePipeline {
 	    				MapElements.into(new TypeDescriptor<KV<Long, KV<Integer, Edge>>>() {})
 	    	    		.via(e -> KV.of(e.saddle, KV.of(TopologyNetworkPipeline.CHUNK_SIZE_EXP, e)))));
 	    
-	    // TODO add offset during coalescing to avoid overlapping boundaries across multiple steps
-	    int chunkSize = TopologyNetworkPipeline.CHUNK_SIZE_EXP;
-	    while (chunkSize < 20) { // NOT GLOBAL!!!   TODO check this later
-	      chunkSize += Prominence.COALESCE_STEP;
-
+	    
+	    
+	    List<Integer> coalesceSteps = getCoalesceSteps(dems, TopologyNetworkPipeline.CHUNK_SIZE_EXP);
+	    for (int chunkSize : coalesceSteps) {
+	    	System.out.println("coalesce level " + chunkSize);
 	      final int cs = chunkSize;
 	      PCollection<Iterable<AvroFront>> coalescedChunks = searchOutput.get(pendingFrontsTag).apply("PendingFrontRechunk-L"+chunkSize+ud(up),
 	      		MapElements.into(new TypeDescriptor<KV<Prefix, AvroFront>>() {}).via(
@@ -188,7 +223,6 @@ public class ProminencePipeline {
     				MapElements.into(new TypeDescriptor<KV<Long, KV<Integer, Edge>>>() {})
     	    		.via(e -> KV.of(e.saddle, KV.of(cs, e)))));
 	    }
-	    // coalesce steps -- must pre-populated all the way to global, even if many are no-ops
 	    // what if chunk size is such that there is only one processing level (extreme edge case but try to handle it)
 	        
 	    PCollection<Iterable<AvroFront>> finalChunk = searchOutput.get(pendingFrontsTag).apply("RemainingPendingFrontsSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, AvroFront>>() {})
@@ -261,8 +295,8 @@ public class ProminencePipeline {
 	  public void freshRun(boolean write) {
 		  tp.initDEMs();
 		    
-		    PCollectionTuple promSearchUp = dirPipeline(p, true, tp.networkUp, tp.pageCoverage);
-		    PCollectionTuple promSearchDown = dirPipeline(p, false, tp.networkDown, tp.pageCoverage);
+		    PCollectionTuple promSearchUp = dirPipeline(p, true, tp.networkUp, tp.pageCoverage, tp.dems);
+		    PCollectionTuple promSearchDown = dirPipeline(p, false, tp.networkDown, tp.pageCoverage, tp.dems);
 		    
 		    facts = PCollectionList.of(promSearchUp.get(promFactsTag)).and(promSearchDown.get(promFactsTag)).apply(Flatten.pCollections());
 		    mstUp = promSearchUp.get(mstTag);

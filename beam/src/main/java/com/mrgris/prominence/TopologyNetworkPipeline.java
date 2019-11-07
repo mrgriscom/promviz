@@ -85,7 +85,7 @@ public class TopologyNetworkPipeline {
 	  return DEMIndex.instance();
   }
   
-  static PCollection<KV<Prefix, DEMFile>> makePageFileMapping (Pipeline p, String region, String series) {
+  static List<DEMFile> loadDEMs(String region, String series) {
 	  DEMIndex index = loadDemIndex();
 	  GeometryFactory gf = new GeometryFactory();
 	  WKTReader wkt = new WKTReader(gf);
@@ -116,7 +116,10 @@ public class TopologyNetworkPipeline {
 			  DEMs.add(dem);
 		  }
 	  }
-	  
+	  return DEMs;
+  }
+  
+  static PCollection<KV<Prefix, DEMFile>> makePageFileMapping (Pipeline p, List<DEMFile> DEMs) {
 	    return p.apply("FilterDemsForRegion", Create.of(DEMs)).apply("DemFilesToOverlappingPages", ParDo.of(new DoFn<DEMFile, KV<Prefix, DEMFile>>() {
 		      @ProcessElement
 		      public void processElement(ProcessContext c) {
@@ -138,7 +141,8 @@ public class TopologyNetworkPipeline {
 	  }
 	  
 	  public void init(TopoPipeline tp) {
-		  tp.pageFileMapping = makePageFileMapping(tp.p, region, series);
+		  tp.dems = loadDEMs(region, series);
+		  tp.pageFileMapping = makePageFileMapping(tp.p, tp.dems);
 		  tp.pageCoverage = tp.pageFileMapping.apply(View.asMultimap());
 	  }
   }
@@ -147,6 +151,7 @@ public class TopologyNetworkPipeline {
 	  transient Pipeline p;
 	  transient DEMContext demCtx;
 	  
+	  transient List<DEMFile> dems;
 	  transient PCollection<KV<Prefix, DEMFile>> pageFileMapping;
 	  transient PCollectionView<Map<Prefix, Iterable<DEMFile>>> pageCoverage;
 	  
