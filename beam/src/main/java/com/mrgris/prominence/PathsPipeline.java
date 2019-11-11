@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import org.apache.avro.reflect.Nullable;
+import org.apache.beam.repackaged.beam_sdks_java_fn_execution.com.google.common.collect.Iterables;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
@@ -60,7 +61,9 @@ import org.apache.beam.vendor.grpc.v1_13_1.com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.mrgris.prominence.AvroToDb.MSTDebugSink;
 import com.mrgris.prominence.AvroToDb.PointsDebugSink;
@@ -216,6 +219,12 @@ public class PathsPipeline {
 		  };
 		  backtrace = new HashMap<>();
 		  
+		  //FIXME this sucks
+		  if (mst == null) {
+			  //going to call fill()
+			  return;
+		  }
+		  
 		  for (PrunedEdge e : mst) {
 			  if (e.saddleTraceNum == -1) {
 				  if (e.dstIx != PointIndex.NULL) {
@@ -227,6 +236,14 @@ public class PathsPipeline {
 					  backtrace.put(new BasinSaddleEdge(e.srcIx, e.saddleTraceNum), e.dstIx);
 
 				  }
+			  }
+		  }
+	  }
+	  
+	  void fill(Iterable<KV<Long, Long>> mst) {
+		  for (KV<Long, Long> e : mst) {
+			  if (e.getValue() != PointIndex.NULL) {
+				  backtrace.put(e.getKey(), e.getValue());
 			  }
 		  }
 	  }
@@ -308,17 +325,43 @@ public class PathsPipeline {
 		  PathFragments path = new PathFragments();
 		  path.p = task.p;
 		  path.type = task.type;
-		  if (task.type == PathTask.TYPE_THRESH) {
-			  path.fragments = getAtoB(task.p.ix, task.target);
-		  } else if (task.type == PathTask.TYPE_PARENT) {		  
-			  path.fragments = getAtoB(task.p.ix, task.target);
+		  
+		  if (task.type != PathTask.TYPE_DOMAIN) {
+			  // FIXME getAtoB path search seems to have trouble with chunked mst
+			  List<ArrayList<Long>> xx = Lists.newArrayList(Lists.newArrayList(task.p.ix), Lists.newArrayList(task.target));
+			  path.fragments = (ArrayList)Runoff.resume(xx, this);
+		  
+		  
+		  
+//		  if (task.type == PathTask.TYPE_THRESH) {
+//			  path.fragments = getAtoB(task.p.ix, task.target);
+//		  } else if (task.type == PathTask.TYPE_PARENT) {		  
+//			  path.fragments = getAtoB(task.p.ix, task.target);
 		  } else if (task.type == PathTask.TYPE_DOMAIN) {
 			  path.fragments = (ArrayList)Runoff.runoff(task.saddles, this);
 		  }
-		  emitPath(path);
+		  emitPath(path, task);
 	  }
+
+	  void search(PathFragments frags) {
+		  // should clone frags?
+		  if (frags.type != PathTask.TYPE_DOMAIN) {
+			  long p = frags.fragments.get(0).get(0);
+			  long src = frags.fragments.get(0).get(1);
+			  long dst = frags.fragments.get(1).get(1);
+			  long target = frags.fragments.get(1).get(0);
+			  ArrayList<ArrayList<Long>> newFrags = getAtoB(src, dst);
+			  newFrags.get(0).add(0, p);
+			  newFrags.get(1).add(0, target);
+			  frags.fragments = newFrags;
+		  } else {
+			  frags.fragments = (ArrayList)Runoff.resume(frags.fragments, this);
+		  }
+		  emitPath(frags, null);
+	  }
+
 	  
-	  public abstract void emitPath(PathFragments pf);
+	  public abstract void emitPath(PathFragments pf, PathTask task);
 	  //public abstract void emitEdge(TrimmedEdge seg);
   }
   
@@ -977,11 +1020,10 @@ public class PathsPipeline {
 	  
 	  PCollection<PrunedEdge> pmst = PCollectionList.of(edgesOut.get(outCompleteEdge)).and(completedEdges)
 			  .apply(Flatten.pCollections());
-      // may need to strip out breadcrumbs from edges when reconstituting pmst (for memory reasons)
-	  // (but only if all PrunedEdges are kept in memory, rather than processed as iterable
-	  PCollection<KV<Integer, Iterable<PrunedEdge>>> pmstSingleton =
-			  pmst.apply("PrunedMstSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, PrunedEdge>>() {}).via(e -> KV.of(0, e)))
-	  		.apply(GroupByKey.create());
+	  // is further processing faster if we strip out interimixs?
+//	  PCollection<KV<Integer, Iterable<PrunedEdge>>> pmstSingleton =
+//			  pmst.apply("PrunedMstSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, PrunedEdge>>() {}).via(e -> KV.of(0, e)))
+//	  		.apply(GroupByKey.create());
 	  
 	    pmst.apply(MapElements.into(new TypeDescriptor<KV<Long,Long>>() {}).via(pe -> KV.of(pe.srcIx, pe.dstIx)))
 	    .apply(FileIO.<KV<Long, Long>>write()
@@ -994,11 +1036,435 @@ public class PathsPipeline {
 					}
 	            }).withNumShards(1));
 
-	  
-	  PCollection<KV<Integer, Iterable<PathTask>>> taskSingleton =
-			  tasks.apply("TasksSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, PathTask>>() {}).via(task -> KV.of(0, task)))
-	  		.apply(GroupByKey.create());
-	  
+
+	    int PMST_CHUNK_EXP = TopologyNetworkPipeline.CHUNK_SIZE_EXP + 1; // use 1 for testing -- really 4;  // note this should really be independent of grid size
+	    PCollection<KV<Prefix, Iterable<PrunedEdge>>> pmstChunked =
+	    		pmst.apply("ChunkPmst"+ud(up), 
+	    				ParDo.of(new DoFn<PrunedEdge, KV<Prefix, PrunedEdge>>(){
+	    					@ProcessElement
+	    					public void processElement(ProcessContext c) {
+	    						PrunedEdge e = c.element();
+	    						Prefix srcPrefix = ProminencePipeline.chunkingPrefix(e.srcIx, PMST_CHUNK_EXP);
+	    						c.output(KV.of(srcPrefix, e));
+	    					}
+	    				})).apply(GroupByKey.create());
+	      final TupleTag<KV<Prefix, PathTask>> tagTaskChunked = new TupleTag<KV<Prefix, PathTask>>(){};
+		  final TupleTag<PathTask> tagUnresolved = new TupleTag<PathTask>() {};
+		  PCollectionTuple taskChunkingResult = 
+	    		tasks.apply("ChunkTasks"+ud(up), 
+	    				ParDo.of(new DoFn<PathTask, KV<Prefix, PathTask>>(){
+	    					@ProcessElement
+	    					public void processElement(ProcessContext c) {
+	    						PathTask e = c.element();
+	    						Set<Prefix> prefix = new HashSet<>();
+	    						if (e.type != PathTask.TYPE_DOMAIN) {
+	    							prefix.add(ProminencePipeline.chunkingPrefix(e.p.ix, PMST_CHUNK_EXP));
+	    							prefix.add(ProminencePipeline.chunkingPrefix(e.target, PMST_CHUNK_EXP));
+	    						} else {
+	    							for (Saddle s : e.saddles) {
+		    							prefix.add(ProminencePipeline.chunkingPrefix(s.s.ix, PMST_CHUNK_EXP));	    								
+	    							}
+	    						}
+	    						// TODO possibly handle this with partition (different output types though)
+	    						if (prefix.size() == 1) {
+	    							c.output(KV.of(prefix.iterator().next(), e));
+	    						} else {
+	    							c.output(tagUnresolved, e);
+	    						}
+	    					}
+	    				}).withOutputTags(tagTaskChunked, TupleTagList.of(tagUnresolved)));
+		    PCollection<KV<Prefix, Iterable<PathTask>>> tasksChunked = taskChunkingResult.get(tagTaskChunked).apply(GroupByKey.create());
+	    		
+		  final TupleTag<Iterable<PathTask>> taskTag = new TupleTag<Iterable<PathTask>>() {};
+		  final TupleTag<Iterable<PrunedEdge>> pmstTag = new TupleTag<Iterable<PrunedEdge>>() {};
+		  final TupleTag<PathFragments> tagResolved = new TupleTag<PathFragments>() {};
+	      PCollectionTuple chunkedPathSearch = KeyedPCollectionTuple
+				    .of(taskTag, tasksChunked)
+				    .and(pmstTag, pmstChunked)
+				    .apply(CoGroupByKey.create())
+				    .apply("SearchPathsInChunks"+ud(up), ParDo.of(
+			  new DoFn<KV<Prefix, CoGbkResult>, PathFragments>() {
+			    @ProcessElement
+			    public void processElement(ProcessContext c) {
+			      KV<Prefix, CoGbkResult> e = c.element();
+			      Iterable<PathTask> tasks = e.getValue().getOnly(taskTag, Lists.newArrayList());
+			      Iterable<PrunedEdge> pmst = e.getValue().getOnly(pmstTag);
+			      
+			      PathSearcher searcher = new PathSearcher(pmst) {
+			    	  public void emitPath(PathFragments pf, PathTask task) {
+			    		  boolean isComplete = true;
+			    		  for (List<Long> frag : pf.fragments) {
+			    			  if (frag.get(frag.size() - 1) == PointIndex.NULL) {
+			    				  isComplete = false;
+			    				  break;
+			    			  }
+			    		  }
+			    		  if (isComplete) {
+			    			  c.output(pf);
+			    		  } else {
+			    			  c.output(tagUnresolved, task);
+			    		  }
+			    	  }
+			      };
+			      for (PathTask task : tasks) {
+			    	  searcher.search(task);
+			      }
+			    }
+			  }
+			).withOutputTags(tagResolved, TupleTagList.of(tagUnresolved)));
+	      PCollection<PathFragments> coarsePaths = chunkedPathSearch.get(tagResolved);
+	    		
+	      // TODO repeat with chunks offset 1/2
+	      
+	      PCollection<PathTask> pathsUnresolved = PCollectionList
+				  .of(taskChunkingResult.get(tagUnresolved)).and(chunkedPathSearch.get(tagUnresolved))
+				  .apply(Flatten.pCollections());
+	      
+		  PCollection<Long> pmstKeyPoints = pathsUnresolved
+				  .apply("PmstKeyPoints"+ud(up), ParDo.of(new DoFn<PathTask, Long>(){
+					  @ProcessElement
+					  public void processElement(ProcessContext c) {
+						  PathTask e = c.element();
+						  
+  						if (e.type != PathTask.TYPE_DOMAIN) {
+  							c.output(e.p.ix);
+  							c.output(e.target);
+						} else {
+							for (Saddle s : e.saddles) {
+								c.output(s.s.ix);
+							}
+						}
+					  }
+				  })).apply(Distinct.create());
+
+		  PCollection<KV<Prefix, Long>> pmstChunkInflows =
+				  pmst.apply("ChunkPmstInflows"+ud(up), 
+						  ParDo.of(new DoFn<PrunedEdge, KV<Prefix, Long>>(){
+							  @ProcessElement
+							  public void processElement(ProcessContext c) {
+								  PrunedEdge e = c.element();
+								  if (e.dstIx != PointIndex.NULL) {
+									  Prefix srcPrefix = ProminencePipeline.chunkingPrefix(e.srcIx, PMST_CHUNK_EXP);
+									  Prefix dstPrefix = ProminencePipeline.chunkingPrefix(e.dstIx, PMST_CHUNK_EXP);
+									  if (!dstPrefix.equals(srcPrefix)) {
+										  c.output(KV.of(dstPrefix, e.dstIx));
+									  }
+								  }
+							  }
+						  }));
+		  
+		  PCollection<KV<Prefix, Iterable<Long>>> pmstKeyPointsChunked =
+				  pmstKeyPoints.apply("ChunkKeyPoints"+ud(up), MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(kp -> 
+				  KV.of(ProminencePipeline.chunkingPrefix(kp, PMST_CHUNK_EXP), kp)))
+		  		.apply(GroupByKey.create());
+
+	      final TupleTag<PrunedEdge> outPmstRelevantInflows = new TupleTag<PrunedEdge>(){};
+	      PCollectionTuple pmstTrace = KeyedPCollectionTuple
+				    .of(pmstTag, pmstChunked)
+				    .and(mstChunkInflowsTag, pmstChunkInflows)
+				    .and(keyPointsTag, pmstKeyPointsChunked)
+				    .apply(CoGroupByKey.create())
+				    .apply("TracePmstChunks"+ud(up), ParDo.of(
+			  new DoFn<KV<Prefix, CoGbkResult>, KV<Long, Long>>() {
+			    @ProcessElement
+			    public void processElement(ProcessContext c) {
+			      KV<Prefix, CoGbkResult> elem = c.element();
+			      Prefix pf = elem.getKey();
+			      Iterable<PrunedEdge> mst = elem.getValue().getOnly(pmstTag, Lists.newArrayList());
+			      Iterable<Long> keyPoints = elem.getValue().getOnly(keyPointsTag, Lists.newArrayList());
+			      Set<Long> inflows = Sets.newHashSet(elem.getValue().getAll(mstChunkInflowsTag));
+			      
+			      MST chunkMst = new MST();
+			      for (PrunedEdge e : mst) {
+			    	  if (e.saddleTraceNum == -1) {
+			    		  chunkMst.backtrace.put(e.srcIx, e.dstIx);
+			    	  } else {
+			    		  chunkMst.backtrace.put(new BasinSaddleEdge(e.srcIx, e.saddleTraceNum), e.dstIx);
+						  chunkMst.basinSaddles.get(e.srcIx).add(e.saddleTraceNum);			    		  
+			    	  }
+			      }
+
+			      // this might be made more efficient bc it involves a lot of redundant re-tracing
+			      for (long inflow : inflows) {
+			    	  long cur = inflow;
+			    	  while (true) {
+			    		  cur = chunkMst.getDeadendAsNull(cur);
+			    		  if (cur == PointIndex.NULL) {
+			    			  break;
+			    		  } else if (!pf.isParent(cur)) {
+			    			  c.output(outPatchPanel, KV.of(inflow, cur));
+			    			  break;
+			    		  }
+			    	  }
+			      }
+				  Set<Object> traceStart = new HashSet<>();
+				  for (long ix : keyPoints) {
+					  if (chunkMst.basinSaddles.containsKey(ix)) {
+						  for (int traceNum : chunkMst.basinSaddles.get(ix)) {
+							  traceStart.add(new BasinSaddleEdge(ix, traceNum));
+						  }
+					  } else {
+						  traceStart.add(ix);
+					  }
+				  }
+				  for (Object start : traceStart) {
+					  long cur = chunkMst.getDeadendAsNull(start);
+					  while (true) {
+			    		  if (cur == PointIndex.NULL) {
+			    			  break;
+			    		  } else if (!pf.isParent(cur)) {
+			    			  PrunedEdge pe = new PrunedEdge();
+			    			  if (start instanceof BasinSaddleEdge) {
+			    				  pe.srcIx = ((BasinSaddleEdge)start).ix;
+			    				  pe.saddleTraceNum = ((BasinSaddleEdge)start).trace;
+			    			  } else {
+			    				  pe.srcIx = (long)start;
+			    			  }
+			    			  pe.dstIx = cur;
+			    			  c.output(outPmstRelevantInflows, pe);
+			    			  break;
+			    		  }
+			    		  cur = chunkMst.getDeadendAsNull(cur);
+					  }
+				  }		  		  
+			    }
+			  }
+			).withOutputTags(outPatchPanel, TupleTagList.of(outPmstRelevantInflows))
+		);
+	      
+		  PCollection<KV<Long, PathTask>> pathsBySeedPoints = pathsUnresolved.apply(ParDo.of(new DoFn<PathTask, KV<Long, PathTask>>() {
+			  @ProcessElement
+			  public void processElement(ProcessContext c) {
+				  PathTask e = c.element();
+					if (e.type != PathTask.TYPE_DOMAIN) {
+							c.output(KV.of(e.p.ix, e));
+							c.output(KV.of(e.target, e));
+					} else {
+						for (Saddle s : e.saddles) {
+							c.output(KV.of(s.s.ix, e));
+						}
+					}
+			  }
+		  }));
+		  PCollection<KV<Long, PrunedEdge>> pmstSeeds =
+				  pmstTrace.get(outPmstRelevantInflows).apply(Distinct.create()).apply(MapElements.into(
+				  		new TypeDescriptor<KV<Long, PrunedEdge>>() {})
+						  .via(e -> KV.of(e.srcIx, e)));
+		  final TupleTag<PathTask> uuu = new TupleTag<>();
+		  final TupleTag<PrunedEdge> vvv = new TupleTag<>();
+	      PCollection<KV<PathTask, PrunedEdge>> aaarrrggghhh = KeyedPCollectionTuple
+				    .of(uuu, pathsBySeedPoints)
+				    .and(vvv, pmstSeeds)
+				    .apply(CoGroupByKey.create())
+				    .apply("RestartPathsAtChunkBounds"+ud(up), ParDo.of(
+			  new DoFn<KV<Long, CoGbkResult>, KV<PathTask, PrunedEdge>>() {
+			    @ProcessElement
+			    public void processElement(ProcessContext c) {
+			      KV<Long, CoGbkResult> elem = c.element();
+			      Iterable<PathTask> paths = elem.getValue().getAll(uuu);
+			      List<PrunedEdge> initSegs = Lists.newArrayList(elem.getValue().getAll(vvv));
+			      for (PathTask p : paths) {
+			    	  for (PrunedEdge pe : initSegs) {
+			    		  c.output(KV.of(p, pe));
+			    	  }
+			      }
+			    }
+			  }));
+	      PCollection<PathFragments> chunkRehomedTasks = aaarrrggghhh.apply(GroupByKey.create()).apply(
+	    		  ParDo.of(new DoFn<KV<PathTask, Iterable<PrunedEdge>>, PathFragments>() {
+			    @ProcessElement
+			    public void processElement(ProcessContext c) {
+			      PathTask task = c.element().getKey();
+			      Iterable<PrunedEdge> pes = c.element().getValue();
+			      PathFragments frags = new PathFragments();
+			      
+			      frags.p = task.p;
+			      frags.type = task.type;
+			      
+			      Multimap<Long, Long> segs = HashMultimap.create();
+			      for (PrunedEdge pe : pes) {
+			    	  segs.put(pe.srcIx, pe.dstIx);
+			      }
+			      
+			      if (frags.type != PathTask.TYPE_DOMAIN) {
+			    	  ArrayList<Long> x = new ArrayList<>();
+			    	  x.add(task.p.ix);
+			    	  List<Long> ff = new ArrayList<>(segs.get(task.p.ix));
+			    	  x.add(ff.size() > 0 ? ff.get(0) : PointIndex.NULL);
+			    	  frags.fragments.add(x);
+
+			    	  ArrayList<Long> y = new ArrayList<>();
+			    	  y.add(task.target);
+			    	  List<Long> ff2 = new ArrayList<>(segs.get(task.target));
+			    	  y.add(ff2.size() > 0 ? ff2.get(0) : PointIndex.NULL);
+			    	  frags.fragments.add(y);
+			      } else {
+			    	  for (Saddle s : task.saddles) {
+			    		  for (long ffix : segs.get(s.s.ix)) {
+					    	  ArrayList<Long> x = new ArrayList<>();
+					    	  x.add(s.s.ix);
+					    	  x.add(ffix);
+					    	  frags.fragments.add(x);
+				    	  }
+			    	  }
+			      }
+			      
+			      boolean viable = false;
+			      for (List<Long> seg : frags.fragments) {
+			    	  if (seg.get(seg.size() - 1) != PointIndex.NULL) {
+			    		  viable = true;
+			    		  break;
+			    	  }
+			      }
+			      if (viable) {
+			    	  c.output(frags);
+			      }
+			    }	    	  
+	      }));
+			      
+		  PCollection<KV<Integer, Iterable<KV<Long, Long>>>> pmstPPSingleton =
+		  pmstTrace.get(outPatchPanel).apply("PatchPanelSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, KV<Long, Long>>>() {})
+				  .via(e -> KV.of(0, e))).apply(GroupByKey.create());
+		  PCollection<KV<Integer, Iterable<PathFragments>>> taskSingleton =
+		  chunkRehomedTasks.apply("TasksPPSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, PathFragments>>() {}).via(task -> KV.of(0, task)))
+		  	.apply(GroupByKey.create());
+
+		  final TupleTag<Iterable<PathFragments>> ppTaskTag = new TupleTag<>();
+		  final TupleTag<Iterable<KV<Long, Long>>> pmstPPTag = new TupleTag<>();
+	      PCollection<PathFragments> ppPaths = KeyedPCollectionTuple
+				    .of(ppTaskTag, taskSingleton)
+				    .and(pmstPPTag, pmstPPSingleton)
+				    .apply(CoGroupByKey.create())
+				    .apply("SearchPathsPatchPanel"+ud(up), ParDo.of(
+			  new DoFn<KV<Integer, CoGbkResult>, PathFragments>() {
+			    @ProcessElement
+			    public void processElement(ProcessContext c) {
+			      KV<Integer, CoGbkResult> e = c.element();
+			      Iterable<PathFragments> tasks = e.getValue().getOnly(ppTaskTag, Lists.newArrayList());
+			      Iterable<KV<Long, Long>> pmst = e.getValue().getOnly(pmstPPTag);
+			      
+			      PathSearcher searcher = new PathSearcher(null) {
+			    	  public void emitPath(PathFragments pf, PathTask task) {
+			    		  c.output(pf);
+			    	  }
+//			    	  public void emitEdge(TrimmedEdge seg) {
+//			    		  // TODO
+//			    	  }
+			      };
+			      searcher.fill(pmst);
+			      for (PathFragments task : tasks) {
+			    	  searcher.search(task);
+			      }
+			    }
+			  }
+			));
+
+		  
+	    ///////////////////////////////////////////
+	    ///////////////////////////////////////////
+	    ///////////////////////////////////////////
+	    ///////////////////////////////////////////
+	    ///////////////////////////////////////////
+	    
+	    /*
+
+		  
+		  
+
+		  
+		  final TupleTag<Iterable<KV<Long, Long>>> ppTag = new TupleTag<Iterable<KV<Long, Long>>>(){};
+		  final TupleTag<Iterable<Long>> riTag = new TupleTag<Iterable<Long>>() {};
+	      PCollection<Long> allRelevantInflows = KeyedPCollectionTuple
+				    .of(ppTag, patchPanelSingleton)
+				    .and(riTag, relevantInflowsSingleton)
+				    .apply(CoGroupByKey.create())
+				    .apply("TracePatchPanel"+ud(up), ParDo.of(
+			  new DoFn<KV<Integer, CoGbkResult>, Long>() {
+			    @ProcessElement
+			    public void processElement(ProcessContext c) {
+			      KV<Integer, CoGbkResult> e = c.element();
+			      Iterable<KV<Long, Long>> patchPanel = e.getValue().getOnly(ppTag, Lists.newArrayList());
+			      Iterable<Long> relevantInflows = e.getValue().getOnly(riTag, Lists.newArrayList());
+			      
+			      MST chunkMst = new MST();
+			      for (KV<Long, Long> edge : patchPanel) {
+		    		  chunkMst.backtrace.put(edge.getKey(), edge.getValue());
+			      }
+			      Set<Long> seen = new HashSet<>();
+			      for (long start : relevantInflows) {
+			    	  long cur = start;
+			    	  while (true) {
+			    		  c.output(cur);
+			    		  seen.add(cur);
+			    		  cur = chunkMst.getDeadendAsNull(cur);
+			    		  if (cur == PointIndex.NULL || seen.contains(cur)) {
+			    			  break;
+			    		  }
+			    	  }
+			      }
+			    }
+			  }
+			));
+		    allRelevantInflows.apply(FileIO.<Long>write()
+		            .via(new PointsDebugSink())
+		            .to(debugDst).withNaming(new FileNaming() {
+						@Override
+						public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
+								Compression compression) {
+							return "cascadedinflows.spatialite";
+						}
+		            }).withNumShards(1));
+
+	      PCollection<KV<Prefix, Iterable<Long>>> inflowsByChunk = 
+				  allRelevantInflows.apply("RechunkInflows"+ud(up), MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(inflow -> 
+				  KV.of(ProminencePipeline.chunkingPrefix(inflow, TopologyNetworkPipeline.CHUNK_SIZE_EXP), inflow)))
+		  		.apply(GroupByKey.create());
+	      final TupleTag<Iterable<Long>> inflowsTag = new TupleTag<Iterable<Long>>() {};
+	      final TupleTag<PrunedEdge> outCompleteEdge = new TupleTag<PrunedEdge>() {};
+	      final TupleTag<PrunedEdge> outIncompleteEdge = new TupleTag<PrunedEdge>() {};
+	      final TupleTag<Long> outInflowJunctions = new TupleTag<Long>() {};      
+	      PCollectionTuple edgesOut = KeyedPCollectionTuple
+				    .of(mstTag, mstChunked)
+				    .and(keyPointsTag, keyPointsChunked)
+				    .and(inflowsTag, inflowsByChunk)
+				    .apply(CoGroupByKey.create())
+				    .apply("ChunkedMstToEdges"+ud(up), ParDo.of(
+			  new DoFn<KV<Prefix, CoGbkResult>, PrunedEdge>() {
+			    @ProcessElement
+			    public void processElement(ProcessContext c) {
+			      KV<Prefix, CoGbkResult> elem = c.element();
+			      Prefix pf = elem.getKey();
+			      Iterable<Edge> mst = elem.getValue().getOnly(mstTag, Lists.newArrayList());
+			      Iterable<Long> keyPointsIt = elem.getValue().getOnly(keyPointsTag, Lists.newArrayList());
+			      Iterable<Long> inflowsIt = elem.getValue().getOnly(inflowsTag, Lists.newArrayList());
+			      
+			      MST chunkMst = new MST();
+			      Map<Long, Long> saddles = new HashMap<>();
+			      for (Edge e : mst) {
+			    	  if (e.a != PointIndex.NULL) {
+			    		  chunkMst.backtrace.put(e.a, e.b);
+			    		  saddles.put(e.a, e.saddle);
+			    	  } else {
+			    		  chunkMst.backtrace.put(new BasinSaddleEdge(e.saddle, e.tagB), e.b);
+						  chunkMst.basinSaddles.get(e.saddle).add(e.tagB);
+			    	  }
+			      }
+			      
+			      
+			    }}).withOutputTags(outCompleteEdge, TupleTagList.of(outIncompleteEdge).and(outInflowJunctions)));
+*/
+	    
+	    ///////////////////////////////////////////
+		    ///////////////////////////////////////////
+		    ///////////////////////////////////////////
+		    ///////////////////////////////////////////
+		    ///////////////////////////////////////////
+	    
+	    
+	    
+	    
+	
+	      /*
 	  final TupleTag<Iterable<PathTask>> taskTag = new TupleTag<Iterable<PathTask>>() {};
 	  final TupleTag<Iterable<PrunedEdge>> pmstTag = new TupleTag<Iterable<PrunedEdge>>() {};
       PCollection<PathFragments> coarsePaths = KeyedPCollectionTuple
@@ -1017,11 +1483,9 @@ public class PathsPipeline {
 		    	  public void emitPath(PathFragments pf) {
 		    		  c.output(pf);
 		    	  }
-		    	  /*
-		    	  public void emitEdge(TrimmedEdge seg) {
-		    		  // TODO
-		    	  }
-		    	  */
+//		    	  public void emitEdge(TrimmedEdge seg) {
+//		    		  // TODO
+//		    	  }
 		      };
 		      for (PathTask task : tasks) {
 		    	  searcher.search(task);
@@ -1029,7 +1493,9 @@ public class PathsPipeline {
 		    }
 		  }
 		));
+		*/
 	  
+	  coarsePaths = PCollectionList.of(coarsePaths).and(ppPaths).apply(Flatten.pCollections());
       return PCollectionTuple.of(pathFragsTag, coarsePaths).and(fullPmstTag, pmst);
   }
   
@@ -1358,7 +1824,6 @@ public class PathsPipeline {
 		    
 		    promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(paths));
 		    //promInfo.apply("WritePromFactsWithPaths", AvroIO.write(PromFact.class).to(pp.tp.outputRoot + "promfactswithpaths").withoutSharding());
-
 		    promInfo.apply("WriteSpatialite", FileIO.<PromFact>write()
 		            .via(new SpatialiteSink())
 		            .to(pp.tp.outputRoot).withNaming(new FileNaming() {

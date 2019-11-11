@@ -26,7 +26,6 @@ public class Runoff {
 	
 	public static List<ArrayList<Long>> runoff(List<Saddle> seeds, PathSearcher mst) {
 		List<Trace> traces = new ArrayList<>();
-		Set<Trace> completed = new HashSet<>();
 		Set<Trace> clockwise = new HashSet<>();
 		for (Saddle s : seeds) {
 			long ix = s.s.ix;
@@ -78,8 +77,25 @@ public class Runoff {
 					clockwise.add(t);
 				}
 			}
+			
 		}
+		return search(traces, mst);
+	}
 
+	public static List<ArrayList<Long>> resume(List<ArrayList<Long>> tx, PathSearcher mst) {
+		List<Trace> traces = new ArrayList<>();
+		for (List<Long> tt : tx) {
+			Trace t = new Trace();
+			for (long ttu : tt) {
+				t.add(ttu);
+			}
+			traces.add(t);
+		}
+		return search(traces, mst);
+	}
+	
+	static List<ArrayList<Long>> search(List<Trace> traces, PathSearcher mst) {
+		Set<Trace> completed = new HashSet<>();
 		while (completed.size() < traces.size()) {
 			for (Trace t : traces) {
 				if (completed.contains(t)) {
