@@ -451,6 +451,10 @@ public class PathsPipeline {
 
   }
 
+  // DOES NOT do offsetting like in prom-coalesce
+  static Prefix chunkingPrefix(long ix, int level) {
+	  return new Prefix(ix, level);
+  }
   
   static String ud(boolean up) { return up ? "-Up" : "-Down"; }
   
@@ -581,7 +585,7 @@ public class PathsPipeline {
 						  public void processElement(ProcessContext c) {
 							  Edge e = c.element();
 							  long srcIx = (e.a != PointIndex.NULL ? e.a : e.saddle);  // handles basin saddle anchors
-							  Prefix srcPrefix = ProminencePipeline.chunkingPrefix(srcIx, TopologyNetworkPipeline.CHUNK_SIZE_EXP);
+							  Prefix srcPrefix = chunkingPrefix(srcIx, TopologyNetworkPipeline.CHUNK_SIZE_EXP);
 							  c.output(KV.of(srcPrefix, e));
 						  }
 					  })).apply(GroupByKey.create());
@@ -594,8 +598,8 @@ public class PathsPipeline {
 							  long srcIx = (e.a != PointIndex.NULL ? e.a : e.saddle);  // handles basin saddle anchors
 							  long dstIx = e.b;
 							  if (dstIx != PointIndex.NULL) {
-								  Prefix srcPrefix = ProminencePipeline.chunkingPrefix(srcIx, TopologyNetworkPipeline.CHUNK_SIZE_EXP);
-								  Prefix dstPrefix = ProminencePipeline.chunkingPrefix(dstIx, TopologyNetworkPipeline.CHUNK_SIZE_EXP);
+								  Prefix srcPrefix = chunkingPrefix(srcIx, TopologyNetworkPipeline.CHUNK_SIZE_EXP);
+								  Prefix dstPrefix = chunkingPrefix(dstIx, TopologyNetworkPipeline.CHUNK_SIZE_EXP);
 								  if (!dstPrefix.equals(srcPrefix)) {
 									  c.output(KV.of(dstPrefix, dstIx));
 								  }
@@ -605,7 +609,7 @@ public class PathsPipeline {
 	  
 	  PCollection<KV<Prefix, Iterable<Long>>> keyPointsChunked =
 			  keyPoints.apply("ChunkKeyPoints"+ud(up), MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(kp -> 
-			  KV.of(ProminencePipeline.chunkingPrefix(kp, TopologyNetworkPipeline.CHUNK_SIZE_EXP), kp)))
+			  KV.of(chunkingPrefix(kp, TopologyNetworkPipeline.CHUNK_SIZE_EXP), kp)))
 	  		.apply(GroupByKey.create());
 
 	  final TupleTag<Iterable<Edge>> mstTag = new TupleTag<Iterable<Edge>>() {};	  
@@ -752,7 +756,7 @@ public class PathsPipeline {
 
       PCollection<KV<Prefix, Iterable<Long>>> inflowsByChunk = 
 			  allRelevantInflows.apply("RechunkInflows"+ud(up), MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(inflow -> 
-			  KV.of(ProminencePipeline.chunkingPrefix(inflow, TopologyNetworkPipeline.CHUNK_SIZE_EXP), inflow)))
+			  KV.of(chunkingPrefix(inflow, TopologyNetworkPipeline.CHUNK_SIZE_EXP), inflow)))
 	  		.apply(GroupByKey.create());
       final TupleTag<Iterable<Long>> inflowsTag = new TupleTag<Iterable<Long>>() {};
       final TupleTag<PrunedEdge> outCompleteEdge = new TupleTag<PrunedEdge>() {};
@@ -1044,7 +1048,7 @@ public class PathsPipeline {
 	    					@ProcessElement
 	    					public void processElement(ProcessContext c) {
 	    						PrunedEdge e = c.element();
-	    						Prefix srcPrefix = ProminencePipeline.chunkingPrefix(e.srcIx, PMST_CHUNK_EXP);
+	    						Prefix srcPrefix = chunkingPrefix(e.srcIx, PMST_CHUNK_EXP);
 	    						c.output(KV.of(srcPrefix, e));
 	    					}
 	    				})).apply(GroupByKey.create());
@@ -1058,11 +1062,11 @@ public class PathsPipeline {
 	    						PathTask e = c.element();
 	    						Set<Prefix> prefix = new HashSet<>();
 	    						if (e.type != PathTask.TYPE_DOMAIN) {
-	    							prefix.add(ProminencePipeline.chunkingPrefix(e.p.ix, PMST_CHUNK_EXP));
-	    							prefix.add(ProminencePipeline.chunkingPrefix(e.target, PMST_CHUNK_EXP));
+	    							prefix.add(chunkingPrefix(e.p.ix, PMST_CHUNK_EXP));
+	    							prefix.add(chunkingPrefix(e.target, PMST_CHUNK_EXP));
 	    						} else {
 	    							for (Saddle s : e.saddles) {
-		    							prefix.add(ProminencePipeline.chunkingPrefix(s.s.ix, PMST_CHUNK_EXP));	    								
+		    							prefix.add(chunkingPrefix(s.s.ix, PMST_CHUNK_EXP));	    								
 	    							}
 	    						}
 	    						// TODO possibly handle this with partition (different output types though)
@@ -1144,8 +1148,8 @@ public class PathsPipeline {
 							  public void processElement(ProcessContext c) {
 								  PrunedEdge e = c.element();
 								  if (e.dstIx != PointIndex.NULL) {
-									  Prefix srcPrefix = ProminencePipeline.chunkingPrefix(e.srcIx, PMST_CHUNK_EXP);
-									  Prefix dstPrefix = ProminencePipeline.chunkingPrefix(e.dstIx, PMST_CHUNK_EXP);
+									  Prefix srcPrefix = chunkingPrefix(e.srcIx, PMST_CHUNK_EXP);
+									  Prefix dstPrefix = chunkingPrefix(e.dstIx, PMST_CHUNK_EXP);
 									  if (!dstPrefix.equals(srcPrefix)) {
 										  c.output(KV.of(dstPrefix, e.dstIx));
 									  }
@@ -1155,7 +1159,7 @@ public class PathsPipeline {
 		  
 		  PCollection<KV<Prefix, Iterable<Long>>> pmstKeyPointsChunked =
 				  pmstKeyPoints.apply("ChunkKeyPoints"+ud(up), MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(kp -> 
-				  KV.of(ProminencePipeline.chunkingPrefix(kp, PMST_CHUNK_EXP), kp)))
+				  KV.of(chunkingPrefix(kp, PMST_CHUNK_EXP), kp)))
 		  		.apply(GroupByKey.create());
 
 	      final TupleTag<PrunedEdge> outPmstRelevantInflows = new TupleTag<PrunedEdge>(){};
@@ -1322,6 +1326,18 @@ public class PathsPipeline {
 			    }	    	  
 	      }));
 			      
+	      pmstTrace.get(outPatchPanel)
+		    .apply(FileIO.<KV<Long, Long>>write()
+		            .via(new MSTDebugSink())
+		            .to(debugDst).withNaming(new FileNaming() {
+						@Override
+						public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
+								Compression compression) {
+							return "pmstpp.spatialite";
+						}
+		            }).withNumShards(1));
+
+	      
 		  PCollection<KV<Integer, Iterable<KV<Long, Long>>>> pmstPPSingleton =
 		  pmstTrace.get(outPatchPanel).apply("PatchPanelSingleton"+ud(up), MapElements.into(new TypeDescriptor<KV<Integer, KV<Long, Long>>>() {})
 				  .via(e -> KV.of(0, e))).apply(GroupByKey.create());
@@ -1417,7 +1433,7 @@ public class PathsPipeline {
 
 	      PCollection<KV<Prefix, Iterable<Long>>> inflowsByChunk = 
 				  allRelevantInflows.apply("RechunkInflows"+ud(up), MapElements.into(new TypeDescriptor<KV<Prefix, Long>>() {}).via(inflow -> 
-				  KV.of(ProminencePipeline.chunkingPrefix(inflow, TopologyNetworkPipeline.CHUNK_SIZE_EXP), inflow)))
+				  KV.of(chunkingPrefix(inflow, TopologyNetworkPipeline.CHUNK_SIZE_EXP), inflow)))
 		  		.apply(GroupByKey.create());
 	      final TupleTag<Iterable<Long>> inflowsTag = new TupleTag<Iterable<Long>>() {};
 	      final TupleTag<PrunedEdge> outCompleteEdge = new TupleTag<PrunedEdge>() {};
