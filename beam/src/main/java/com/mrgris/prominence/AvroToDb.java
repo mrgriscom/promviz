@@ -3,6 +3,7 @@ package com.mrgris.prominence;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.channels.WritableByteChannel;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -111,6 +112,7 @@ public class AvroToDb {
 		File dbpath;
 		Connection conn;
 		int curBatchSize = 0;
+		int totalWritten = 0;
 		PreparedStatement stInsPt;
         PreparedStatement stInsProm;
         PreparedStatement stInsSS;
@@ -247,9 +249,16 @@ public class AvroToDb {
 				throw new IOException(e);
 			}
 			
-			// copy db to cloud
-			FileInputStream fis = new FileInputStream(dbpath);
-			fis.getChannel().transferTo(0, Long.MAX_VALUE, finalDst);
+			copyFile(dbpath, finalDst);
+		}
+		
+		static void copyFile(File input, WritableByteChannel dst) throws IOException {
+			FileInputStream fis = new FileInputStream(input);
+			FileChannel src = fis.getChannel();
+			int position = 0;
+			while (position < src.size()) {
+				position += src.transferTo(position, src.size() - position, dst);
+			}
 			fis.close();
 		}
 		
@@ -258,7 +267,10 @@ public class AvroToDb {
 			stInsProm.executeBatch();
 			stInsSS.executeBatch();
 			conn.commit();
+			
+			totalWritten += curBatchSize;
 			curBatchSize = 0;
+			LOG.info(totalWritten + " written to db");
 		}
 	}
 	
