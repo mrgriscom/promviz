@@ -31,6 +31,7 @@ import com.vividsolutions.jts.geom.GeometryFactory;
 import com.vividsolutions.jts.geom.LineString;
 import com.vividsolutions.jts.geom.MultiLineString;
 import com.vividsolutions.jts.geom.impl.CoordinateArraySequence;
+import com.vividsolutions.jts.io.WKBWriter;
 
 public class AvroToDb {
 	
@@ -41,7 +42,13 @@ public class AvroToDb {
 	static final int TYPE_SADDLE = 0;
 	static final int TYPE_SINK = -1;
 
+	public static class Record {
+		
+	}
+	
+	// thread safety?
 	static GeometryFactory gf = new GeometryFactory();
+	static WKBWriter wkb = new WKBWriter();
 
 	static long geocode(Point p) {
 		return PointIndex.iGeocode(p.ix);
@@ -57,7 +64,7 @@ public class AvroToDb {
         ps.setInt(2, type);
         ps.setInt(3, (int)(p.elev * 1000.));
         ps.setInt(4, p.isodist == 0 ? 0 : p.isodist > 0 ? p.isodist - Integer.MAX_VALUE : p.isodist - Integer.MIN_VALUE);
-        ps.setString(5, pt.toText());
+        ps.setBytes(5, wkb.write(pt));
         ps.addBatch();
 	}
 	
@@ -174,9 +181,9 @@ public class AvroToDb {
 	            // could they have different elev/prom flags?
 	            
 	            conn.setAutoCommit(false);
-	            String insPt = "replace into points values (?,?,?,?,GeomFromText(?, 4326))";
+	            String insPt = "replace into points values (?,?,?,?,GeomFromWKB(?, 4326))";
 	            stInsPt = conn.prepareStatement(insPt);
-	            String insProm = "insert into prom values (?,?,?,?,?,?,?,GeomFromText(?, 4326),GeomFromText(?, 4326),GeomFromText(?, 4326))";
+	            String insProm = "insert into prom values (?,?,?,?,?,?,?,GeomFromWKB(?, 4326),GeomFromWKB(?, 4326),GeomFromWKB(?, 4326))";
 	            stInsProm = conn.prepareStatement(insProm);
 	            String insSS = "insert into subsaddles values (?,?,?,?)";
 	            stInsSS = conn.prepareStatement(insSS);
@@ -206,9 +213,9 @@ public class AvroToDb {
 				stInsProm.setInt(5, pf.thresh == null ? 1 : 0);
 				stInsProm.setObject(6, pf.parent != null ? geocode(pf.parent) : null);
 				stInsProm.setObject(7, pf.pthresh != null ? geocode(pf.pthresh) : null);
-				stInsProm.setString(8, pf.threshPath != null ? makePath(pf.threshPath, pf.threshTrim).toText() : null);
-				stInsProm.setString(9, pf.parentPath != null ? makePath(pf.parentPath).toText() : null);
-				stInsProm.setString(10, pf.domainBoundary != null ? makeDomain(pf.domainBoundary).toText() : null);
+				stInsProm.setBytes(8, pf.threshPath != null ? wkb.write(makePath(pf.threshPath, pf.threshTrim)) : null);
+				stInsProm.setBytes(9, pf.parentPath != null ? wkb.write(makePath(pf.parentPath)) : null);
+				stInsProm.setBytes(10, pf.domainBoundary != null ? wkb.write(makeDomain(pf.domainBoundary)) : null);
 				stInsProm.addBatch();
 	
 				// TODO: key this set by geocode, not pointix
