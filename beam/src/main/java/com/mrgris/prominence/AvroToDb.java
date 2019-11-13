@@ -255,9 +255,11 @@ public class AvroToDb {
 		static void copyFile(File input, WritableByteChannel dst) throws IOException {
 			FileInputStream fis = new FileInputStream(input);
 			FileChannel src = fis.getChannel();
-			int position = 0;
+			LOG.info("total file size " + src.size());
+			long position = 0;
 			while (position < src.size()) {
 				position += src.transferTo(position, src.size() - position, dst);
+				LOG.info("transferred " + position);
 			}
 			fis.close();
 		}
