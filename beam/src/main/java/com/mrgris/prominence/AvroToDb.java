@@ -19,15 +19,15 @@ import org.apache.avro.reflect.Nullable;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.io.FileIO;
+import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.values.KV;
-import org.apache.beam.vendor.grpc.v1_13_1.com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.sqlite.SQLiteConfig;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.mrgris.prominence.Prominence.PromFact;
-import com.mrgris.prominence.util.GeoCode;
 import com.mrgris.prominence.util.WorkerUtils;
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.GeometryFactory;
@@ -45,10 +45,31 @@ public class AvroToDb {
 	static final int TYPE_SADDLE = 0;
 	static final int TYPE_SINK = -1;
 
+	public static class PrepDB extends DoFn<PromFact, Record> {
+		GeometryFactory gf;
+		WKBWriter wkb;
+		
+		@Setup
+		public void setup() {
+	    	WorkerUtils.initializeGDAL();
+			gf = new GeometryFactory();
+			wkb = new WKBWriter();
+		}
+
+		@ProcessElement
+		public void processElement(ProcessContext c) {
+			PromFact pf = c.element();
+			c.output(new Record(pf, this));
+		}
+
+
+	}
+	
 	// prepare data for insertion into database. all this work is parallelizable (unlike db interaction),
 	// so do it upfront
 	@DefaultCoder(AvroCoder.class)
 	public static class Record {
+		@DefaultCoder(AvroCoder.class)
 		public static class PointRecord {
 			long geocode;
 			int type;
@@ -57,14 +78,14 @@ public class AvroToDb {
 			
 			public PointRecord() {}
 			
-			public PointRecord(Point p, int type) {
+			public PointRecord(Point p, int type, PrepDB ctx) {
 				this.p = p;
 				this.geocode = geocode(p);
 				this.type = type;
 				
 				double coords[] = PointIndex.toLatLon(p.ix);
-				com.vividsolutions.jts.geom.Point pt = gf.createPoint(new Coordinate(coords[1], coords[0]));
-				this.geom = wkb.write(pt);
+				com.vividsolutions.jts.geom.Point pt = ctx.gf.createPoint(new Coordinate(coords[1], coords[0]));
+				this.geom = ctx.wkb.write(pt);
 			}
 			
 			public void process(PreparedStatement ps) throws SQLException {
@@ -72,11 +93,13 @@ public class AvroToDb {
 		        ps.setInt(2, type);
 		        ps.setInt(3, (int)(p.elev * 1000.));
 		        ps.setInt(4, p.isodist == 0 ? 0 : p.isodist > 0 ? p.isodist - Integer.MAX_VALUE : p.isodist - Integer.MIN_VALUE);
-		        ps.setBytes(5, geom);
+		        ps.setInt(5, -1);
+		        ps.setBytes(6, geom);
 		        ps.addBatch();
 			}
 		}
 
+		@DefaultCoder(AvroCoder.class)
 		public static class SubsaddleRecord {
 			long p;
 			long ss;
@@ -121,48 +144,51 @@ public class AvroToDb {
 			}
 		}
 		
-		PromFact pf;
 		PointRecord p;
 		PointRecord saddle;
+		int promRank;
+		boolean minBound;
 		@Nullable
 		Long parent_geocode;
 		@Nullable
 		Long pthresh_geocode;
-		@Nullable
+		// avro errors if byte arrays are null -- use zero-length instead
 		byte[] thresh_path;
-		@Nullable
 		byte[] parent_path;
-		@Nullable
 		byte[] domain;
 		ArrayList<SubsaddleRecord> subsaddles = new ArrayList<>();
 		
 		public Record() {}
 		
-		public Record(PromFact pf) {
-			this.pf = pf;
-			p = new PointRecord(pf.p, Point.compareElev(pf.p, pf.saddle.s) > 0 ? TYPE_SUMMIT : TYPE_SINK);
-			saddle = new PointRecord(pf.saddle.s, TYPE_SADDLE);
-			
+		public Record(PromFact pf, PrepDB ctx) {
+			p = new PointRecord(pf.p, Point.compareElev(pf.p, pf.saddle.s) > 0 ? TYPE_SUMMIT : TYPE_SINK, ctx);
+			saddle = new PointRecord(pf.saddle.s, TYPE_SADDLE, ctx);
+			promRank = pf.promRank;
+			minBound = (pf.thresh == null);
 			parent_geocode = pf.parent != null ? geocode(pf.parent) : null;
 			pthresh_geocode = pf.pthresh != null ? geocode(pf.pthresh) : null;
-			thresh_path = pf.threshPath != null ? wkb.write(makePath(pf.threshPath, pf.threshTrim)) : null;
-			parent_path = pf.parentPath != null ? wkb.write(makePath(pf.parentPath)) : null;
-			domain = pf.domainBoundary != null ? wkb.write(makeDomain(pf.domainBoundary)) : null;
+			thresh_path = pf.threshPath != null ? ctx.wkb.write(makePath(ctx.gf, pf.threshPath, pf.threshTrim)) : new byte[0];
+			parent_path = pf.parentPath != null ? ctx.wkb.write(makePath(ctx.gf, pf.parentPath)) : new byte[0];
+			domain = pf.domainBoundary != null ? ctx.wkb.write(makeDomain(ctx.gf, pf.domainBoundary)) : new byte[0];
 			subsaddles = SubsaddleRecord.fromPromFact(pf);
 		}
 		
 		public void process(PreparedStatement ps) throws SQLException {
 			ps.setLong(1, p.geocode);
 			ps.setLong(2, saddle.geocode);
-			ps.setInt(3, (int)(1000. * Math.abs(pf.p.elev - pf.saddle.s.elev)));
-			ps.setInt(4, pf.promRank);
-			ps.setInt(5, pf.thresh == null ? 1 : 0);
+			ps.setInt(3, (int)(1000. * Math.abs(p.p.elev - saddle.p.elev)));
+			ps.setInt(4, promRank);
+			ps.setInt(5, minBound ? 1 : 0);
 			ps.setObject(6, parent_geocode);
 			ps.setObject(7, pthresh_geocode);
-			ps.setBytes(8, thresh_path);
-			ps.setBytes(9, parent_path);
-			ps.setBytes(10, domain);
+			ps.setBytes(8, nullIfEmpty(thresh_path));
+			ps.setBytes(9, nullIfEmpty(parent_path));
+			ps.setBytes(10, nullIfEmpty(domain));
 			ps.addBatch();
+		}
+		
+		static byte[] nullIfEmpty(byte[] arr) {
+			return arr.length == 0 ? null : arr;
 		}
 		
 		public void process(PreparedStatement stInsPt, PreparedStatement stInsProm, PreparedStatement stInsSS) throws SQLException {
@@ -173,61 +199,60 @@ public class AvroToDb {
 				ss.process(stInsSS);
 			}
 		}
+		
+		
+		static long geocode(Point p) {
+			return PointIndex.iGeocode(p.ix);
+		}
+		
+		static LineString makePath(GeometryFactory gf, List<Long> ixs) {
+			return makePath(gf, ixs, 0);
+		}
+		static LineString makePath(GeometryFactory gf, List<Long> ixs, double trim) {
+			List<Coordinate> coords = new ArrayList<>();
+			for (long ix : ixs) {
+				if (ix == PointIndex.NULL) {
+					continue;
+				}
+				double ll[] = PointIndex.toLatLon(ix);
+				coords.add(new Coordinate(ll[1], ll[0]));
+			}
+			// FIXME
+			if (coords.size() == 1) {
+				coords.add(coords.get(0));
+			}
+			
+			if (trim > 0) {
+				Coordinate a = coords.get(coords.size() - 1 - (int)Math.ceil(trim));
+				Coordinate b = coords.get(coords.size() - 1 - (int)Math.floor(trim));
+				double frac = trim % 1.;
+				Coordinate last = new Coordinate(
+					(1-frac)*b.x + frac*a.x,
+					(1-frac)*b.y + frac*a.y
+				);
+				coords = new ArrayList<>(coords.subList(0, coords.size() - (int)Math.ceil(trim)));
+				coords.add(last);
+			}
+			
+			return gf.createLineString(new CoordinateArraySequence(coords.toArray(new Coordinate[coords.size()])));
+		}
+		
+		static MultiLineString makeDomain(GeometryFactory gf, List<List<Long>> segs) {
+			List<LineString> paths = new ArrayList<>();
+			for (List<Long> seg : segs) {
+				try {
+					paths.add(makePath(gf, seg));
+				} catch (IllegalArgumentException e) {
+					System.out.println("invalid geometry");
+				}
+			}
+			return gf.createMultiLineString(paths.toArray(new LineString[paths.size()]));
+		}
+		
 	}
 	
-	// thread safety?
-	static GeometryFactory gf = new GeometryFactory();
-	static WKBWriter wkb = new WKBWriter();
 
-	static long geocode(Point p) {
-		return PointIndex.iGeocode(p.ix);
-	}
-	
-	static LineString makePath(List<Long> ixs) {
-		return makePath(ixs, 0);
-	}
-	static LineString makePath(List<Long> ixs, double trim) {
-		List<Coordinate> coords = new ArrayList<>();
-		for (long ix : ixs) {
-			if (ix == PointIndex.NULL) {
-				continue;
-			}
-			double ll[] = PointIndex.toLatLon(ix);
-			coords.add(new Coordinate(ll[1], ll[0]));
-		}
-		// FIXME
-		if (coords.size() == 1) {
-			coords.add(coords.get(0));
-		}
-		
-		if (trim > 0) {
-			Coordinate a = coords.get(coords.size() - 1 - (int)Math.ceil(trim));
-			Coordinate b = coords.get(coords.size() - 1 - (int)Math.floor(trim));
-			double frac = trim % 1.;
-			Coordinate last = new Coordinate(
-				(1-frac)*b.x + frac*a.x,
-				(1-frac)*b.y + frac*a.y
-			);
-			coords = new ArrayList<>(coords.subList(0, coords.size() - (int)Math.ceil(trim)));
-			coords.add(last);
-		}
-		
-		return gf.createLineString(new CoordinateArraySequence(coords.toArray(new Coordinate[coords.size()])));
-	}
-	
-	static MultiLineString makeDomain(List<List<Long>> segs) {
-		List<LineString> paths = new ArrayList<>();
-		for (List<Long> seg : segs) {
-			try {
-				paths.add(makePath(seg));
-			} catch (IllegalArgumentException e) {
-				System.out.println("invalid geometry");
-			}
-		}
-		return gf.createMultiLineString(paths.toArray(new LineString[paths.size()]));
-	}
-	
-	static class SpatialiteSink implements FileIO.Sink<PromFact> {
+	static class SpatialiteSink implements FileIO.Sink<Record> {
 		final int BATCH_SIZE = 5000;
 		WritableByteChannel finalDst;
 
@@ -260,24 +285,31 @@ public class AvroToDb {
 	            stmt.execute("SELECT load_extension('mod_spatialite')");
 	            stmt.execute("SELECT InitSpatialMetadata(1)");
 
+	            // DON'T specify any index-based constraints (primary key, foreign key, etc.) until after data
+	            // is populated. much faster to add them at the end.
+	            // DON'T override sqlite's internal rowid primary key*, as any of our alternative keys are non-
+	            // sequential, which makes bulk insert much, much slower. the extra space used is well worth it.
+	            // *either with primary key of literal type "integer", or "without rowid"
+	            
 	            stmt.execute(
 	                "create table points (" +
-	            	"  geocode int8 primary key," +
+	            	"  geocode int8 not null," +
 	                "  type int not null," +
 	            	"  elev_mm int not null," +
-	                "  isodist_cm int not null" +
+	                "  isodist_cm int not null," +
+	            	"  elev_rank int not null" +
 	            	");"
 	            );
 	            stmt.execute("SELECT AddGeometryColumn('points', 'loc', 4326, 'POINT', 'XY');");
 	            stmt.execute(
 	                "create table prom (" +
-	                "  point int8 primary key references points," +
-	                "  saddle int8 references points not null," +
+	                "  point int8 not null," +
+	                "  saddle int8 not null," +
 	                "  prom_mm int not null," +
 	                "  prom_rank int not null," +
 	                "  min_bound int not null," +
-	                "  prom_parent int8 references points," +
-	                "  line_parent int8 references points" +
+	                "  prom_parent int8," +
+	                "  line_parent int8" +
 	                ");"
 	            );
 	            stmt.execute("SELECT AddGeometryColumn('prom', 'thresh_path', 4326, 'LINESTRING', 'XY');");
@@ -285,19 +317,18 @@ public class AvroToDb {
 	            stmt.execute("SELECT AddGeometryColumn('prom', 'domain', 4326, 'MULTILINESTRING', 'XY');");
 	            stmt.execute(
 	                    "create table subsaddles (" +
-	                    "  point int8 references prom," +
-	                    "  saddle int8 references prom(saddle) not null," +
+	                    "  point int8 not null," +
+	                    "  saddle int8 not null," +
 	                    "  is_elev int not null," +
-	                    "  is_prom int not null" + //," +
-	                    //"  primary key (point, saddle)" +
-	                    ");"// without rowid;"
+	                    "  is_prom int not null" +
+	                    ");"
 	                );
 	            // TODO: multisaddles can make subsaddles not unique?
 	            // could they have different elev/prom flags?
 	            
 	            // disable primary key indexes till end?
 	            conn.setAutoCommit(false);
-	            String insPt = "replace into points values (?,?,?,?,GeomFromWKB(?, 4326))"; // why replace? should be unique?
+	            String insPt = "replace into points values (?,?,?,?,?,GeomFromWKB(?, 4326))"; // why replace? should be unique?
 	            stInsPt = conn.prepareStatement(insPt);
 	            String insProm = "insert into prom values (?,?,?,?,?,?,?,GeomFromWKB(?, 4326),GeomFromWKB(?, 4326),GeomFromWKB(?, 4326))";
 	            stInsProm = conn.prepareStatement(insProm);
@@ -315,9 +346,51 @@ public class AvroToDb {
 			}
 		}
 
-		public void write(PromFact pf) throws IOException {
+		public void addConstraintsAndIndexes() throws SQLException {
+			Statement stmt = conn.createStatement();
+
+			// since the db is read-only, these aren't really worth enforcing
+			// note: sqlite doesn't support adding constraints: primary key/unique can be replicated via
+			// CREATE UNIQUE INDEX; foreign key can't be done after the fact, but isn't enforced by default
+			// anyway
+			/*
+            stmt.execute("ALTER TABLE points ADD PRIMARY KEY (geocode)");
+            stmt.execute("ALTER TABLE prom ADD PRIMARY KEY (point)");
+            stmt.execute("ALTER TABLE subsaddles ADD PRIMARY KEY (point, saddle)");
+            stmt.execute("ALTER TABLE points ADD CONSTRAINT UNIQUE (elev_rank)");
+            stmt.execute("ALTER TABLE prom ADD CONSTRAINT UNIQUE (saddle)");
+            stmt.execute("ALTER TABLE prom ADD CONSTRAINT UNIQUE (prom_rank)");
+            stmt.execute("ALTER TABLE prom ADD CONSTRAINT FOREIGN KEY (point) REFERENCES points");
+            stmt.execute("ALTER TABLE prom ADD CONSTRAINT FOREIGN KEY (saddle) REFERENCES points");
+            stmt.execute("ALTER TABLE prom ADD CONSTRAINT FOREIGN KEY (prom_parent) REFERENCES points");
+            stmt.execute("ALTER TABLE prom ADD CONSTRAINT FOREIGN KEY (line_parent) REFERENCES points");
+            stmt.execute("ALTER TABLE subsaddles ADD CONSTRAINT FOREIGN KEY (point) REFERENCES prom");
+            stmt.execute("ALTER TABLE subsaddles ADD CONSTRAINT FOREIGN KEY (saddle) REFERENCES prom(saddle)");
+            */
+			
+			createIndex(stmt, "points", "geocode");
+			createIndex(stmt, "points", "elev_mm");
+			createIndex(stmt, "prom", "point");
+			createIndex(stmt, "prom", "saddle");
+			createIndex(stmt, "prom", "prom_mm");
+			createIndex(stmt, "prom", "prom_parent");
+			createIndex(stmt, "prom", "line_parent");
+			createIndex(stmt, "subsaddles", "point");
+			createIndex(stmt, "subsaddles", "saddle");
+			// might want separate summit/sink indexes (where clause on points.type)
+			
+			// TODO spatial indexes
+		}
+		
+		public void createIndex(Statement stmt, String table, String col) throws SQLException {
+			long start = System.currentTimeMillis();
+			stmt.execute(String.format("CREATE INDEX %s_%s ON %s(%s)", table, col, table, col));
+			long end = System.currentTimeMillis();
+			LOG.info("created index " + table + " " + col + " " + (end - start));
+		}
+		
+		public void write(Record rec) throws IOException {
 			try {
-				Record rec = new Record(pf);
 				rec.process(stInsPt, stInsProm, stInsSS);
 	
 				// potentially flush batch
@@ -336,7 +409,14 @@ public class AvroToDb {
 				if (curBatchSize > 0) {
 					flushBatch();
 				}
+				
+				long start = System.currentTimeMillis();
 				conn.commit();
+				long end = System.currentTimeMillis();
+				LOG.info("commit db time " + (end - start));
+				
+				addConstraintsAndIndexes();
+				
 				conn.close();
 			} catch (SQLException e) {
 				throw new IOException(e);
@@ -358,13 +438,16 @@ public class AvroToDb {
 		}
 		
 		void flushBatch() throws SQLException {
+			long start = System.currentTimeMillis();
 			stInsPt.executeBatch();
 			stInsProm.executeBatch();
 			stInsSS.executeBatch();
 			// don't commit here; only commit at end
+			long end = System.currentTimeMillis();
+			
 			totalWritten += curBatchSize;
 			curBatchSize = 0;
-			LOG.info(totalWritten + " written to db");
+			LOG.info(totalWritten + " written to db; batch db time " + (end - start));
 		}
 	}
 	
@@ -380,6 +463,8 @@ public class AvroToDb {
 		Connection conn;
 		int curBatchSize = 0;
 		PreparedStatement stInsEdge;
+		
+		GeometryFactory gf = new GeometryFactory();
 
         synchronized public static void installdb() {
         	WorkerUtils.initializeGDAL();
@@ -420,7 +505,7 @@ public class AvroToDb {
 				return;
 			}
 			try {
-				stInsEdge.setString(1, makePath(Lists.newArrayList(edge.getKey(), edge.getValue())).toText());
+				stInsEdge.setString(1, Record.makePath(gf, Lists.newArrayList(edge.getKey(), edge.getValue())).toText());
 				stInsEdge.addBatch();
 	
 				// potentially flush batch
@@ -465,6 +550,8 @@ public class AvroToDb {
 		int curBatchSize = 0;
 		PreparedStatement stInsEdge;
 
+		GeometryFactory gf = new GeometryFactory();
+		
         synchronized public static void installdb() {
         	WorkerUtils.initializeGDAL();
         	WorkerUtils.initializeSpatialite();
