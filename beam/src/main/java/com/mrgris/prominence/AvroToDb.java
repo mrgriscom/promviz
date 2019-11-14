@@ -15,6 +15,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.apache.avro.reflect.Nullable;
+import org.apache.beam.sdk.coders.AvroCoder;
+import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.vendor.grpc.v1_13_1.com.google.common.collect.Lists;
@@ -42,8 +45,134 @@ public class AvroToDb {
 	static final int TYPE_SADDLE = 0;
 	static final int TYPE_SINK = -1;
 
+	// prepare data for insertion into database. all this work is parallelizable (unlike db interaction),
+	// so do it upfront
+	@DefaultCoder(AvroCoder.class)
 	public static class Record {
+		public static class PointRecord {
+			long geocode;
+			int type;
+			byte[] geom;
+			Point p;
+			
+			public PointRecord() {}
+			
+			public PointRecord(Point p, int type) {
+				this.p = p;
+				this.geocode = geocode(p);
+				this.type = type;
+				
+				double coords[] = PointIndex.toLatLon(p.ix);
+				com.vividsolutions.jts.geom.Point pt = gf.createPoint(new Coordinate(coords[1], coords[0]));
+				this.geom = wkb.write(pt);
+			}
+			
+			public void process(PreparedStatement ps) throws SQLException {
+		        ps.setLong(1, geocode);
+		        ps.setInt(2, type);
+		        ps.setInt(3, (int)(p.elev * 1000.));
+		        ps.setInt(4, p.isodist == 0 ? 0 : p.isodist > 0 ? p.isodist - Integer.MAX_VALUE : p.isodist - Integer.MIN_VALUE);
+		        ps.setBytes(5, geom);
+		        ps.addBatch();
+			}
+		}
+
+		public static class SubsaddleRecord {
+			long p;
+			long ss;
+			boolean elev;
+			boolean prom;
+			
+			public SubsaddleRecord() {}
+			
+			public SubsaddleRecord(long p, long ss, boolean elev, boolean prom) {
+				this.p = p;
+				this.ss = ss;
+				this.elev = elev;
+				this.prom = prom;
+			}
+
+			public static ArrayList<SubsaddleRecord> fromPromFact(PromFact pf) {
+				// TODO: key this set by geocode, not pointix
+				Set<Long> ssElev = new HashSet<>();
+				Set<Long> ssProm = new HashSet<>();
+				for (PromFact.Saddle ss : pf.elevSubsaddles) {
+					ssElev.add(ss.s.ix);
+				}
+				for (PromFact.Saddle ss : pf.promSubsaddles) {
+					ssProm.add(ss.s.ix);
+				}
+				ArrayList<SubsaddleRecord> subsaddles = new ArrayList<>();
+				for (long ss : Sets.union(ssElev, ssProm)) {
+					subsaddles.add(new SubsaddleRecord(geocode(pf.p),
+							PointIndex.iGeocode(ss),
+							ssElev.contains(ss),
+							ssProm.contains(ss)));
+				}
+				return subsaddles;
+			}
+			
+			public void process(PreparedStatement ps) throws SQLException {
+				ps.setLong(1, p);
+				ps.setLong(2, ss);
+				ps.setInt(3, elev ? 1 : 0);
+				ps.setInt(4, prom ? 1 : 0);
+				ps.addBatch();
+			}
+		}
 		
+		PromFact pf;
+		PointRecord p;
+		PointRecord saddle;
+		@Nullable
+		Long parent_geocode;
+		@Nullable
+		Long pthresh_geocode;
+		@Nullable
+		byte[] thresh_path;
+		@Nullable
+		byte[] parent_path;
+		@Nullable
+		byte[] domain;
+		ArrayList<SubsaddleRecord> subsaddles = new ArrayList<>();
+		
+		public Record() {}
+		
+		public Record(PromFact pf) {
+			this.pf = pf;
+			p = new PointRecord(pf.p, Point.compareElev(pf.p, pf.saddle.s) > 0 ? TYPE_SUMMIT : TYPE_SINK);
+			saddle = new PointRecord(pf.saddle.s, TYPE_SADDLE);
+			
+			parent_geocode = pf.parent != null ? geocode(pf.parent) : null;
+			pthresh_geocode = pf.pthresh != null ? geocode(pf.pthresh) : null;
+			thresh_path = pf.threshPath != null ? wkb.write(makePath(pf.threshPath, pf.threshTrim)) : null;
+			parent_path = pf.parentPath != null ? wkb.write(makePath(pf.parentPath)) : null;
+			domain = pf.domainBoundary != null ? wkb.write(makeDomain(pf.domainBoundary)) : null;
+			subsaddles = SubsaddleRecord.fromPromFact(pf);
+		}
+		
+		public void process(PreparedStatement ps) throws SQLException {
+			ps.setLong(1, p.geocode);
+			ps.setLong(2, saddle.geocode);
+			ps.setInt(3, (int)(1000. * Math.abs(pf.p.elev - pf.saddle.s.elev)));
+			ps.setInt(4, pf.promRank);
+			ps.setInt(5, pf.thresh == null ? 1 : 0);
+			ps.setObject(6, parent_geocode);
+			ps.setObject(7, pthresh_geocode);
+			ps.setBytes(8, thresh_path);
+			ps.setBytes(9, parent_path);
+			ps.setBytes(10, domain);
+			ps.addBatch();
+		}
+		
+		public void process(PreparedStatement stInsPt, PreparedStatement stInsProm, PreparedStatement stInsSS) throws SQLException {
+			p.process(stInsPt);
+			saddle.process(stInsPt);
+			process(stInsProm);
+			for (SubsaddleRecord ss : subsaddles) {
+				ss.process(stInsSS);
+			}
+		}
 	}
 	
 	// thread safety?
@@ -52,20 +181,6 @@ public class AvroToDb {
 
 	static long geocode(Point p) {
 		return PointIndex.iGeocode(p.ix);
-	}
-	
-	public static void addPoint(PreparedStatement ps, Point p, int type) throws SQLException {
-		long ix = p.ix;
-		double coords[] = PointIndex.toLatLon(ix);
-		long geo = GeoCode.fromCoord(coords[0], coords[1]);
-		com.vividsolutions.jts.geom.Point pt = gf.createPoint(new Coordinate(coords[1], coords[0]));
-		
-        ps.setLong(1, geo);
-        ps.setInt(2, type);
-        ps.setInt(3, (int)(p.elev * 1000.));
-        ps.setInt(4, p.isodist == 0 ? 0 : p.isodist > 0 ? p.isodist - Integer.MAX_VALUE : p.isodist - Integer.MIN_VALUE);
-        ps.setBytes(5, wkb.write(pt));
-        ps.addBatch();
 	}
 	
 	static LineString makePath(List<Long> ixs) {
@@ -147,7 +262,7 @@ public class AvroToDb {
 
 	            stmt.execute(
 	                "create table points (" +
-	            	"  geocode int64 primary key," +
+	            	"  geocode int8 primary key," +
 	                "  type int not null," +
 	            	"  elev_mm int not null," +
 	                "  isodist_cm int not null" +
@@ -156,13 +271,13 @@ public class AvroToDb {
 	            stmt.execute("SELECT AddGeometryColumn('points', 'loc', 4326, 'POINT', 'XY');");
 	            stmt.execute(
 	                "create table prom (" +
-	                "  point int64 primary key references points," +
-	                "  saddle int64 references points not null," +
+	                "  point int8 primary key references points," +
+	                "  saddle int8 references points not null," +
 	                "  prom_mm int not null," +
 	                "  prom_rank int not null," +
 	                "  min_bound int not null," +
-	                "  prom_parent int64 references points," +
-	                "  line_parent int64 references points" +
+	                "  prom_parent int8 references points," +
+	                "  line_parent int8 references points" +
 	                ");"
 	            );
 	            stmt.execute("SELECT AddGeometryColumn('prom', 'thresh_path', 4326, 'LINESTRING', 'XY');");
@@ -170,8 +285,8 @@ public class AvroToDb {
 	            stmt.execute("SELECT AddGeometryColumn('prom', 'domain', 4326, 'MULTILINESTRING', 'XY');");
 	            stmt.execute(
 	                    "create table subsaddles (" +
-	                    "  point int64 references prom," +
-	                    "  saddle int64 references prom(saddle) not null," +
+	                    "  point int8 references prom," +
+	                    "  saddle int8 references prom(saddle) not null," +
 	                    "  is_elev int not null," +
 	                    "  is_prom int not null" + //," +
 	                    //"  primary key (point, saddle)" +
@@ -180,8 +295,9 @@ public class AvroToDb {
 	            // TODO: multisaddles can make subsaddles not unique?
 	            // could they have different elev/prom flags?
 	            
+	            // disable primary key indexes till end?
 	            conn.setAutoCommit(false);
-	            String insPt = "replace into points values (?,?,?,?,GeomFromWKB(?, 4326))";
+	            String insPt = "replace into points values (?,?,?,?,GeomFromWKB(?, 4326))"; // why replace? should be unique?
 	            stInsPt = conn.prepareStatement(insPt);
 	            String insProm = "insert into prom values (?,?,?,?,?,?,?,GeomFromWKB(?, 4326),GeomFromWKB(?, 4326),GeomFromWKB(?, 4326))";
 	            stInsProm = conn.prepareStatement(insProm);
@@ -201,39 +317,8 @@ public class AvroToDb {
 
 		public void write(PromFact pf) throws IOException {
 			try {
-				// add point to batch
-
-				addPoint(stInsPt, pf.p, Point.compareElev(pf.p, pf.saddle.s) > 0 ? TYPE_SUMMIT : TYPE_SINK);
-				addPoint(stInsPt, pf.saddle.s, TYPE_SADDLE);
-	
-				stInsProm.setLong(1, geocode(pf.p));
-				stInsProm.setLong(2, geocode(pf.saddle.s));
-				stInsProm.setInt(3, (int)(1000. * Math.abs(pf.p.elev - pf.saddle.s.elev)));
-				stInsProm.setInt(4, pf.promRank);
-				stInsProm.setInt(5, pf.thresh == null ? 1 : 0);
-				stInsProm.setObject(6, pf.parent != null ? geocode(pf.parent) : null);
-				stInsProm.setObject(7, pf.pthresh != null ? geocode(pf.pthresh) : null);
-				stInsProm.setBytes(8, pf.threshPath != null ? wkb.write(makePath(pf.threshPath, pf.threshTrim)) : null);
-				stInsProm.setBytes(9, pf.parentPath != null ? wkb.write(makePath(pf.parentPath)) : null);
-				stInsProm.setBytes(10, pf.domainBoundary != null ? wkb.write(makeDomain(pf.domainBoundary)) : null);
-				stInsProm.addBatch();
-	
-				// TODO: key this set by geocode, not pointix
-				Set<Long> ssElev = new HashSet<>();
-				Set<Long> ssProm = new HashSet<>();
-				for (PromFact.Saddle ss : pf.elevSubsaddles) {
-					ssElev.add(ss.s.ix);
-				}
-				for (PromFact.Saddle ss : pf.promSubsaddles) {
-					ssProm.add(ss.s.ix);
-				}
-				for (Long ss : Sets.union(ssElev, ssProm)) {
-					stInsSS.setLong(1, geocode(pf.p));
-					stInsSS.setLong(2, PointIndex.iGeocode(ss));
-					stInsSS.setInt(3, ssElev.contains(ss) ? 1 : 0);
-					stInsSS.setInt(4, ssProm.contains(ss) ? 1 : 0);
-					stInsSS.addBatch();
-				}
+				Record rec = new Record(pf);
+				rec.process(stInsPt, stInsProm, stInsSS);
 	
 				// potentially flush batch
 				curBatchSize += 1;
@@ -251,6 +336,7 @@ public class AvroToDb {
 				if (curBatchSize > 0) {
 					flushBatch();
 				}
+				conn.commit();
 				conn.close();
 			} catch (SQLException e) {
 				throw new IOException(e);
@@ -275,8 +361,7 @@ public class AvroToDb {
 			stInsPt.executeBatch();
 			stInsProm.executeBatch();
 			stInsSS.executeBatch();
-			conn.commit();
-			
+			// don't commit here; only commit at end
 			totalWritten += curBatchSize;
 			curBatchSize = 0;
 			LOG.info(totalWritten + " written to db");
