@@ -16,18 +16,34 @@ import java.util.List;
 import java.util.Set;
 
 import org.apache.avro.reflect.Nullable;
+import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
+import org.apache.beam.sdk.io.AvroIO;
+import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.FileIO;
+import org.apache.beam.sdk.io.FileIO.Write.FileNaming;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.PCollection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.sqlite.SQLiteConfig;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import com.mrgris.prominence.AvroToDb.PrepDB;
+import com.mrgris.prominence.AvroToDb.Record;
+import com.mrgris.prominence.AvroToDb.SpatialiteSink;
+import com.mrgris.prominence.PathsPipeline.PathPipeline;
 import com.mrgris.prominence.Prominence.PromFact;
+import com.mrgris.prominence.ProminencePipeline.PromPipeline;
+import com.mrgris.prominence.TopologyNetworkPipeline.TopoPipeline;
+import com.mrgris.prominence.TopologyNetworkPipeline.TopoPipeline.MyOptions;
 import com.mrgris.prominence.util.WorkerUtils;
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.GeometryFactory;
@@ -636,5 +652,27 @@ public class AvroToDb {
 			curBatchSize = 0;
 		}
 	}
+	
+	  public static void main(String[] args) {
+		  PipelineOptionsFactory.register(MyOptions.class);
+		  MyOptions options = PipelineOptionsFactory.fromArgs(args)
+				  									.withValidation()
+		                                            .as(MyOptions.class);
+		  Pipeline p = Pipeline.create(options);
+		  String outputRoot = options.getOutputLocation();
+
+		  p.apply("LoadPromFacts", AvroIO.read(Record.class).from(outputRoot + "dbpreprocess"))
+		  .apply("WriteSpatialite", FileIO.<AvroToDb.Record>write()
+				  .via(new SpatialiteSink())
+				  .to(outputRoot).withNaming(new FileNaming() {
+					  @Override
+					  public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
+							  Compression compression) {
+						  return "promout.spatialite";
+					  }
+				  }).withNumShards(1));
+		  
+		  p.run();
+	  }
 
 }

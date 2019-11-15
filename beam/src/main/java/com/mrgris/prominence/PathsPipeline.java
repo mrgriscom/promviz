@@ -28,13 +28,14 @@ import java.util.Objects;
 import java.util.Set;
 
 import org.apache.avro.reflect.Nullable;
-import org.apache.beam.repackaged.beam_sdks_java_fn_execution.com.google.common.collect.Iterables;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
+import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.io.FileIO.Write.FileNaming;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.transforms.Distinct;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
@@ -57,22 +58,25 @@ import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
 import org.apache.beam.sdk.values.TupleTagList;
 import org.apache.beam.sdk.values.TypeDescriptor;
-import org.apache.beam.vendor.grpc.v1_13_1.com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.mrgris.prominence.AvroToDb.MSTDebugSink;
 import com.mrgris.prominence.AvroToDb.PointsDebugSink;
+import com.mrgris.prominence.AvroToDb.PrepDB;
+import com.mrgris.prominence.AvroToDb.Record;
 import com.mrgris.prominence.AvroToDb.SpatialiteSink;
 import com.mrgris.prominence.Edge.HalfEdge;
 import com.mrgris.prominence.Prominence.PromFact;
 import com.mrgris.prominence.Prominence.PromFact.Saddle;
 import com.mrgris.prominence.ProminencePipeline.PromPipeline;
 import com.mrgris.prominence.TopologyNetworkPipeline.TopoPipeline;
+import com.mrgris.prominence.TopologyNetworkPipeline.TopoPipeline.MyOptions;
 import com.mrgris.prominence.dem.DEMFile;
 import com.mrgris.prominence.util.DefaultMap;
 
@@ -1375,6 +1379,18 @@ public class PathsPipeline {
 			  }
 			));
 
+	      /*
+	      emit (pathnode, pp-path)
+	      emit (seed point, orig unresolved path)
+	      group by chunk
+	      in chunk, trace from each node, emit (path id, trace)
+	      group by path id, assemble traces into local mst, search path, emit
+	      
+	      common subsegment detection
+	      line simplification
+	      retrace removal
+	      
+	      */
 		  
 	    ///////////////////////////////////////////
 	    ///////////////////////////////////////////
@@ -1839,16 +1855,9 @@ public class PathsPipeline {
 		    PCollection<PromFact> paths = fillOutPaths(pp.tp.pageCoverage, pathSearchUp, pathSearchDown);
 		    
 		    promInfo = ProminencePipeline.consolidatePromFacts(PCollectionList.of(promInfo).and(paths));
-		    //promInfo.apply("WritePromFactsWithPaths", AvroIO.write(PromFact.class).to(pp.tp.outputRoot + "promfactswithpaths").withoutSharding());
-		    promInfo.apply("WriteSpatialite", FileIO.<PromFact>write()
-		            .via(new SpatialiteSink())
-		            .to(pp.tp.outputRoot).withNaming(new FileNaming() {
-						@Override
-						public String getFilename(BoundedWindow window, PaneInfo pane, int numShards, int shardIndex,
-								Compression compression) {
-							return "promout.spatialite";
-						}
-		            }).withNumShards(1));
+		    //promInfo.apply("WritePromFactsWithPaths", AvroIO.write(PromFact.class).to(pp.tp.outputRoot + "promfactswithpaths"));
+		    promInfo.apply(ParDo.of(new PrepDB())).apply("WriteFinalDBRecords", AvroIO.write(Record.class)
+		    		.to(pp.tp.outputRoot + "dbpreprocess").withNumShards(1));
 	  }
 	  
   }
@@ -1863,4 +1872,5 @@ public class PathsPipeline {
 	  pthp.freshRun();
 	  pthp.p.run();
   }
+
 }

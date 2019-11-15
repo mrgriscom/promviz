@@ -19,6 +19,7 @@ pipeline = (
 #    'TopologyNetwork'
 #    'Prominence'
     'Paths'
+#    'AvroToDb',
 )
 bound = regions.get(sys.argv[2], sys.argv[2])
 series = sys.argv[1]
@@ -56,5 +57,7 @@ subprocess.call(r"""export GOOGLE_APPLICATION_CREDENTIALS=private/credentials/pr
     'series': series,
     'pipeline': '%sPipeline' % pipeline,
     'timestamp': timestamp,
-    'workers': 20,
+    'workers': {
+        'AvroToDb': 1,
+    }.get(pipeline, 20),
 }, shell=True)
