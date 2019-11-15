@@ -67,6 +67,9 @@ public class AvroToDb {
 	
 	// prepare data for insertion into database. all this work is parallelizable (unlike db interaction),
 	// so do it upfront
+	// if we wanted to get really clever, we could use in-memory spatialite instances here to prep the geometry
+	// into the db internal format (passing it just a blob during insertion). but observation shows the db time
+	// converting WKB (note: *not* WKT) into internal structure, including compression, to be negligible
 	@DefaultCoder(AvroCoder.class)
 	public static class Record {
 		@DefaultCoder(AvroCoder.class)
@@ -323,14 +326,11 @@ public class AvroToDb {
 	                    "  is_prom int not null" +
 	                    ");"
 	                );
-	            // TODO: multisaddles can make subsaddles not unique?
-	            // could they have different elev/prom flags?
 	            
-	            // disable primary key indexes till end?
 	            conn.setAutoCommit(false);
-	            String insPt = "replace into points values (?,?,?,?,?,GeomFromWKB(?, 4326))"; // why replace? should be unique?
+	            String insPt = "insert into points values (?,?,?,?,?,GeomFromWKB(?, 4326))";
 	            stInsPt = conn.prepareStatement(insPt);
-	            String insProm = "insert into prom values (?,?,?,?,?,?,?,GeomFromWKB(?, 4326),GeomFromWKB(?, 4326),GeomFromWKB(?, 4326))";
+	            String insProm = "insert into prom values (?,?,?,?,?,?,?,CompressGeometry(GeomFromWKB(?, 4326)),CompressGeometry(GeomFromWKB(?, 4326)),CompressGeometry(GeomFromWKB(?, 4326)))";
 	            stInsProm = conn.prepareStatement(insProm);
 	            String insSS = "insert into subsaddles values (?,?,?,?)";
 	            stInsSS = conn.prepareStatement(insSS);
@@ -380,6 +380,12 @@ public class AvroToDb {
 			// might want separate summit/sink indexes (where clause on points.type)
 			
 			// TODO spatial indexes
+			
+			long start = System.currentTimeMillis();
+			conn.commit();
+			long end = System.currentTimeMillis();
+			LOG.info("committing indexes " + (end - start));
+
 		}
 		
 		public void createIndex(Statement stmt, String table, String col) throws SQLException {

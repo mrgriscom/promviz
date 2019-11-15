@@ -73,7 +73,14 @@ public class PointIndex {
 			return new double[] {Double.NaN, Double.NaN};
 		}
 		int[] _ix = split(ix);
-		return DEMIndex.instance().grids[_ix[0]].toLatLon(_ix[1], _ix[2]);
+		double[] ll = DEMIndex.instance().grids[_ix[0]].toLatLon(_ix[1], _ix[2]);
+		if (_ix[3] != 0) {
+			// smear the point slightly based on seq#, to yield a different geocode
+			// TODO displace more intelligently based on local topology; current method is a hack
+			double delta = 3e-6;  // ~1 ft
+			ll[0] += delta * _ix[3];  // add to lat axis as scale doesn't vary
+		}
+		return ll;
 	}
 	
 	public static long iGeocode(long ix) {		
