@@ -9,14 +9,126 @@ function init($div, data) {
     };
 
     var layers = {
+        'Google Terrain': L.tileLayer('http://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {subdomains: '0123'}),
+		'ArcGIS World': L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}'),
+
+        'Google Satellite': L.tileLayer('http://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {subdomains: '0123'}),
+        'Mapbox Satellite': mapboxLayer('mrgriscom.jinbb0c4'),
+		
         'Oilslick': L.tileLayer('http://s3.amazonaws.com/oilslick/{z}/{x}/{y}.jpg', {maxZoom: 11}),
-        'NGI': L.tileLayer('http://htonl.dev.openstreetmap.org/ngi-tiles/tiles/50k/{z}/{x}/{y}.png', {tms: true, maxZoom: 15}),
-        'Classroom': L.tileLayer('http://maps-for-free.com/layer/relief/z{z}/row{y}/{z}_{x}-{y}.jpg', {maxZoom: 11}),
-        'Topo': L.tileLayer('http://services.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}', {maxZoom: 15}),
-        'Satellite': mapboxLayer('examples.map-qfyrx5r8'),
-        'Terrain': L.tileLayer('http://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {subdomains: '0123'}),
+        'Classic': L.tileLayer('http://maps-for-free.com/layer/relief/z{z}/row{y}/{z}_{x}-{y}.jpg', {maxZoom: 11}),
+
+		// TOPO
+		// north america
+        'US ArcGIS': L.tileLayer('http://services.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}', {maxZoom: 15}),
+        'US/CA/MX CalTopo': L.tileLayer('https://caltopo.s3.amazonaws.com/topo/{z}/{x}/{y}.png?v=1'),
+        'CA Toporama': L.tileLayer.wms('http://maps.geogratis.gc.ca/wms/toporama_en?', {
+            layers: 'WMS-Toporama', maxZoom: 17, minZoom: 6,
+        }),
+        'CA-BC': L.tileLayer.wms('http://maps.gov.bc.ca/arcserver/services/province/web_mercator_cache/MapServer/WMSServer?', {
+            layers: '0', maxZoom: 17, minZoom: 6,
+            format: 'image/png',
+            version: '1.3.0',
+            //crs: L.CRS.EPSG4326,
+        }),
+		'CA-QC': L.tileLayer('https://servicesmatriciels.mern.gouv.qc.ca/erdas-iws/ogc/wmts/Cartes_Images?&service=WMTS&request=GetTile&version=1.0.0&layer=BDTQ-20K&style=default&format=image/jpeg&tileMatrixSet=GoogleMapsCompatibleExt2:epsg:3857&tileMatrix={z}&TileRow={y}&TileCol={x}'),
+
+		// europe
+		// central/alps
+		'DE': L.tileLayer('https://w{s}.oastatic.com/map/v1/raster/topo_bkg/{z}/{x}/{y}/t.png', {subdomains: '0123'}),
+		'CH': L.tileLayer('https://w{s}.oastatic.com/map/v1/raster/topo_swisstopo/{z}/{x}/{y}/t.png', {subdomains: '0123'}),
+		'AT': L.tileLayer('https://maps.bergfex.at/oek/standard/{z}/{x}/{y}.jpg'),
+        'FR (not configured right)': L.tileLayer.wms('http://mapsref.brgm.fr/wxs/refcom-brgm/refign?', {
+            layers: 'FXX_SCAN25TOPO', maxZoom: 17, minZoom: 12,
+            format: 'image/jpeg', transparent: false,
+        }),
+        'IT (broken?)': L.tileLayer.wms('http://wms.pcn.minambiente.it/ogc?map=/ms_ogc/WMS_v1.3/raster/IGM_25000.map&', {
+            layers: 'CB.IGM25000.', maxZoom: 17, minZoom: 6,
+		}),
+
+		// iberia
+        'ES': L.tileLayer.wms('http://www.ign.es/wms-inspire/mapa-raster?SERVICE=WMS&', {
+            layers: 'mtn_rasterizado', maxZoom: 17, minZoom: 6,
+        }),
+        'PT (z13 ONLY!)': L.tileLayer.wms('http://www.igeo.pt/WMS/Cartografia/SC50K', {
+            layers: 'Carta_50000',
+        }),
+
+		// scandinavia
+		'NO': L.tileLayer.wms('http://openwms.statkart.no/skwms1/wms.toporaster3?', {
+                    layers: 'toporaster', maxZoom: 17, minZoom: 6,
+        }),
+        'SE': L.tileLayer('https://api.lantmateriet.se/open/topowebb-ccby/v1/wmts/token/9b342b7d9f12d4ddb92277be9869d860/1.0.0/topowebb/default/3857/{z}/{y}/{x}.png'),
+        'FI': L.tileLayer.wms('http://tiles.kartat.kapsi.fi/peruskartta?', {
+            layers: 'peruskartta,maastokartta_50k',
+            maxZoom: 17, minZoom: 6,
+        }),
+
+		// eastern
+        'CZ': L.tileLayer.wms('http://geoportal.cuzk.cz/WMS_ZM50_PUB/service.svc/get?', {
+            layers: 'GR_ZM50', maxZoom: 17, minZoom: 6,
+        }),
+		'SK': L.tileLayer.wms('https://zbgisws.skgeodesy.sk/RETM_wms/service.svc/get?', {
+            layers: '1', maxZoom: 17, minZoom: 15,
+            format: 'image/png',
+            version: '1.3.0',
+            crs: L.CRS.EPSG4326,
+        }),
+        'PL (slow)': L.tileLayer.wms('http://mapy.geoportal.gov.pl/wss/service/img/guest/TOPO/MapServer/WMSServer?', {
+            layers: 'Raster', maxZoom: 17, minZoom: 6,
+        }),
+        'SI (Slovenia)': L.tileLayer.wms('https://prostor.zgs.gov.si/geoserver/wms?', {
+            layers: 'zemljevid_group', maxZoom: 17, minZoom: 6,
+            format: 'image/png',
+            version: '1.3.0',
+            crs: L.CRS.EPSG4326,
+        }),
+        'HR (Croatia)': L.tileLayer.wms('http://geoportal.dgu.hr/ows?SERVICE=WMS&amp;', {
+            layers: 'TK25', maxZoom: 17, minZoom: 6,
+        }),
+
+		// arctic
+		'GL (rough)': L.tileLayer.wms('http://data.geus.dk/arcgis/services/GtW/S059_G250_Topographic_map/MapServer/WmsServer?', {
+            layers: 'G250_areas_arc,G250_rivers_arc,Rock,Topo_Points_anno,Points,Contours,G250_names_anno,G2.5M_All_names_anno,G2.5M_Major_names_anno', maxZoom: 17, minZoom: 6,
+            format: 'image/png',
+            //uppercase: true,
+            transparent: true,
+            crs: L.CRS.EPSG4326,
+        }),
+        'SV (rough)': L.tileLayer.wms('https://geodata.npolar.no/arcgis/services/Basisdata/NP_Basiskart_Svalbard_WMS/MapServer/WmsServer?', {
+            layers: '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45',
+            maxZoom: 17, minZoom: 7,
+            crs: L.CRS.EPSG4326,
+        }),
+        'JM (rough)': L.tileLayer.wms('https://geodata.npolar.no/arcgis/services/Basisdata/NP_Basiskart_JanMayen_WMS/MapServer/WmsServer?', {
+            layers: '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26',
+            maxZoom: 17, minZoom: 8,
+            crs: L.CRS.EPSG4326,
+        }),
+
+		// africa
+		'ZA': L.tileLayer('http://htonl.dev.openstreetmap.org/ngi-tiles/tiles/50k/{z}/{x}/{y}.png', {tms: true, maxZoom: 15}),
+
+		// asia/oceania
+        'IL': L.tileLayer('https://israelhiking.osm.org.il/English/Tiles/{z}/{x}/{y}.png'),
+		'JP': L.tileLayer('http://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png'),
+        'HK': L.tileLayer('https://api.hkmapservice.gov.hk/osm/xyz/basemap/WGS84/tile/{z}/{x}/{y}.png?key=584b2fa686f14ba283874318b3b8d6b0'),
+		'NZ': L.tileLayer('http://tiles-a.data-cdn.linz.govt.nz/services;key=0cea27efeac545349b9a888b97c98740/tiles/v4/layer=767/EPSG:3857/{z}/{x}/{y}.png'),
+
+		// central/south america
+		'CR': L.tileLayer.wms('http://geos0.snitcr.go.cr/cgi-bin/web?map=hojas50.map&', {
+            layers: 'HOJAS_50',
+            maxZoom: 17, minZoom: 6,
+            crs: L.CRS.EPSG4326,
+        }),
+        'BR (broken?)': L.tileLayer.wms('http://mapas.mma.gov.br/cgi-bin/mapserv?map=/opt/www/html/webservices/baseraster.map&', {
+            layers: 'baseraster',
+            maxZoom: 17, minZoom: 6,
+            crs: L.CRS.EPSG4326,
+        }),
     }
-    var layerOrder = ['Oilslick', 'Classroom', 'Terrain', 'Topo', 'Satellite'];
+	
+    var layerOrder = ['Google Terrain', 'US ArcGIS', 'Oilslick', 'Google Satellite'];
     L.control.layers(layers).addTo(map);
 
     var attr = L.control.attribution();
@@ -35,12 +147,13 @@ function init($div, data) {
         map.addLayer(layers[tag]);
     };
 
-    setLayer('Terrain');
+    setLayer('Google Terrain');
 
     L.control.scale().addTo(map);
 
     $(document).keydown(function(e) {
-        if (e.keyCode == 76) { // 'l'
+		console.log(e.keyCode);
+        if (e.keyCode == 76 || e.keyCode == 75) { // 'l', 'k'
             if (activeLayer) {
                 var tag = null;
                 $.each(layers, function(k, v) {
@@ -49,7 +162,8 @@ function init($div, data) {
                         return false;
                     }
                 });
-                var next = layerOrder[(layerOrder.indexOf(tag) + 1) % layerOrder.length];
+				var dir = {76: 1, 75: -1}[e.keyCode];
+                var next = layerOrder[(layerOrder.indexOf(tag) + dir + layerOrder.length) % layerOrder.length];
                 setLayer(next);
             }
         }
@@ -126,7 +240,11 @@ function loadData(map, data) {
                 return m;
             } else {
                 var color;
-                if (feature.properties.prom_ft > 4000) {
+                if (feature.properties.prom_ft > 9000) {
+                    color = 'hsl(240, 33%, 60%)';
+                } else if (feature.properties.prom_ft > 6000) {
+                    color = 'hsl(300, 80%, 40%)';
+                } else if (feature.properties.prom_ft > 4000) {
                     color = 'hsl(0, 100%, 50%)';
                 } else if (feature.properties.prom_ft > 3000) {
                     color = 'hsl(40, 100%, 50%)';
