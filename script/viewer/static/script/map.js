@@ -11,6 +11,7 @@ function init($div, data) {
     var layers = {
         'Google Terrain': L.tileLayer('http://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {subdomains: '0123'}),
 		'ArcGIS World': L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}'),
+		'OpenTopoMap': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'),
 
         'Google Satellite': L.tileLayer('http://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {subdomains: '0123'}),
         'Mapbox Satellite': mapboxLayer('mrgriscom.jinbb0c4'),
@@ -128,7 +129,7 @@ function init($div, data) {
         }),
     }
 	
-    var layerOrder = ['Google Terrain', 'US ArcGIS', 'Oilslick', 'Google Satellite'];
+    var layerOrder = ['Google Terrain', 'OpenTopoMap', 'US ArcGIS', 'Oilslick', 'Google Satellite'];
     L.control.layers(layers).addTo(map);
 
     var attr = L.control.attribution();

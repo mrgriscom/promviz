@@ -102,7 +102,7 @@ public class AvroToDb {
 				this.geocode = geocode(p);
 				this.type = type;
 				
-				double coords[] = PointIndex.toLatLon(p.ix);
+				double coords[] = PointIndex.toLatLon(p.ix, true);
 				com.vividsolutions.jts.geom.Point pt = ctx.gf.createPoint(new Coordinate(coords[1], coords[0]));
 				this.geom = ctx.wkb.write(pt);
 			}
@@ -233,7 +233,7 @@ public class AvroToDb {
 				if (ix == PointIndex.NULL) {
 					continue;
 				}
-				double ll[] = PointIndex.toLatLon(ix);
+				double ll[] = PointIndex.toLatLon(ix, true);
 				coords.add(new Coordinate(ll[1], ll[0]));
 			}
 			// FIXME
@@ -613,7 +613,7 @@ public class AvroToDb {
 				return;
 			}
 			try {
-				double coords[] = PointIndex.toLatLon(ix);
+				double coords[] = PointIndex.toLatLon(ix, true);
 				com.vividsolutions.jts.geom.Point pt = gf.createPoint(new Coordinate(coords[1], coords[0]));
 
 				stInsEdge.setString(1, pt.toText());
@@ -661,7 +661,7 @@ public class AvroToDb {
 		  Pipeline p = Pipeline.create(options);
 		  String outputRoot = options.getOutputLocation();
 
-		  p.apply("LoadPromFacts", AvroIO.read(Record.class).from(outputRoot + "dbpreprocess"))
+		  p.apply("LoadPromFacts", AvroIO.read(Record.class).from(outputRoot + "dbpreprocess*"))
 		  .apply("WriteSpatialite", FileIO.<AvroToDb.Record>write()
 				  .via(new SpatialiteSink())
 				  .to(outputRoot).withNaming(new FileNaming() {

@@ -14,20 +14,20 @@ regions = {
     'satest': '-33.39476,17.64954 -34.60156,18.20984 -35.12440,19.91272 -34.37064,23.74695 -34.18909,26.12000 -32.99024,28.29529 -31.01057,30.58594 -29.95018,31.18469 -27.82450,30.21240 -26.98083,26.98242 -30.72295,20.86304 -29.89781,19.11621 -30.43447,17.10571',
 }
 
-pipeline = (
-#    'Full'
-#    'TopologyNetwork'
-#    'Prominence'
-    'Paths'
-#    'AvroToDb',
-)
+pipeline = {
+    'full': 'FullPipeline',
+    'topo': 'TopologyNetworkPipeline',
+    'prom': 'ProminencePipeline',
+    'path': 'PathsPipeline',
+    'db': 'AvroToDb',
+}[sys.argv[3]]
 bound = regions.get(sys.argv[2], sys.argv[2])
 series = sys.argv[1]
-if pipeline in ('Full', 'TopologyNetwork'):
+if pipeline in ('FullPipeline', 'TopologyNetworkPipeline'):
     timestamp = datetime.now().strftime('%Y%m%d%H%M')
     print timestamp
 else:
-    timestamp = sys.argv[3]
+    timestamp = sys.argv[4]
 
 def bound_to_wkt(bound):
     if bound.startswith(':'):
@@ -55,7 +55,7 @@ subprocess.call(r"""export GOOGLE_APPLICATION_CREDENTIALS=private/credentials/pr
 """ % {
     'bound': bound_wkt,
     'series': series,
-    'pipeline': '%sPipeline' % pipeline,
+    'pipeline': pipeline,
     'timestamp': timestamp,
     'workers': {
         'AvroToDb': 1,

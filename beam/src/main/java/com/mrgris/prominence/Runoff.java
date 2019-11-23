@@ -98,6 +98,14 @@ public class Runoff {
 		Set<Trace> completed = new HashSet<>();
 		while (completed.size() < traces.size()) {
 			for (Trace t : traces) {
+				// FIXME -- traces that already start out completed?
+				// coming up for paths that have no parent and go EOW
+				// figure out just where this should be handled
+				if (t.head() == PointIndex.NULL) {
+					completed.add(t);
+				}				
+				
+				
 				if (completed.contains(t)) {
 					continue;
 				}

@@ -69,12 +69,16 @@ public class PointIndex {
 	}
 	
 	public static double[] toLatLon(long ix) {
+		return toLatLon(ix, false);
+	}
+	public static double[] toLatLon(long ix, boolean disambiguate) {
 		if (ix == PointIndex.NULL) {
 			return new double[] {Double.NaN, Double.NaN};
 		}
 		int[] _ix = split(ix);
 		double[] ll = DEMIndex.instance().grids[_ix[0]].toLatLon(_ix[1], _ix[2]);
-		if (_ix[3] != 0) {
+		if (disambiguate && _ix[3] != 0) {
+			// FIXME this seems to cause problems for earlier parts of the algo, so only do so when converting to final db
 			// smear the point slightly based on seq#, to yield a different geocode
 			// TODO displace more intelligently based on local topology; current method is a hack
 			double delta = 3e-6;  // ~1 ft
